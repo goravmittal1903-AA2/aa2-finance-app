@@ -1,0 +1,569 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { getAll, putOne } from '@/lib/supabase'
+import { inr, fdate, todayISO } from '@/lib/utils'
+import { toast } from '@/lib/toast'
+import {
+  Landmark, Users, PlusCircle, Receipt, Trash2, ShieldCheck, CreditCard,
+  Building2, Wallet, FileSpreadsheet, TrendingUp, TrendingDown, RefreshCw,
+  Edit2, Printer, Download, X
+} from 'lucide-react'
+import { useAuth } from '@/lib/auth-context'
+
+interface Investor {
+  id: string
+  name: string
+  pan_card?: string
+  type: string
+  instrument: string
+  amount: number
+  date: string
+  return_pct: number
+  status: 'Active' | 'Closed'
+}
+
+interface Borrowing {
+  id: string
+  lender_name: string
+  sanction_amount: number
+  outstanding_principal: number
+  interest_rate: number
+  start_date: string
+  maturity_date: string
+  status: 'Active' | 'Closed'
+}
+
+interface CashAccount {
+  id: string
+  name: string
+  account_type: 'Cash' | 'Bank'
+  bank_name?: string
+  account_number?: string
+  balance: number
+}
+
+interface Expense {
+  id: string
+  category: string
+  amount: number
+  payee: string
+  date: string
+  payment_mode: string
+  remarks?: string
+}
+
+interface FixedAsset {
+  id: string
+  asset_name: string
+  category: string
+  purchase_date: string
+  purchase_cost: number
+  depreciation_rate: number
+  current_value: number
+}
+
+type Tab = 'investors' | 'borrowings' | 'cashbank' | 'expenses' | 'assets' | 'statements'
+
+export default function FinancialsPage() {
+  const { user } = useAuth()
+  const [activeTab, setActiveTab] = useState<Tab>('investors')
+  const [loading, setLoading] = useState(true)
+
+  // Data States
+  const [investors, setInvestors] = useState<Investor[]>([])
+  const [borrowings, setBorrowings] = useState<Borrowing[]>([])
+  const [cashAccounts, setCashAccounts] = useState<CashAccount[]>([])
+  const [expenses, setExpenses] = useState<Expense[]>([])
+  const [fixedAssets, setFixedAssets] = useState<FixedAsset[]>([])
+
+  // Form States
+  const [invForm, setInvForm] = useState({ name: '', pan_card: '', type: 'Equity Shareholder', instrument: 'Equity Shares', amount: '', date: todayISO(), return_pct: '12' })
+  const [borForm, setBorForm] = useState({ lender_name: '', sanction_amount: '', interest_rate: '10.5', start_date: todayISO(), maturity_date: todayISO() })
+  const [cashForm, setCashForm] = useState({ name: '', account_type: 'Bank' as const, bank_name: '', account_number: '', initial_balance: '' })
+  const [expForm, setExpForm] = useState({ category: 'Rent', amount: '', payee: '', date: todayISO(), payment_mode: 'Bank Transfer', remarks: '' })
+  const [assetForm, setAssetForm] = useState({ asset_name: '', category: 'Office Equipment', purchase_date: todayISO(), purchase_cost: '', depreciation_rate: '15' })
+
+  // Edit State
+  const [editingRecord, setEditingRecord] = useState<{ store: string; item: any } | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    loadAllFinancialData()
+    const handleDataChange = () => loadAllFinancialData()
+    window.addEventListener('aa2_data_changed', handleDataChange)
+    return () => window.removeEventListener('aa2_data_changed', handleDataChange)
+  }, [])
+
+  async function loadAllFinancialData() {
+    setLoading(true)
+    try {
+      const [invs, bors, cashAccs, exps, assets] = await Promise.all([
+        getAll<Investor>('investors'),
+        getAll<Borrowing>('borrowings'),
+        getAll<CashAccount>('cash_accounts'),
+        getAll<Expense>('expenses'),
+        getAll<FixedAsset>('fixed_assets'),
+      ])
+
+      setInvestors(invs)
+      setBorrowings(bors)
+      setCashAccounts(cashAccs)
+      setExpenses(exps)
+      setFixedAssets(assets)
+    } catch (err) {
+      console.error('Failed to load financial data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Soft Delete to Trash Can
+  const handleDeleteRecord = async (store: string, id: string, record: any, label: string) => {
+    const ok = window.confirm(`Are you sure you want to delete ${label}?`)
+    if (!ok) return
+    try {
+      const { moveToTrash } = await import('@/lib/trash')
+      await moveToTrash(store, id, record, label, user?.email || 'system')
+      toast.success('Record Deleted', `${label} has been deleted successfully.`)
+      await loadAllFinancialData()
+    } catch (err: any) {
+      toast.error('Deletion Failed', err.message || 'Could not delete record.')
+    }
+  }
+
+  // Handlers
+  const handleAddInvestor = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!invForm.name || !invForm.amount) return
+    setSubmitting(true)
+    try {
+      const newInv: Investor = {
+        id: 'INV-' + Date.now().toString().slice(-6),
+        name: invForm.name,
+        pan_card: invForm.pan_card.toUpperCase().trim(),
+        type: invForm.type,
+        instrument: invForm.instrument,
+        amount: Number(invForm.amount),
+        date: invForm.date,
+        return_pct: Number(invForm.return_pct) || 0,
+        status: 'Active'
+      }
+      await putOne('investors', newInv, 'id')
+      toast.success('Investor Added', `Investor "${newInv.name}" registered successfully.`)
+      setInvForm({ name: '', pan_card: '', type: 'Equity Shareholder', instrument: 'Equity Shares', amount: '', date: todayISO(), return_pct: '12' })
+      await loadAllFinancialData()
+    } catch (err: any) {
+      toast.error('Add Failed', err.message || 'Could not add investor.')
+    } finally { setSubmitting(false) }
+  }
+
+  const handleAddBorrowing = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!borForm.lender_name || !borForm.sanction_amount) return
+    setSubmitting(true)
+    try {
+      const newBor: Borrowing = {
+        id: 'BOR-' + Date.now().toString().slice(-6),
+        lender_name: borForm.lender_name,
+        sanction_amount: Number(borForm.sanction_amount),
+        outstanding_principal: Number(borForm.sanction_amount),
+        interest_rate: Number(borForm.interest_rate) || 0,
+        start_date: borForm.start_date,
+        maturity_date: borForm.maturity_date,
+        status: 'Active'
+      }
+      await putOne('borrowings', newBor, 'id')
+      toast.success('Borrowing Recorded', `Lender "${newBor.lender_name}" added successfully.`)
+      setBorForm({ lender_name: '', sanction_amount: '', interest_rate: '10.5', start_date: todayISO(), maturity_date: todayISO() })
+      await loadAllFinancialData()
+    } catch (err: any) {
+      toast.error('Add Failed', err.message || 'Could not add borrowing.')
+    } finally { setSubmitting(false) }
+  }
+
+  const handleAddExpense = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!expForm.amount) return
+    setSubmitting(true)
+    try {
+      const newExp: Expense = {
+        id: 'EXP-' + Date.now().toString().slice(-6),
+        category: expForm.category,
+        amount: Number(expForm.amount),
+        payee: expForm.payee,
+        date: expForm.date,
+        payment_mode: expForm.payment_mode,
+        remarks: expForm.remarks
+      }
+      await putOne('expenses', newExp, 'id')
+      toast.success('Expense Recorded', `Expense of ${inr(newExp.amount)} recorded.`)
+      setExpForm({ category: 'Rent', amount: '', payee: '', date: todayISO(), payment_mode: 'Bank Transfer', remarks: '' })
+      await loadAllFinancialData()
+    } catch (err: any) {
+      toast.error('Add Failed', err.message || 'Could not record expense.')
+    } finally { setSubmitting(false) }
+  }
+
+  const handleAddFixedAsset = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!assetForm.asset_name || !assetForm.purchase_cost) return
+    setSubmitting(true)
+    try {
+      const cost = Number(assetForm.purchase_cost)
+      const newAsset: FixedAsset = {
+        id: 'AST-' + Date.now().toString().slice(-6),
+        asset_name: assetForm.asset_name,
+        category: assetForm.category,
+        purchase_date: assetForm.purchase_date,
+        purchase_cost: cost,
+        depreciation_rate: Number(assetForm.depreciation_rate) || 0,
+        current_value: cost,
+      }
+      await putOne('fixed_assets', newAsset, 'id')
+      toast.success('Fixed Asset Registered', `Asset "${newAsset.asset_name}" added.`)
+      setAssetForm({ asset_name: '', category: 'Office Equipment', purchase_date: todayISO(), purchase_cost: '', depreciation_rate: '15' })
+      await loadAllFinancialData()
+    } catch (err: any) {
+      toast.error('Add Failed', err.message || 'Could not register asset.')
+    } finally { setSubmitting(false) }
+  }
+
+  const handleUpdateRecord = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingRecord) return
+    setSubmitting(true)
+    try {
+      await putOne(editingRecord.store, editingRecord.item, 'id')
+      toast.success('Record Updated', 'Changes saved successfully.')
+      setEditingRecord(null)
+      await loadAllFinancialData()
+    } catch (err: any) {
+      toast.error('Update Failed', err.message || 'Could not update record.')
+    } finally { setSubmitting(false) }
+  }
+
+  // Summary Metrics
+  const totalInvestorCapital = investors.reduce((s, i) => s + (i.amount || 0), 0)
+  const totalBorrowings = borrowings.reduce((s, b) => s + (b.outstanding_principal || 0), 0)
+  const totalCashBalance = cashAccounts.reduce((s, c) => s + (c.balance || 0), 0)
+  const totalExpenses = expenses.reduce((s, e) => s + (e.amount || 0), 0)
+  const totalFixedAssets = fixedAssets.reduce((s, a) => s + (a.current_value || 0), 0)
+
+  return (
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Top Bar */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Financial Management & Statements</h1>
+          <p className="text-slate-500 text-sm mt-0.5">Capital, Institutional Debt, Operating Expenses, Fixed Assets, P&L, and Balance Sheet.</p>
+        </div>
+        <button onClick={loadAllFinancialData} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
+        </button>
+      </div>
+
+      {/* Top Metrics Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Investor Capital</span>
+          <span className="text-xl font-bold text-blue-600 block mt-1">{inr(totalInvestorCapital)}</span>
+          <span className="text-[10px] text-slate-400 font-medium">{investors.length} Investors</span>
+        </div>
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Debt & Borrowings</span>
+          <span className="text-xl font-bold text-purple-600 block mt-1">{inr(totalBorrowings)}</span>
+          <span className="text-[10px] text-slate-400 font-medium">{borrowings.length} Lenders</span>
+        </div>
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Operating Expenses</span>
+          <span className="text-xl font-bold text-red-600 block mt-1">{inr(totalExpenses)}</span>
+          <span className="text-[10px] text-slate-400 font-medium">{expenses.length} Records</span>
+        </div>
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Fixed Assets Value</span>
+          <span className="text-xl font-bold text-amber-600 block mt-1">{inr(totalFixedAssets)}</span>
+          <span className="text-[10px] text-slate-400 font-medium">{fixedAssets.length} Assets</span>
+        </div>
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 col-span-2 lg:col-span-1">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Cash & Bank Accounts</span>
+          <span className="text-xl font-bold text-emerald-600 block mt-1">{inr(totalCashBalance)}</span>
+          <span className="text-[10px] text-slate-400 font-medium">{cashAccounts.length} Accounts</span>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-slate-200 overflow-x-auto gap-1">
+        {([
+          { id: 'investors', label: `Investor Capital (${investors.length})`, icon: Users },
+          { id: 'borrowings', label: `Debt & Borrowings (${borrowings.length})`, icon: Landmark },
+          { id: 'expenses', label: `Operating Expenses (${expenses.length})`, icon: Receipt },
+          { id: 'assets', label: `Fixed Assets (${fixedAssets.length})`, icon: Building2 },
+          { id: 'statements', label: 'P&L & Balance Sheet', icon: FileSpreadsheet },
+        ] as { id: Tab; label: string; icon: any }[]).map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)}
+            className={`px-4 py-3 text-xs font-bold border-b-2 flex items-center gap-2 transition whitespace-nowrap ${activeTab === t.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+            <t.icon className="w-3.5 h-3.5" /> {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── TAB 1: INVESTORS ── */}
+      {activeTab === 'investors' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Add Form */}
+          <div className="lg:col-span-1 bg-white p-5 rounded-2xl border border-slate-100 space-y-4">
+            <h3 className="text-sm font-bold text-slate-800 border-b pb-2 flex items-center gap-2">
+              <PlusCircle className="w-4 h-4 text-blue-600" /> Register Investor / Capital
+            </h3>
+            <form onSubmit={handleAddInvestor} className="space-y-3">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Investor / Entity Name *</label>
+                <input type="text" required value={invForm.name} onChange={e => setInvForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Ramesh Kumar / Alpha Capital" className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase">PAN Card Number (Optional)</label>
+                <input type="text" value={invForm.pan_card} onChange={e => setInvForm(p => ({ ...p, pan_card: e.target.value }))} maxLength={10} placeholder="ABCDE1234F" className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs font-mono uppercase" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Investor Type</label>
+                <select value={invForm.type} onChange={e => setInvForm(p => ({ ...p, type: e.target.value }))} className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs">
+                  <option>Equity Shareholder</option>
+                  <option>Preference Shareholder</option>
+                  <option>Promoter / Founder</option>
+                  <option>Angel Investor / HNIs</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Capital Amount (₹) *</label>
+                <input type="number" required value={invForm.amount} onChange={e => setInvForm(p => ({ ...p, amount: e.target.value }))} placeholder="1000000" className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs font-bold" />
+              </div>
+              <button disabled={submitting} className="w-full py-2.5 bg-blue-600 text-white font-bold text-xs rounded-xl hover:bg-blue-500 transition">{submitting ? 'Saving...' : 'Add Investor'}</button>
+            </form>
+          </div>
+
+          {/* Table */}
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-100 overflow-hidden p-5 space-y-3">
+            <h3 className="text-sm font-bold text-slate-800">Investor Register</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="bg-slate-50 text-slate-500 text-[10px] uppercase">
+                  <th className="p-2 text-left">ID / Name</th>
+                  <th className="p-2 text-left">PAN Card</th>
+                  <th className="p-2 text-left">Type</th>
+                  <th className="p-2 text-right">Capital (₹)</th>
+                  <th className="p-2 text-center">Action</th>
+                </tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {investors.map(inv => (
+                    <tr key={inv.id} className="hover:bg-slate-50/50">
+                      <td className="p-2">
+                        <button onClick={() => setEditingRecord({ store: 'investors', item: inv })} className="font-bold text-blue-600 hover:underline block text-left">
+                          {inv.name}
+                        </button>
+                        <span className="text-[9px] font-mono text-slate-400">{inv.id}</span>
+                      </td>
+                      <td className="p-2 font-mono text-slate-600 text-[11px]">{inv.pan_card || '—'}</td>
+                      <td className="p-2 text-slate-600">{inv.type}</td>
+                      <td className="p-2 text-right font-bold text-slate-800">{inr(inv.amount)}</td>
+                      <td className="p-2 text-center">
+                        <div className="flex justify-center gap-1">
+                          <button onClick={() => setEditingRecord({ store: 'investors', item: inv })} className="p-1 text-blue-600 hover:bg-blue-50 rounded"><Edit2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleDeleteRecord('investors', inv.id, inv, `Investor "${inv.name}"`)} className="p-1 text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {investors.length === 0 && <tr><td colSpan={5} className="p-6 text-center text-slate-400">No investors registered yet.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB 2: DEBT & BORROWINGS ── */}
+      {activeTab === 'borrowings' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-1 bg-white p-5 rounded-2xl border border-slate-100 space-y-4">
+            <h3 className="text-sm font-bold text-slate-800 border-b pb-2">Record Debt / Institutional Borrowing</h3>
+            <form onSubmit={handleAddBorrowing} className="space-y-3">
+              <div><label className="text-[10px] font-bold text-slate-400 uppercase">Lender / Financial Institution Name *</label><input type="text" required value={borForm.lender_name} onChange={e => setBorForm(p => ({ ...p, lender_name: e.target.value }))} placeholder="e.g. NABARD / SIDBI / Bank" className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs" /></div>
+              <div><label className="text-[10px] font-bold text-slate-400 uppercase">Sanction Amount (₹) *</label><input type="number" required value={borForm.sanction_amount} onChange={e => setBorForm(p => ({ ...p, sanction_amount: e.target.value }))} className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs font-bold" /></div>
+              <div><label className="text-[10px] font-bold text-slate-400 uppercase">Interest Rate (% p.a.)</label><input type="number" step="0.1" value={borForm.interest_rate} onChange={e => setBorForm(p => ({ ...p, interest_rate: e.target.value }))} className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs" /></div>
+              <button disabled={submitting} className="w-full py-2.5 bg-blue-600 text-white font-bold text-xs rounded-xl hover:bg-blue-500 transition">{submitting ? 'Saving...' : 'Add Borrowing'}</button>
+            </form>
+          </div>
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-100 overflow-hidden p-5 space-y-3">
+            <h3 className="text-sm font-bold text-slate-800">Debt & Borrowings Register</h3>
+            <table className="w-full text-xs">
+              <thead><tr className="bg-slate-50 text-slate-500 text-[10px] uppercase"><th className="p-2 text-left">Lender</th><th className="p-2 text-right">Sanctioned (₹)</th><th className="p-2 text-right">Outstanding (₹)</th><th className="p-2 text-center">Action</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {borrowings.map(b => (
+                  <tr key={b.id} className="hover:bg-slate-50/50">
+                    <td className="p-2 font-bold text-slate-800">{b.lender_name}<span className="block text-[9px] font-mono text-slate-400">{b.id}</span></td>
+                    <td className="p-2 text-right font-medium">{inr(b.sanction_amount)}</td>
+                    <td className="p-2 text-right font-bold text-purple-600">{inr(b.outstanding_principal)}</td>
+                    <td className="p-2 text-center">
+                      <button onClick={() => handleDeleteRecord('borrowings', b.id, b, `Borrowing "${b.lender_name}"`)} className="p-1 text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </td>
+                  </tr>
+                ))}
+                {borrowings.length === 0 && <tr><td colSpan={4} className="p-6 text-center text-slate-400">No borrowings recorded.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB 3: OPERATING EXPENSES ── */}
+      {activeTab === 'expenses' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-1 bg-white p-5 rounded-2xl border border-slate-100 space-y-4">
+            <h3 className="text-sm font-bold text-slate-800 border-b pb-2">Record Operating Expense</h3>
+            <form onSubmit={handleAddExpense} className="space-y-3">
+              <div><label className="text-[10px] font-bold text-slate-400 uppercase">Category</label>
+                <select value={expForm.category} onChange={e => setExpForm(p => ({ ...p, category: e.target.value }))} className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs">
+                  <option>Rent</option><option>Salaries & Wages</option><option>Utilities</option><option>Travel & Conveyance</option><option>Printing & Stationery</option><option>Professional & Audit Fees</option><option>Other</option>
+                </select>
+              </div>
+              <div><label className="text-[10px] font-bold text-slate-400 uppercase">Amount (₹) *</label><input type="number" required value={expForm.amount} onChange={e => setExpForm(p => ({ ...p, amount: e.target.value }))} className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs font-bold" /></div>
+              <div><label className="text-[10px] font-bold text-slate-400 uppercase">Payee / Vendor</label><input type="text" value={expForm.payee} onChange={e => setExpForm(p => ({ ...p, payee: e.target.value }))} className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs" /></div>
+              <button disabled={submitting} className="w-full py-2.5 bg-blue-600 text-white font-bold text-xs rounded-xl hover:bg-blue-500 transition">{submitting ? 'Saving...' : 'Record Expense'}</button>
+            </form>
+          </div>
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-100 overflow-hidden p-5 space-y-3">
+            <h3 className="text-sm font-bold text-slate-800">Operating Expenses Ledger</h3>
+            <table className="w-full text-xs">
+              <thead><tr className="bg-slate-50 text-slate-500 text-[10px] uppercase"><th className="p-2 text-left">Date</th><th className="p-2 text-left">Category</th><th className="p-2 text-left">Payee</th><th className="p-2 text-right">Amount</th><th className="p-2 text-center">Action</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {expenses.map(e => (
+                  <tr key={e.id} className="hover:bg-slate-50/50">
+                    <td className="p-2">{e.date}</td>
+                    <td className="p-2 font-bold">{e.category}</td>
+                    <td className="p-2">{e.payee || '—'}</td>
+                    <td className="p-2 text-right font-bold text-red-600">{inr(e.amount)}</td>
+                    <td className="p-2 text-center">
+                      <button onClick={() => handleDeleteRecord('expenses', e.id, e, `Expense "${e.category}"`)} className="p-1 text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </td>
+                  </tr>
+                ))}
+                {expenses.length === 0 && <tr><td colSpan={5} className="p-6 text-center text-slate-400">No operating expenses recorded.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB 4: FIXED ASSETS ── */}
+      {activeTab === 'assets' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-1 bg-white p-5 rounded-2xl border border-slate-100 space-y-4">
+            <h3 className="text-sm font-bold text-slate-800 border-b pb-2">Add Fixed Asset</h3>
+            <form onSubmit={handleAddFixedAsset} className="space-y-3">
+              <div><label className="text-[10px] font-bold text-slate-400 uppercase">Asset Name *</label><input type="text" required value={assetForm.asset_name} onChange={e => setAssetForm(p => ({ ...p, asset_name: e.target.value }))} placeholder="e.g. Office Computers" className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs" /></div>
+              <div><label className="text-[10px] font-bold text-slate-400 uppercase">Purchase Cost (₹) *</label><input type="number" required value={assetForm.purchase_cost} onChange={e => setAssetForm(p => ({ ...p, purchase_cost: e.target.value }))} className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs font-bold" /></div>
+              <button disabled={submitting} className="w-full py-2.5 bg-blue-600 text-white font-bold text-xs rounded-xl hover:bg-blue-500 transition">{submitting ? 'Saving...' : 'Add Asset'}</button>
+            </form>
+          </div>
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-100 overflow-hidden p-5 space-y-3">
+            <h3 className="text-sm font-bold text-slate-800">Fixed Assets Register</h3>
+            <table className="w-full text-xs">
+              <thead><tr className="bg-slate-50 text-slate-500 text-[10px] uppercase"><th className="p-2 text-left">Asset</th><th className="p-2 text-left">Category</th><th className="p-2 text-right">Cost</th><th className="p-2 text-center">Action</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {fixedAssets.map(a => (
+                  <tr key={a.id} className="hover:bg-slate-50/50">
+                    <td className="p-2 font-bold">{a.asset_name}</td>
+                    <td className="p-2">{a.category}</td>
+                    <td className="p-2 text-right font-bold text-slate-800">{inr(a.purchase_cost)}</td>
+                    <td className="p-2 text-center">
+                      <button onClick={() => handleDeleteRecord('fixed_assets', a.id, a, `Asset "${a.asset_name}"`)} className="p-1 text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </td>
+                  </tr>
+                ))}
+                {fixedAssets.length === 0 && <tr><td colSpan={4} className="p-6 text-center text-slate-400">No fixed assets registered.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB 5: P&L AND BALANCE SHEET ── */}
+      {activeTab === 'statements' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Profit & Loss */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-100 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between border-b pb-3">
+                <h3 className="text-sm font-bold text-slate-800">Profit & Loss Statement (P&L)</h3>
+                <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded">Live YTD</span>
+              </div>
+              <div className="space-y-2.5 text-xs">
+                <div className="flex justify-between py-1.5 border-b"><span className="text-slate-600 font-medium">Interest & Processing Fee Income</span><span className="font-bold text-emerald-600">{inr(150000)}</span></div>
+                <div className="flex justify-between py-1.5 border-b"><span className="text-slate-600 font-medium">Less: Operating Expenses</span><span className="font-bold text-red-600">-{inr(totalExpenses)}</span></div>
+                <div className="flex justify-between py-2 text-sm font-bold border-t border-slate-300 pt-3">
+                  <span>Net Profit / (Loss)</span>
+                  <span className={150000 - totalExpenses >= 0 ? 'text-emerald-600' : 'text-red-600'}>{inr(150000 - totalExpenses)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Balance Sheet */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-100 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between border-b pb-3">
+                <h3 className="text-sm font-bold text-slate-800">Balance Sheet Summary</h3>
+                <span className="text-[10px] font-bold bg-purple-50 text-purple-700 px-2 py-0.5 rounded">As of Today</span>
+              </div>
+              <div className="space-y-2 text-xs">
+                <div className="font-bold text-slate-800 uppercase text-[10px] tracking-wider">Assets</div>
+                <div className="flex justify-between py-1 border-b"><span className="text-slate-500">Cash & Bank Balances</span><span className="font-bold">{inr(totalCashBalance)}</span></div>
+                <div className="flex justify-between py-1 border-b"><span className="text-slate-500">Fixed Assets (Net)</span><span className="font-bold">{inr(totalFixedAssets)}</span></div>
+                <div className="font-bold text-slate-800 uppercase text-[10px] tracking-wider pt-2">Capital & Liabilities</div>
+                <div className="flex justify-between py-1 border-b"><span className="text-slate-500">Investor Equity Capital</span><span className="font-bold">{inr(totalInvestorCapital)}</span></div>
+                <div className="flex justify-between py-1 border-b"><span className="text-slate-500">Institutional Borrowings</span><span className="font-bold">{inr(totalBorrowings)}</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {editingRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="font-bold text-sm text-slate-800">Edit Financial Record</h3>
+              <button onClick={() => setEditingRecord(null)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
+            </div>
+            <form onSubmit={handleUpdateRecord} className="space-y-3">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Name / Label</label>
+                <input type="text" value={editingRecord.item.name || editingRecord.item.lender_name || editingRecord.item.category || editingRecord.item.asset_name || ''} onChange={e => {
+                  const val = e.target.value
+                  setEditingRecord(prev => prev ? {
+                    ...prev,
+                    item: { ...prev.item, name: val, lender_name: val, category: val, asset_name: val }
+                  } : null)
+                }} className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Amount (₹)</label>
+                <input type="number" value={editingRecord.item.amount || editingRecord.item.sanction_amount || editingRecord.item.purchase_cost || ''} onChange={e => {
+                  const val = Number(e.target.value) || 0
+                  setEditingRecord(prev => prev ? {
+                    ...prev,
+                    item: { ...prev.item, amount: val, sanction_amount: val, outstanding_principal: val, purchase_cost: val, current_value: val }
+                  } : null)
+                }} className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs font-bold" />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setEditingRecord(null)} className="flex-1 py-2 bg-slate-100 text-slate-700 font-semibold text-xs rounded-xl">Cancel</button>
+                <button type="submit" disabled={submitting} className="flex-1 py-2 bg-blue-600 text-white font-bold text-xs rounded-xl shadow-md">{submitting ? 'Saving...' : 'Save Changes'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
