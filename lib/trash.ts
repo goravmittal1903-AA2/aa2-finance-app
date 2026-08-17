@@ -1,4 +1,5 @@
 import { putOne, delOne, getAll, getOne } from '@/lib/supabase'
+import { logAuditEvent } from '@/lib/audit'
 
 export interface TrashItem {
   trash_id: string
@@ -21,7 +22,7 @@ const ID_FIELDS: Record<string, string> = {
   products: 'product_id',
 }
 
-/** Move an item to Trash Can (Soft Delete) */
+/** Move an item to Trash Can (Soft Delete) & Log Audit Event */
 export async function moveToTrash(
   storeName: string,
   recordId: string | number,
@@ -45,10 +46,23 @@ export async function moveToTrash(
 
   // 2. Remove from active store
   await delOne(storeName, recordId)
+
+  // 3. Log Audit Event in System Audit Logs
+  try {
+    await logAuditEvent(
+      'DELETE',
+      storeName,
+      String(recordId),
+      `Deleted ${title || storeName} (${recordId})`,
+      deletedBy || 'system'
+    )
+  } catch (err) {
+    console.warn('Audit log write warning on moveToTrash:', err)
+  }
 }
 
-/** Restore an item from Trash Can back to active store */
-export async function restoreFromTrash(trashId: string): Promise<TrashItem> {
+/** Restore an item from Trash Can back to active store & Log Audit Event */
+export async function restoreFromTrash(trashId: string, restoredBy = 'system'): Promise<TrashItem> {
   const item = await getOne<TrashItem>('trash', trashId)
   if (!item) throw new Error('Trash item not found.')
 
@@ -59,6 +73,41 @@ export async function restoreFromTrash(trashId: string): Promise<TrashItem> {
 
   // 2. Remove from trash
   await delOne('trash', trashId)
+
+  // 3. Log Audit Event in System Audit Logs
+  try {
+    await logAuditEvent(
+      'RESTORE',
+      item.store_name,
+      item.record_id,
+      `Restored ${item.title || item.store_name} (${item.record_id}) from Trash`,
+      restoredBy
+    )
+  } catch (err) {
+    console.warn('Audit log write warning on restoreFromTrash:', err)
+  }
+
+  return item
+}
+
+/** Permanently purge an item from Trash Can & Log Audit Event */
+export async function purgeFromTrash(trashId: string, purgedBy = 'system'): Promise<TrashItem> {
+  const item = await getOne<TrashItem>('trash', trashId)
+  if (!item) throw new Error('Trash item not found.')
+
+  await delOne('trash', trashId)
+
+  try {
+    await logAuditEvent(
+      'DELETE',
+      item.store_name,
+      item.record_id,
+      `Permanently purged ${item.title || item.store_name} (${item.record_id}) from Trash`,
+      purgedBy
+    )
+  } catch (err) {
+    console.warn('Audit log write warning on purgeFromTrash:', err)
+  }
 
   return item
 }

@@ -342,10 +342,11 @@ export default function LoanDetailPage({ params }: PageProps) {
 
   const handleDeleteDoc = async (doc: LoanDocument) => {
     if (!confirm(`Delete document "${doc.file_name}"?`)) return
-    await delOne('loan_documents', doc.doc_id)
+    const { moveToTrash } = await import('@/lib/trash')
+    await moveToTrash('loan_documents', doc.doc_id, doc, doc.file_name || doc.doc_id, user?.email || 'system')
     setDocuments(prev => prev.filter(d => d.doc_id !== doc.doc_id))
     const { toast } = await import('@/lib/toast')
-    toast.success('Document Deleted', `Document "${doc.file_name}" has been deleted.`)
+    toast.success('Document Deleted', `Document "${doc.file_name}" has been moved to Trash Can.`)
   }
 
   const handleDeleteLoan = async () => {
@@ -370,20 +371,12 @@ export default function LoanDetailPage({ params }: PageProps) {
     if (!ok) return
     try {
       setLoading(true)
-      const { delOne } = await import('@/lib/supabase')
+      const { moveToTrash } = await import('@/lib/trash')
       const { recalcLoanLedger } = await import('@/lib/calculations')
-      const { logAuditEvent } = await import('@/lib/audit')
       const { toast } = await import('@/lib/toast')
 
-      await delOne('transactions', txn.txn_id)
+      await moveToTrash('transactions', txn.txn_id, txn, `Transaction ${txn.reference_no || txn.txn_id} (${inr(txn.amount)})`, user?.email || 'system')
       await recalcLoanLedger(id)
-      await logAuditEvent(
-        'DELETE',
-        'transactions',
-        String(txn.txn_id),
-        `Deleted transaction ${txn.reference_no || txn.txn_id} (${inr(txn.amount)}) from loan ${id}`,
-        user?.email
-      )
       toast.success('Transaction Deleted', 'Transaction deleted and loan ledger recalculated successfully.')
       await loadLoanDetails()
     } catch (err: any) {

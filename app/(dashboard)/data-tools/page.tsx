@@ -140,32 +140,31 @@ export default function DataToolsPage() {
   // ── TRASH CAN ──────────────────────────────────────────────────────────────
   async function loadDeletedItems() {
     setTrashLoading(true)
-    const found: DeletedRecord[] = []
-    for (const store of STORES) {
-      try {
-        const all = await getAll<Record<string, unknown>>(store)
-        for (const item of all) {
-          if (item['deleted_at'] && typeof item['deleted_at'] === 'string') {
-            const pk = PRIMARY_KEYS[store] || 'id'
-            const id = String(item[pk] || item['id'] || '')
-            const label =
-              String(item['member_name'] || item['member_name_cache'] || item['name'] || item['email'] || item['lender_name'] || item['asset_name'] || id)
-            found.push({ store, id, label, deleted_at: item['deleted_at'] as string, data: item })
-          }
-        }
-      } catch { /* skip */ }
+    try {
+      const { getTrashItems } = await import('@/lib/trash')
+      const items = await getTrashItems()
+      const formatted: DeletedRecord[] = items.map(item => ({
+        store: item.store_name,
+        id: item.record_id,
+        label: item.title || item.record_id,
+        deleted_at: item.deleted_at,
+        trash_id: item.trash_id,
+        data: item.data,
+      }))
+      setDeletedItems(formatted)
+    } catch (err) {
+      console.warn('Failed to load trash items:', err)
+      setDeletedItems([])
+    } finally {
+      setTrashLoading(false)
     }
-    found.sort((a, b) => b.deleted_at.localeCompare(a.deleted_at))
-    setDeletedItems(found)
-    setTrashLoading(false)
   }
 
   async function handleRestore_item(item: DeletedRecord) {
     try {
-      const restored = { ...item.data }
-      delete restored['deleted_at']
-      const pk = PRIMARY_KEYS[item.store] || 'id'
-      await putOne(item.store, restored, pk)
+      const { restoreFromTrash } = await import('@/lib/trash')
+      const trashId = (item as any).trash_id || item.id
+      await restoreFromTrash(trashId)
       setMessage(`Restored: ${item.label}`)
       await loadDeletedItems()
     } catch (err: any) {

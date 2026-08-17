@@ -48,7 +48,7 @@ export default function TrashRecoveryPage() {
     setActionMsg('')
     setErrorMsg('')
     try {
-      await restoreFromTrash(item.trash_id)
+      await restoreFromTrash(item.trash_id, user?.email || 'system')
       setActionMsg(`Successfully restored "${item.title}" back into ${item.store_name}.`)
       await loadTrash()
     } catch (err: any) {

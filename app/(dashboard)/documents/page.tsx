@@ -177,9 +177,8 @@ export default function DocumentsPage() {
           throw new Error(result.error || 'Could not remove the stored file.')
         }
       }
-      await delOne('documents', doc.doc_id)
-      const { logAuditEvent } = await import('@/lib/audit')
-      await logAuditEvent('DELETE', 'documents', doc.doc_id, `Deleted document "${doc.file_name}" (${doc.doc_type}) from loan ${doc.loan_account_no}`, user?.email)
+      const { moveToTrash } = await import('@/lib/trash')
+      await moveToTrash('documents', doc.doc_id, doc, doc.file_name || doc.doc_id, user?.email || 'system')
       await loadDocsAndLoans()
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Deletion failed.')

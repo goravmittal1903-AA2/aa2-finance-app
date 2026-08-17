@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { getAll, putOne, delOne } from '@/lib/supabase'
+import { useAuth } from '@/lib/auth-context'
 import type { Product } from '@/lib/types'
 import { inr } from '@/lib/utils'
 import { Plus, Edit2, Trash2, ToggleLeft, ToggleRight, CheckCircle, AlertCircle, Package, X, Save } from 'lucide-react'
@@ -21,6 +22,7 @@ const EMPTY_PRODUCT: Omit<Product, 'product_id' | 'created_at' | 'updated_at'> =
 }
 
 export default function ProductsPage() {
+  const { user } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -98,10 +100,11 @@ export default function ProductsPage() {
   }
 
   async function handleDelete(p: Product) {
-    if (!window.confirm(`Permanently delete product "${p.name}"? This cannot be undone.`)) return
+    if (!window.confirm(`Move product "${p.name}" to Trash Can?`)) return
     try {
-      await delOne('products', p.product_id)
-      setMessage(`${p.name} deleted.`)
+      const { moveToTrash } = await import('@/lib/trash')
+      await moveToTrash('products', p.product_id, p, p.name, user?.email || 'system')
+      setMessage(`${p.name} moved to Trash.`)
       await loadProducts()
     } catch (err: any) { setErrorMessage(err.message || 'Delete failed.') }
   }
