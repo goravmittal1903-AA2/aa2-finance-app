@@ -153,7 +153,22 @@ CREATE INDEX IF NOT EXISTS idx_docs_loan_btree        ON public.documents       
 CREATE INDEX IF NOT EXISTS idx_trash_store_btree       ON public.trash               USING btree ((data->>'store_name'));
 CREATE INDEX IF NOT EXISTS idx_audit_entity_btree      ON public.audit_log           USING btree ((data->>'entity_id'));
 
--- 7. Verification Query
+-- 7. Enable Realtime Safely (handles duplicate relation 42710 cleanly)
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE
+    public.loans,
+    public.repayment_schedule,
+    public.transactions,
+    public.customers,
+    public.audit_log,
+    public.trash;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN OTHERS THEN NULL;
+END $$;
+
+-- 8. Verification Query
 SELECT tablename, policyname, permissive, roles
 FROM pg_policies
 WHERE schemaname = 'public'
