@@ -85,15 +85,15 @@ export function Sidebar() {
 
       {/* User badge */}
       <div className="mx-3 mt-3 px-3 py-2.5 bg-slate-800 rounded-xl border border-slate-700/50">
-        <div className="flex items-center gap-2">
-          <div className={cn('w-7 h-7 rounded-lg flex items-center justify-center', ROLE_STYLE[role] || 'bg-blue-500/20 text-blue-300')}>
-            <span className="font-bold text-xs">{(user?.name || 'U').slice(0, 1).toUpperCase()}</span>
+        <div className="flex items-center gap-2.5">
+          <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shadow-inner', ROLE_STYLE[role] || 'bg-blue-500/20 text-blue-300')}>
+            {(user?.name || user?.email || 'U').slice(0, 1).toUpperCase()}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-white text-xs font-semibold truncate">{user?.name || user?.email}</p>
+            <p className="text-white text-xs font-bold truncate leading-snug">{user?.email || user?.name}</p>
             <div className="flex items-center gap-1.5 mt-0.5">
-              <ShieldCheck className="w-2.5 h-2.5 text-slate-400" />
-              <p className="text-slate-400 text-xs">{ROLE_LABEL[role] || role}</p>
+              <ShieldCheck className="w-3 h-3 text-blue-400" />
+              <p className="text-slate-400 text-[11px] font-medium leading-none capitalize">{user?.name || (ROLE_LABEL[role] || role)} ({ROLE_LABEL[role] || role})</p>
             </div>
           </div>
         </div>

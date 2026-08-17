@@ -73,16 +73,16 @@ export function computeLoanEconomics({
   if (installment_amount !== undefined && installment_amount !== null && Number(installment_amount) > 0) {
     final_installment = Number(installment_amount)
     total_loan = final_installment * term
-    total_interest = total_loan - amount
+    total_interest = Math.max(0, total_loan - amount)
   } else {
-    total_interest = amount * (rate / 100) * tenure_years
+    total_interest = Math.max(0, amount * (rate / 100) * tenure_years)
     total_loan = amount + total_interest
     final_installment = Math.round(total_loan / term)
     total_loan = final_installment * term
-    total_interest = total_loan - amount
+    total_interest = Math.max(0, total_loan - amount)
   }
 
-  const per_installment_interest = total_interest / term
+  const per_installment_interest = Math.max(0, total_interest / term)
   return {
     file_charge: file_charge_val,
     net_disbursement,

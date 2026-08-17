@@ -118,7 +118,10 @@ function NewLoanForm() {
       const tenureYears = term / periodsPerYear
       const totalRepayable = emi * term
       const totalInterest = totalRepayable - amount
-      const flatRate = (amount > 0 && tenureYears > 0) ? ((totalInterest / (amount * tenureYears)) * 100).toFixed(2) : '0'
+      // Never allow negative rate: if EMI is less than principal recovery per term, rate is 0.00%
+      const flatRate = (amount > 0 && tenureYears > 0 && totalInterest >= 0)
+        ? ((totalInterest / (amount * tenureYears)) * 100).toFixed(2)
+        : '0.00'
       setFormData(prev => ({ ...prev, emi_amount: value, interest_rate: flatRate }))
     } else if (name === 'file_charge') {
       // When ₹ amount changes → auto-calc %
@@ -403,6 +406,12 @@ function NewLoanForm() {
                   className="w-full px-4 py-2.5 bg-white border border-blue-200 rounded-xl text-sm font-bold text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-400 font-mono"
                   placeholder="3100"
                 />
+                {Number(formData.emi_amount) > 0 &&
+                  (Number(formData.emi_amount) * Number(formData.tenure) < Number(formData.loan_amount)) && (
+                    <p className="text-[10px] text-amber-700 font-medium bg-amber-50 px-2 py-1 rounded border border-amber-200 mt-1">
+                      ⚠️ EMI of ₹{formData.emi_amount} is less than principal recovery (min ₹{Math.ceil((Number(formData.loan_amount) || 0) / (Number(formData.tenure) || 1))}/installment). Interest rate is 0.00%.
+                    </p>
+                  )}
               </div>
             </div>
 

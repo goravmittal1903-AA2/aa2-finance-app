@@ -41,22 +41,29 @@ export async function logAuditEvent(
 /** Get audit events for a specific entity ID (e.g. Member ID or Loan Account No) */
 export async function getEntityAuditLogs(entityId: string): Promise<AuditLogRecord[]> {
   try {
-    const [appLogs, dbEvents] = await Promise.all([
+    const { getOne } = await import('@/lib/supabase')
+    const [appLogs, dbEvents, cust] = await Promise.all([
       getAll<AuditLogRecord>('audit_log'),
-      getAll<any>('audit_events')
+      getAll<any>('audit_events'),
+      getOne<any>('customers', entityId)
     ])
 
     const formattedDbEvents: AuditLogRecord[] = dbEvents
       .filter(e => e.entity_id === entityId || String(e.entity_id) === entityId)
-      .map(e => ({
-        id: e.id || `DB-${e.occurred_at}`,
-        ts: e.occurred_at || e.created_at || new Date().toISOString(),
-        entity_type: e.entity_type || 'database',
-        entity_id: String(e.entity_id),
-        action: (e.action || 'UPDATE').toUpperCase() as any,
-        summary: `DB ${e.action || 'change'} on ${e.entity_type || 'record'} (${e.entity_id})`,
-        user: e.actor_email || 'Database Trigger',
-      }))
+      .map(e => {
+        const actor = e.actor_email
+        const isLegacyEmployeeDefault = !actor || actor === 'employee@aa2finance.com'
+        const effectiveUser = isLegacyEmployeeDefault ? (cust?.created_by || actor || 'System User') : actor
+        return {
+          id: e.id || `DB-${e.occurred_at}`,
+          ts: e.occurred_at || e.created_at || new Date().toISOString(),
+          entity_type: e.entity_type || 'database',
+          entity_id: String(e.entity_id),
+          action: (e.action || 'UPDATE').toUpperCase() as any,
+          summary: `DB ${e.action || 'change'} on ${e.entity_type || 'record'} (${e.entity_id})`,
+          user: effectiveUser,
+        }
+      })
 
     const all = [...appLogs.filter(l => l.entity_id === entityId || l.summary?.includes(entityId)), ...formattedDbEvents]
     return all.sort((a, b) => (b.ts || '').localeCompare(a.ts || ''))

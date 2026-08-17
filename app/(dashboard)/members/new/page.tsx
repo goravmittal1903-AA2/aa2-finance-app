@@ -126,16 +126,31 @@ export default function NewMemberPage() {
 
       const newId = await generateNewMemberId()
       const now = new Date().toISOString()
+      const creatorEmail = user?.email || 'system'
       const newCustomer: Customer = {
         ...formData,
         customer_id: newId,
         created_at: now,
-        created_by: user?.email || 'system', // active logged-in user
+        created_by: creatorEmail,
         updated_at: now,
-        updated_by: user?.email || 'system',
+        updated_by: creatorEmail,
       }
 
       await putOne('customers', newCustomer, 'customer_id')
+
+      try {
+        const { logAuditEvent } = await import('@/lib/audit')
+        await logAuditEvent(
+          'CREATE',
+          'customers',
+          newId,
+          `Member ${newCustomer.full_name} (${newId}) created`,
+          creatorEmail
+        )
+      } catch (auditErr) {
+        console.warn('Audit event log warning:', auditErr)
+      }
+
       if (typeof window !== 'undefined') localStorage.removeItem(DRAFT_KEY)
       router.push(`/members/${newId}`)
     } catch (err) {
