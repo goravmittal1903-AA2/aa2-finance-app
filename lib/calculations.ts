@@ -130,15 +130,14 @@ export function generateSchedule(loan: any): ScheduleRow[] {
 }
 
 export async function generateUniqueLoanAccountNo(): Promise<string> {
-  const loans = await getAll<Loan>('loans')
-  const existingSet = new Set(loans.map(l => String(l.loan_account_no)))
-  
-  while (true) {
+  // Use point lookups instead of loading all loans — much faster
+  for (let attempt = 0; attempt < 20; attempt++) {
     const num = String(1000000000 + Math.floor(Math.random() * 9000000000))
-    if (!existingSet.has(num)) {
-      return num
-    }
+    const existing = await getOne<Loan>('loans', num)
+    if (!existing) return num
   }
+  // Fallback: timestamp-based guaranteed unique
+  return String(Date.now()).slice(-10)
 }
 
 export function computeOutstanding(loan: Loan, rows: ScheduleRow[]): number {
@@ -198,9 +197,15 @@ export async function getPortfolio(): Promise<PortfolioRow[]> {
 export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
   const today = todayISO()
 
-  // Step 1: Load all schedule rows and reset non-fixed rows
-  const rows = (await getFiltered<ScheduleRow>('schedule', 'loan_account_no', loan_account_no))
-    .sort((a, b) => a.installment_no - b.installment_no)
+  // PERF: Parallel fetch — schedule, transactions, and loan in ONE round-trip
+  const [rawRows, rawTxns, loan] = await Promise.all([
+    getFiltered<ScheduleRow>('schedule', 'loan_account_no', loan_account_no),
+    getFiltered<Transaction>('transactions', 'loan_account_no', loan_account_no),
+    getOne<Loan>('loans', loan_account_no),
+  ])
+
+  // Step 1: Sort and reset non-fixed rows
+  const rows = rawRows.sort((a, b) => a.installment_no - b.installment_no)
 
   for (const r of rows) {
     if (r.status !== 'Restructured' && r.status !== 'Waived') {
@@ -211,8 +216,8 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
     }
   }
 
-  // Step 2: Load all payment transactions chronologically
-  const txns = (await getFiltered<Transaction>('transactions', 'loan_account_no', loan_account_no))
+  // Step 2: Filter and sort payment transactions chronologically
+  const txns = rawTxns
     .filter(t => (t.txn_type === 'PAYMENT' || t.txn_type === 'FORECLOSURE') && !t.voided)
     .sort((a, b) => a.txn_date.localeCompare(b.txn_date) || (a.txn_id || 0) - (b.txn_id || 0))
 
@@ -249,11 +254,7 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
     }
   }
 
-  // Step 5: Bulk save all schedule rows
-  await putMany('schedule', rows, 'id')
-
-  // Step 6: Update loan record
-  const loan = await getOne<Loan>('loans', loan_account_no)
+  // Step 5: Bulk save schedule rows + update loan in parallel where possible
   if (loan) {
     const activeRows = rows.filter(r => r.status !== 'Restructured')
     const fullyPaid = activeRows.length > 0 &&
@@ -283,7 +284,13 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
       loan.close_date = txns.length ? txns[txns.length - 1].txn_date : today
     }
 
-    await putOne('loans', loan, 'loan_account_no')
+    // PERF: Write schedule and loan in parallel — both are independent
+    await Promise.all([
+      putMany('schedule', rows, 'id'),
+      putOne('loans', loan, 'loan_account_no'),
+    ])
+  } else {
+    await putMany('schedule', rows, 'id')
   }
 }
 

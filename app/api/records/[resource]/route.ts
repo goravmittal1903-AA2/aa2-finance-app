@@ -29,10 +29,14 @@ const RESOURCES = {
   },
 } as const
 
+let _adminClient: any = null
 function adminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  return createClient(url, key, { auth: { persistSession: false } })
+  if (!_adminClient) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY!
+    _adminClient = createClient(url, key, { auth: { persistSession: false } })
+  }
+  return _adminClient
 }
 
 function numericParameter(value: string | null, fallback: number, max: number) {
@@ -66,7 +70,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   let query = supabase
     .from(definition.table)
-    .select('data', { count: 'exact' })
+    .select('data', { count: 'estimated' })
 
   if (search) {
     if (definition.fullText) {
@@ -88,19 +92,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   const start = (page - 1) * pageSize
-  const { data, count, error } = await query.range(start, start + pageSize - 1)
+  const { data, count, error } = await query.order('id', { ascending: false }).range(start, start + pageSize - 1)
   if (error) {
     console.warn(`records/${resource} error:`, error.message)
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
 
-  // Sort in memory by most-recent first (created_at or updated_at inside JSONB data)
   const rows = (data || []).map((row: any) => row.data)
-  rows.sort((a: any, b: any) => {
-    const ta = a.created_at || a.updated_at || a.uploaded_date || a.disbursement_date || ''
-    const tb = b.created_at || b.updated_at || b.uploaded_date || b.disbursement_date || ''
-    return tb.localeCompare(ta)
-  })
 
   return NextResponse.json({
     data: rows,

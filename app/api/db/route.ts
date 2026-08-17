@@ -3,11 +3,15 @@ import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 
 // Service-role client — bypasses RLS, used only for authenticated write operations
+let _adminClient: any = null
 function adminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  if (!url || !key) throw new Error('Supabase service role key not configured.')
-  return createClient(url, key, { auth: { persistSession: false } })
+  if (!_adminClient) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY!
+    if (!url || !key) throw new Error('Supabase service role key not configured.')
+    _adminClient = createClient(url, key, { auth: { persistSession: false } })
+  }
+  return _adminClient
 }
 
 const ALLOWED_TABLES = new Set([
@@ -58,10 +62,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const auth = await createSupabaseServerClient()
-    const { data: { user } } = await auth.auth.getUser()
+    const [{ data: { user } }, body] = await Promise.all([
+      auth.auth.getUser(),
+      request.json()
+    ])
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const body = await request.json()
     const { store, record, records, idField } = body
 
     if (!store || !idField) {

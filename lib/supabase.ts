@@ -36,14 +36,30 @@ async function serverDelete(store: string, id: string | number): Promise<void> {
 
 // ─── IN-MEMORY CACHE FOR INSTANT 0MS RESPONSES ────────────────────────────────
 const memoryCache = new Map<string, { timestamp: number; data: any }>()
-const CACHE_TTL_MS = 60 * 1000 // 1 minute TTL with instant cache hit
+const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minute TTL — longer for fewer refetches
 
 export function invalidateCache(store?: string) {
   if (store) {
-    memoryCache.delete(tbl(store))
-    memoryCache.delete(store)
+    // Targeted invalidation: only clear keys related to this store
+    const table = tbl(store)
+    const keysToDelete: string[] = []
+    for (const key of memoryCache.keys()) {
+      if (key.includes(store) || key.includes(table)) {
+        keysToDelete.push(key)
+      }
+    }
+    for (const key of keysToDelete) {
+      memoryCache.delete(key)
+    }
   } else {
     memoryCache.clear()
+  }
+}
+
+function notifyDataChange(store: string) {
+  invalidateCache(store)
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('aa2_data_changed', { detail: { store } }))
   }
 }
 
@@ -73,44 +89,115 @@ export async function getAll<T>(store: string, forceRefresh = false): Promise<T[
   return sorted
 }
 
-// ─── READ: Fetch one by primary key ──────────────────────────────────────────
+// ─── READ: Fetch one by primary key (with cache) ─────────────────────────────
 export async function getOne<T>(store: string, id: string | number): Promise<T | null> {
+  const cacheKey = `getOne:${tbl(store)}:${id}`
+  const cached = memoryCache.get(cacheKey)
+  const now = Date.now()
+
+  if (cached && (now - cached.timestamp < CACHE_TTL_MS)) {
+    return cached.data
+  }
+
   const { data, error } = await supabase.from(tbl(store)).select('data').eq('id', String(id)).maybeSingle()
   if (error) { console.warn(`getOne(${store}, ${id}):`, error.message); return null }
-  return data ? (data as { data: T }).data : null
+  const result = data ? (data as { data: T }).data : null
+  memoryCache.set(cacheKey, { timestamp: now, data: result })
+  return result
 }
 
-// ─── READ: Fetch filtered by field ───────────────────────────────────────────
+// ─── READ: Fetch filtered by field (with cache) ──────────────────────────────
 export async function getFiltered<T>(store: string, field: string, value: string | number): Promise<T[]> {
+  const cacheKey = `getFiltered:${tbl(store)}:${field}:${value}`
+  const cached = memoryCache.get(cacheKey)
+  const now = Date.now()
+
+  if (cached && (now - cached.timestamp < CACHE_TTL_MS)) {
+    return cached.data
+  }
+
   const { data, error } = await supabase.from(tbl(store)).select('data').eq(`data->>${field}`, String(value))
   if (error) { console.warn(`getFiltered(${store}):`, error.message); return [] }
-  return (data || []).map((r: { data: T }) => r.data)
+  const result = (data || []).map((r: { data: T }) => r.data)
+  memoryCache.set(cacheKey, { timestamp: now, data: result })
+  return result
 }
 
-function notifyDataChange(store: string) {
-  invalidateCache(store)
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('aa2_data_changed', { detail: { store } }))
-  }
-}
-
-// ─── WRITE: Upsert one record (via server to bypass RLS) ─────────────────────
+// ─── WRITE: Optimistic upsert (updates cache FIRST for 0ms UI response) ─────
 export async function putOne<T>(store: string, record: T, idField: keyof T | string): Promise<void> {
-  await serverWrite({ store, record, idField })
+  // Optimistic: update getAll cache immediately so UI reflects changes at 0ms
+  const getAllKey = `getAll:${tbl(store)}`
+  const cachedAll = memoryCache.get(getAllKey)
+  if (cachedAll) {
+    const id = String((record as any)[idField])
+    const list = [...cachedAll.data]
+    const idx = list.findIndex((r: any) => String(r[idField]) === id)
+    if (idx >= 0) {
+      list[idx] = record
+    } else {
+      list.unshift(record)
+    }
+    memoryCache.set(getAllKey, { timestamp: Date.now(), data: list })
+  }
+
+  // Optimistic: update getOne cache
+  const id = String((record as any)[idField])
+  memoryCache.set(`getOne:${tbl(store)}:${id}`, { timestamp: Date.now(), data: record })
+
+  // Notify UI immediately (0ms response)
   notifyDataChange(store)
+
+  // Fire server write (non-blocking for UI but we still await for error handling)
+  await serverWrite({ store, record, idField })
 }
 
-// ─── WRITE: Upsert many records (via server to bypass RLS) ───────────────────
+// ─── WRITE: Optimistic bulk upsert ───────────────────────────────────────────
 export async function putMany<T>(store: string, records: T[], idField: keyof T | string): Promise<void> {
   if (!records.length) return
-  await serverWrite({ store, records, idField })
+
+  // Optimistic: update getAll cache
+  const getAllKey = `getAll:${tbl(store)}`
+  const cachedAll = memoryCache.get(getAllKey)
+  if (cachedAll) {
+    const list = [...cachedAll.data]
+    for (const record of records) {
+      const id = String((record as any)[idField])
+      const idx = list.findIndex((r: any) => String(r[idField]) === id)
+      if (idx >= 0) {
+        list[idx] = record
+      } else {
+        list.unshift(record)
+      }
+    }
+    memoryCache.set(getAllKey, { timestamp: Date.now(), data: list })
+  }
+
+  // Notify UI immediately
   notifyDataChange(store)
+
+  await serverWrite({ store, records, idField })
 }
 
-// ─── DELETE: Remove one record (via server to bypass RLS) ────────────────────
+// ─── DELETE: Optimistic remove (removes from cache FIRST) ────────────────────
 export async function delOne(store: string, id: string | number): Promise<void> {
-  await serverDelete(store, id)
+  // Optimistic: remove from getAll cache
+  const getAllKey = `getAll:${tbl(store)}`
+  const cachedAll = memoryCache.get(getAllKey)
+  if (cachedAll) {
+    const list = cachedAll.data.filter((r: any) => {
+      const rId = r.id || r.customer_id || r.loan_account_no || r.txn_id || r.ticket_id || ''
+      return String(rId) !== String(id)
+    })
+    memoryCache.set(getAllKey, { timestamp: Date.now(), data: list })
+  }
+
+  // Remove from getOne cache
+  memoryCache.delete(`getOne:${tbl(store)}:${id}`)
+
+  // Notify UI immediately
   notifyDataChange(store)
+
+  await serverDelete(store, id)
 }
 
 // ─── FILTERED READ via server (for cases when RLS blocks reads too) ──────────
