@@ -85,6 +85,7 @@ export default function FinancialsPage() {
   const [assetForm, setAssetForm] = useState({ asset_name: '', category: 'Office Equipment', purchase_date: todayISO(), purchase_cost: '', depreciation_rate: '15' })
 
   // Edit State
+  const [editingInvId, setEditingInvId] = useState<string | null>(null)
   const [editingRecord, setEditingRecord] = useState<{ store: string; item: any } | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -132,14 +133,35 @@ export default function FinancialsPage() {
     }
   }
 
+  const handleStartEditInvestor = (inv: Investor) => {
+    setEditingInvId(inv.id)
+    setInvForm({
+      name: inv.name || '',
+      pan_card: inv.pan_card || '',
+      type: inv.type || 'Equity Shareholder',
+      instrument: inv.instrument || 'Equity Shares',
+      amount: String(inv.amount || ''),
+      date: inv.date || todayISO(),
+      return_pct: String(inv.return_pct ?? 12),
+    })
+  }
+
+  const handleCancelEditInvestor = () => {
+    setEditingInvId(null)
+    setInvForm({ name: '', pan_card: '', type: 'Equity Shareholder', instrument: 'Equity Shares', amount: '', date: todayISO(), return_pct: '12' })
+  }
+
   // Handlers
   const handleAddInvestor = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!invForm.name || !invForm.amount) return
     setSubmitting(true)
     try {
-      const newInv: Investor = {
-        id: 'INV-' + Date.now().toString().slice(-6),
+      const isEdit = Boolean(editingInvId)
+      const targetId = editingInvId || ('INV-' + Date.now().toString().slice(-6))
+
+      const invData: Investor = {
+        id: targetId,
         name: invForm.name,
         pan_card: invForm.pan_card.toUpperCase().trim(),
         type: invForm.type,
@@ -149,12 +171,12 @@ export default function FinancialsPage() {
         return_pct: Number(invForm.return_pct) || 0,
         status: 'Active'
       }
-      await putOne('investors', newInv, 'id')
-      toast.success('Investor Added', `Investor "${newInv.name}" registered successfully.`)
-      setInvForm({ name: '', pan_card: '', type: 'Equity Shareholder', instrument: 'Equity Shares', amount: '', date: todayISO(), return_pct: '12' })
+      await putOne('investors', invData, 'id')
+      toast.success(isEdit ? 'Investor Updated' : 'Investor Added', `Investor "${invData.name}" ${isEdit ? 'updated' : 'registered'} successfully.`)
+      handleCancelEditInvestor()
       await loadAllFinancialData()
     } catch (err: any) {
-      toast.error('Add Failed', err.message || 'Could not add investor.')
+      toast.error('Save Failed', err.message || 'Could not save investor.')
     } finally { setSubmitting(false) }
   }
 
@@ -311,11 +333,27 @@ export default function FinancialsPage() {
       {/* ── TAB 1: INVESTORS ── */}
       {activeTab === 'investors' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Add Form */}
+          {/* Add / Edit Form */}
           <div className="lg:col-span-1 bg-white p-5 rounded-2xl border border-slate-100 space-y-4">
-            <h3 className="text-sm font-bold text-slate-800 border-b pb-2 flex items-center gap-2">
-              <PlusCircle className="w-4 h-4 text-blue-600" /> Register Investor / Capital
-            </h3>
+            <div className="flex items-center justify-between border-b pb-2">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                {editingInvId ? <Edit2 className="w-4 h-4 text-blue-600" /> : <PlusCircle className="w-4 h-4 text-blue-600" />}
+                {editingInvId ? 'Edit Investor Details' : 'Register Investor / Capital'}
+              </h3>
+              {editingInvId && (
+                <button type="button" onClick={handleCancelEditInvestor} className="text-[10px] text-slate-500 hover:text-slate-800 font-semibold underline">
+                  Cancel Edit
+                </button>
+              )}
+            </div>
+
+            {editingInvId && (
+              <div className="bg-blue-50 text-blue-700 text-[11px] p-2.5 rounded-xl font-medium flex justify-between items-center border border-blue-100">
+                <span>Editing Record: <strong className="font-mono">{editingInvId}</strong></span>
+                <button type="button" onClick={handleCancelEditInvestor} className="text-[10px] font-bold text-blue-800 hover:underline">Clear</button>
+              </div>
+            )}
+
             <form onSubmit={handleAddInvestor} className="space-y-3">
               <div>
                 <label className="text-[10px] font-bold text-slate-400 uppercase">Investor / Entity Name *</label>
@@ -338,7 +376,16 @@ export default function FinancialsPage() {
                 <label className="text-[10px] font-bold text-slate-400 uppercase">Capital Amount (₹) *</label>
                 <input type="number" required value={invForm.amount} onChange={e => setInvForm(p => ({ ...p, amount: e.target.value }))} placeholder="1000000" className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs font-bold" />
               </div>
-              <button disabled={submitting} className="w-full py-2.5 bg-blue-600 text-white font-bold text-xs rounded-xl hover:bg-blue-500 transition">{submitting ? 'Saving...' : 'Add Investor'}</button>
+              <div className="flex gap-2 pt-1">
+                {editingInvId && (
+                  <button type="button" onClick={handleCancelEditInvestor} className="py-2.5 px-3 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-200 transition">
+                    Cancel
+                  </button>
+                )}
+                <button disabled={submitting} className="flex-1 py-2.5 bg-blue-600 text-white font-bold text-xs rounded-xl hover:bg-blue-500 transition shadow-sm">
+                  {submitting ? 'Saving...' : editingInvId ? 'Update Investor' : 'Add Investor'}
+                </button>
+              </div>
             </form>
           </div>
 
@@ -356,9 +403,9 @@ export default function FinancialsPage() {
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {investors.map(inv => (
-                    <tr key={inv.id} className="hover:bg-slate-50/50">
+                    <tr key={inv.id} className={`hover:bg-slate-50/50 ${editingInvId === inv.id ? 'bg-blue-50/40' : ''}`}>
                       <td className="p-2">
-                        <button onClick={() => setEditingRecord({ store: 'investors', item: inv })} className="font-bold text-blue-600 hover:underline block text-left">
+                        <button onClick={() => handleStartEditInvestor(inv)} className="font-bold text-blue-600 hover:underline block text-left" title="Click to Edit">
                           {inv.name}
                         </button>
                         <span className="text-[9px] font-mono text-slate-400">{inv.id}</span>
@@ -368,8 +415,8 @@ export default function FinancialsPage() {
                       <td className="p-2 text-right font-bold text-slate-800">{inr(inv.amount)}</td>
                       <td className="p-2 text-center">
                         <div className="flex justify-center gap-1">
-                          <button onClick={() => setEditingRecord({ store: 'investors', item: inv })} className="p-1 text-blue-600 hover:bg-blue-50 rounded"><Edit2 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handleDeleteRecord('investors', inv.id, inv, `Investor "${inv.name}"`)} className="p-1 text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleStartEditInvestor(inv)} className="p-1 text-blue-600 hover:bg-blue-50 rounded" title="Edit Investor Record"><Edit2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleDeleteRecord('investors', inv.id, inv, `Investor "${inv.name}"`)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Delete Investor"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
                       </td>
                     </tr>

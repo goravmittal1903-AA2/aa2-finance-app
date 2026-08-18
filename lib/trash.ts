@@ -18,8 +18,12 @@ const ID_FIELDS: Record<string, string> = {
   transactions: 'txn_id',
   documents: 'doc_id',
   grievances: 'ticket_id',
-  investors: 'investor_id',
+  investors: 'id',
   products: 'product_id',
+  borrowings: 'id',
+  cash_accounts: 'id',
+  expenses: 'id',
+  fixed_assets: 'id',
 }
 
 /** Move an item to Trash Can (Soft Delete) & Log Audit Event */
