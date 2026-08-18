@@ -194,42 +194,41 @@ function printDocument(title: string, bodyHtml: string) {
         <meta charset="utf-8">
         <title>${title}</title>
         <style>
-          @page { size: A4 portrait; margin: 12mm 15mm; }
+          @page { size: A4 portrait; margin: 10mm 12mm; }
           * { box-sizing: border-box; }
-          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; margin: 0; padding: 0; font-size: 10.5px; line-height: 1.45; }
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; margin: 0; padding: 0; font-size: 10px; line-height: 1.45; }
           .page { page-break-after: always; break-after: page; min-height: 980px; position: relative; padding-bottom: 35px; box-sizing: border-box; }
           .page:last-child { page-break-after: avoid; break-after: avoid; }
-          .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #1e3a8a; padding-bottom: 8px; margin-bottom: 12px; }
-          .header-left { display: flex; align-items: center; gap: 10px; }
-          .header-logo { width: 48px; height: 48px; border-radius: 6px; object-fit: contain; }
-          .brand-title { font-size: 15px; font-weight: 900; color: #1e3a8a; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
-          .brand-sub { font-size: 8.5px; color: #64748b; margin: 1px 0 0 0; font-weight: 600; }
-          .brand-reg { font-size: 8px; color: #475569; margin: 1px 0 0 0; font-weight: 500; }
-          .header-right { text-align: right; font-size: 9px; color: #475569; line-height: 1.35; }
-          .header-right strong { color: #1e293b; }
-          .doc-title { font-size: 12.5px; font-weight: 800; text-align: center; background: linear-gradient(135deg, #eff6ff, #f1f5f9); padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; margin: 8px 0 12px 0; text-transform: uppercase; letter-spacing: 1.2px; color: #0f172a; }
-          .ref-bar { display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; padding: 6px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 10px; }
+          .header-banner { text-align: center; border-bottom: 2.5px solid #1e3a8a; padding-bottom: 8px; margin-bottom: 10px; }
+          .logo-container { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 3px; }
+          .brand-logo-img { height: 46px; width: auto; object-fit: contain; }
+          .header-brand-title { font-size: 16.5px; font-weight: 900; color: #1e3a8a; margin: 4px 0 1px 0; text-transform: uppercase; letter-spacing: 0.8px; line-height: 1.2; }
+          .header-brand-sub { font-size: 8.5px; font-weight: 700; color: #2563eb; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
+          .header-reg-badge { font-size: 8px; font-weight: 600; color: #334155; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 2px 10px; border-radius: 4px; display: inline-block; margin: 4px 0; letter-spacing: 0.3px; }
+          .header-address-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; font-size: 8px; color: #475569; border-top: 1px solid #e2e8f0; padding-top: 4px; margin-top: 4px; text-align: left; }
+          .doc-title { font-size: 12px; font-weight: 800; text-align: center; background: linear-gradient(135deg, #1e3a8a, #2563eb); padding: 6px 10px; border-radius: 5px; color: #ffffff; margin: 8px 0 10px 0; text-transform: uppercase; letter-spacing: 1.2px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+          .ref-bar { display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #cbd5e1; padding: 5px 12px; border-radius: 5px; margin-bottom: 10px; font-size: 9.5px; }
           .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
-          .box { border: 1px solid #e2e8f0; padding: 7px 10px; border-radius: 6px; background: #fafbfc; break-inside: avoid; }
-          .box-title { font-size: 9px; font-weight: 800; text-transform: uppercase; color: #475569; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; margin-bottom: 5px; letter-spacing: 0.5px; }
-          .row { display: flex; justify-content: space-between; margin-bottom: 3px; font-size: 10px; }
+          .box { border: 1px solid #cbd5e1; padding: 7px 10px; border-radius: 5px; background: #ffffff; break-inside: avoid; box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
+          .box-title { font-size: 8.5px; font-weight: 800; text-transform: uppercase; color: #1e3a8a; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; margin-bottom: 5px; letter-spacing: 0.5px; }
+          .row { display: flex; justify-content: space-between; margin-bottom: 3px; font-size: 9.5px; }
           .label { color: #64748b; font-weight: 500; }
           .value { font-weight: 700; color: #0f172a; }
-          table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 9.5px; break-inside: avoid; }
-          th { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 4px 6px; text-align: center; font-size: 8.5px; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: 0.3px; }
-          td { border: 1px solid #cbd5e1; padding: 4px 6px; text-align: center; font-size: 9.5px; }
+          table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 9px; break-inside: avoid; }
+          th { background: #1e3a8a; border: 1px solid #1e3a8a; padding: 5px 6px; text-align: center; font-size: 8px; font-weight: 800; color: #ffffff; text-transform: uppercase; letter-spacing: 0.3px; }
+          td { border: 1px solid #cbd5e1; padding: 4px 6px; text-align: center; font-size: 9px; }
           td.left { text-align: left; }
           tr:nth-child(even) td { background: #f8fafc; }
-          .signatures { display: flex; justify-content: space-between; margin-top: 25px; padding-top: 12px; break-inside: avoid; }
-          .sig-box { width: 180px; text-align: center; border-top: 1px solid #94a3b8; padding-top: 4px; font-size: 9px; font-weight: 700; color: #475569; }
-          .footer { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 8px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 5px; }
+          .signatures { display: flex; justify-content: space-between; margin-top: 22px; padding-top: 10px; break-inside: avoid; }
+          .sig-box { width: 180px; text-align: center; border-top: 1.5px solid #64748b; padding-top: 4px; font-size: 8.5px; font-weight: 700; color: #334155; }
+          .footer { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 7.5px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 4px; }
           .badge { display: inline-block; padding: 2px 5px; border-radius: 3px; font-size: 8px; font-weight: 800; text-transform: uppercase; }
           .badge-green { background: #dcfce7; color: #15803d; }
           .badge-blue { background: #dbeafe; color: #1e40af; }
           .badge-red { background: #fee2e2; color: #b91c1c; }
-          .section-title { font-size: 10px; font-weight: 800; color: #1e3a8a; text-transform: uppercase; margin: 10px 0 5px 0; border-bottom: 1px solid #dbeafe; padding-bottom: 2px; letter-spacing: 0.5px; }
-          .clause-heading { font-size: 9.5px; font-weight: 800; color: #0f172a; margin: 6px 0 2px 0; }
-          .clause-text { font-size: 9px; color: #334155; text-align: justify; text-justify: inter-word; line-height: 1.45; margin-bottom: 5px; }
+          .section-title { font-size: 9.5px; font-weight: 800; color: #1e3a8a; text-transform: uppercase; margin: 10px 0 4px 0; border-left: 3px solid #1e3a8a; padding-left: 6px; letter-spacing: 0.5px; }
+          .clause-heading { font-size: 9px; font-weight: 800; color: #0f172a; margin: 5px 0 2px 0; }
+          .clause-text { font-size: 8.5px; color: #334155; text-align: justify; text-justify: inter-word; line-height: 1.4; margin-bottom: 4px; }
           .page-num { position: absolute; bottom: 0; right: 0; font-size: 8px; font-weight: 700; color: #64748b; }
           @media print {
             body { padding: 0; }
@@ -260,21 +259,20 @@ function printDocument(title: string, bodyHtml: string) {
 // ═══════════════════════════════════════════════════════════════════════════════
 export function generateSanctionLetter(data: SanctionLetterData) {
   const headerHtml = `
-    <div class="header">
-      <div class="header-left">
-        <img src="/brand/aa2-microfinance.png" alt="AA2" class="header-logo" onerror="this.style.display='none'" />
-        <img src="/brand/aa2-foundation.jpeg" alt="AA2 Foundation" class="header-logo" style="width:60px;" onerror="this.style.display='none'" />
-        <div>
-          <h1 class="brand-title">AA2 MICROFINANCE PRIVATE LIMITED</h1>
-          <p class="brand-sub">Gorav MF Solution • Registered Microfinance Institution (MFI)</p>
-          <p class="brand-reg">CIN: U64990UP2023PTC184704 | PAN: AAYCA9551F | TAN: MRTA20479E</p>
-        </div>
+    <div class="header-banner">
+      <div class="logo-container">
+        <img src="/brand/aa2-microfinance.png" alt="AA2 Microfinance" class="brand-logo-img" onerror="this.style.display='none'" />
+        <img src="/brand/aa2-foundation.jpeg" alt="AA2 Foundation" class="brand-logo-img" style="height:44px;" onerror="this.style.display='none'" />
       </div>
-      <div class="header-right">
-        <p style="margin:0;"><strong>Corporate Office:</strong> Shanti Kunj Dehradun Rd, Gagalheri, Saharanpur, UP 247669</p>
-        <p style="margin:1px 0 0 0;"><strong>Regd Office:</strong> Opp. Punjab & Sindh Bank, Dehradun Rd, Gagalheri, UP 247669</p>
-        <p style="margin:1px 0 0 0;"><strong>Email:</strong> info@aa2finance.com | <strong>Tel:</strong> +91-9761585314</p>
-        <p style="margin:1px 0 0 0;"><strong>Web:</strong> www.aa2microfinance.com | aa2mutualhelpfoundation.com</p>
+      <h1 class="header-brand-title">AA2 MICROFINANCE PRIVATE LIMITED</h1>
+      <p class="header-brand-sub">Gorav MF Solution • Registered Microfinance Institution (MFI)</p>
+      <div class="header-reg-badge">CIN: U64990UP2023PTC184704 &nbsp;|&nbsp; PAN: AAYCA9551F &nbsp;|&nbsp; TAN: MRTA20479E</div>
+
+      <div class="header-address-strip">
+        <div><strong>Regd Office:</strong> Opp. Punjab & Sindh Bank, Dehradun Rd, Gagalheri, Saharanpur, UP 247669</div>
+        <div><strong>Corp Office:</strong> Shanti Kunj Dehradun Rd, Gagalheri, Saharanpur, UP 247669</div>
+        <div><strong>Tel:</strong> +91-9761585314 &nbsp;|&nbsp; <strong>Email:</strong> info@aa2finance.com</div>
+        <div><strong>Web:</strong> www.aa2microfinance.com &nbsp;|&nbsp; aa2mutualhelpfoundation.com</div>
       </div>
     </div>
   `
