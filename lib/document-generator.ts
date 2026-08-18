@@ -406,7 +406,7 @@ export function generateSanctionLetter(data: SanctionLetterData) {
   `
 
   // ───────────────────────────────────────────────────────────────────────────
-  // PAGE 3: SCHEDULE A — REPAYMENT SCHEDULE MATRIX & JLG GUARANTEE
+  // PAGE 3: SCHEDULE A — REPAYMENT SCHEDULE MATRIX (FULL PAGE TABLE)
   // ───────────────────────────────────────────────────────────────────────────
   let schedTable = ''
   if (data.schedule && data.schedule.length > 0) {
@@ -447,7 +447,7 @@ export function generateSanctionLetter(data: SanctionLetterData) {
     <div class="page">
       ${headerHtml}
       <div class="doc-title">SCHEDULE A — REPAYMENT SCHEDULE MATRIX</div>
-      <table>
+      <table style="margin-top:6px;">
         <thead>
           <tr>
             <th>#</th>
@@ -463,50 +463,47 @@ export function generateSanctionLetter(data: SanctionLetterData) {
           ${schedTable}
         </tbody>
       </table>
-
-      <div class="section-title">JOINT LIABILITY GROUP (JLG) GUARANTEE & CENTER RULES</div>
-      <div class="clause-heading">11. JOINT AND SEVERAL CROSS-GUARANTEE</div>
-      <p class="clause-text">For Joint Liability Group (JLG) loan accounts, all members of the group jointly and severally guarantee full repayment of each other's installment dues. In case of any default by a peer member, group members commit to covering the installment deficit.</p>
-
-      <div class="clause-heading">12. CENTER MEETING DISCIPLINE</div>
-      <p class="clause-text">Group members undertake to attend all scheduled weekly/monthly Center Meetings punctually and maintain group discipline as guided by the Center Leader and Field Officer.</p>
-
-      <div class="section-title">ANNEXURE B: DIGITAL PAYMENT & RECOVERY MANDATE</div>
-      <p class="clause-text">The borrower is issued an official computer-generated receipt for every repayment. Repayments via digital channels (UPI, NACH auto-debit, NEFT) are encouraged to avoid cash handling risk.</p>
       ${footer(3)}
     </div>
   `
 
   // ───────────────────────────────────────────────────────────────────────────
-  // PAGE 4: VERNACULAR DECLARATION, EXECUTION & SIGNATURES
+  // PAGE 4: JLG RULES, VERNACULAR DECLARATIONS & EXECUTION SIGNATURES
   // ───────────────────────────────────────────────────────────────────────────
   body += `
     <div class="page">
       ${headerHtml}
-      <div class="doc-title">DECLARATIONS & EXECUTION SIGNATURES</div>
+      <div class="doc-title">JLG GUARANTEE, DECLARATIONS & EXECUTION SIGNATURES</div>
 
-      <div class="box">
+      <div class="section-title">JOINT LIABILITY GROUP (JLG) GUARANTEE & CENTER RULES</div>
+      <div class="clause-heading">11. JOINT AND SEVERAL CROSS-GUARANTEE</div>
+      <p class="clause-text">For Joint Liability Group (JLG) loan accounts, all members of the group jointly and severally guarantee full repayment of each other's installment dues. In case of default by a peer member, group members commit to covering the shortfall.</p>
+
+      <div class="clause-heading">12. CENTER MEETING DISCIPLINE & DIGITAL MANDATE</div>
+      <p class="clause-text">Group members undertake to attend all scheduled Center Meetings punctually. The borrower is issued an official printed receipt for every repayment. Digital payments via UPI/NACH are encouraged.</p>
+
+      <div class="box" style="margin-top:6px;">
         <div class="box-title">Vernacular Borrower Declaration (English)</div>
         <p class="clause-text" style="margin:0;">I hereby declare that all terms and conditions of this Sanction Letter and Master Credit Agreement have been read over and explained to me in Hindi/local language. I have fully understood the interest rates, EMI amounts, fee charges, and repayment obligations. I accept the loan facility willingly without any coercion.</p>
       </div>
 
-      <div class="box" style="margin-top:8px; background:#fff7ed; border-color:#fed7aa;">
+      <div class="box" style="margin-top:6px; background:#fff7ed; border-color:#fed7aa;">
         <div class="box-title" style="color:#c2410c;">हिंदी में घोषणा (Local Language Declaration)</div>
         <p class="clause-text" style="margin:0; color:#9a3412;">मैं एतद्द्वारा घोषणा करता/करती हूँ कि इस स्वीकृति पत्र एवं ऋण समझौते के सभी नियमों एवं शर्तों को मुझे मेरी स्थानीय भाषा (हिंदी) में पढ़कर सुनाया और समझाया गया है। मैंने ब्याज दर, मासिक/साप्ताहिक किस्त (EMI), शुल्क एवं भुगतान तिथियों को भली-भांति समझ लिया है और मैं इस ऋण स्वीकृति को अपनी स्वेच्छा से स्वीकार करता/करती हूँ।</p>
       </div>
 
-      <div class="section-title">FAIR PRACTICES CODE & BORROWER RIGHTS CHARTER</div>
+      <div class="section-title" style="margin-top:8px;">FAIR PRACTICES CODE SUMMARY</div>
       <p class="clause-text">AA2 Microfinance follows a strict Fair Practices Code: (i) Zero harassment recovery policy — collection calls/visits between 07:00 AM and 07:00 PM only, (ii) No hidden fees or mandatory insurance tie-ins, (iii) Full data privacy protection under Indian Law.</p>
 
-      <p class="clause-text" style="margin-top:15px; font-weight:700; color:#0f172a;">IN WITNESS WHEREOF, the parties hereto have executed this Sanction Letter and Credit Agreement on the date first above written.</p>
+      <p class="clause-text" style="margin-top:10px; font-weight:700; color:#0f172a;">IN WITNESS WHEREOF, the parties hereto have executed this Sanction Letter and Credit Agreement on the date first above written.</p>
 
-      <div class="signatures">
+      <div class="signatures" style="margin-top:20px;">
         <div class="sig-box">Borrower Signature / Thumb Impression<br>(${data.member_name})</div>
         <div class="sig-box">Co-Borrower / Guarantor Signature</div>
         <div class="sig-box">Center Leader Signature</div>
       </div>
 
-      <div class="signatures" style="margin-top:35px;">
+      <div class="signatures" style="margin-top:25px;">
         <div class="sig-box">Field Officer (FO) Signature</div>
         <div class="sig-box">Branch Manager (BM) Signature</div>
         <div class="sig-box">For AA2 Microfinance Pvt. Ltd.<br>(Authorized Sanctioning Signatory)</div>
