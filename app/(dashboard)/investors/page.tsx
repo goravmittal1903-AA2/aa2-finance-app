@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getAll, putOne } from '@/lib/supabase'
+import { getAll, putOne, invalidateCache } from '@/lib/supabase'
 import { inr, fdate, todayISO } from '@/lib/utils'
 import { toast } from '@/lib/toast'
+import type { Loan } from '@/lib/types'
 import {
   Landmark, Users, PlusCircle, Receipt, Trash2, ShieldCheck, CreditCard,
   Building2, Wallet, FileSpreadsheet, TrendingUp, TrendingDown, RefreshCw,
-  Edit2, Printer, Download, X
+  Edit2, Printer, Download, X, AlertCircle, CheckCircle2
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 
@@ -76,6 +77,7 @@ export default function FinancialsPage() {
   const [cashAccounts, setCashAccounts] = useState<CashAccount[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [fixedAssets, setFixedAssets] = useState<FixedAsset[]>([])
+  const [allLoans, setAllLoans] = useState<Loan[]>([])
 
   // Form States
   const [invForm, setInvForm] = useState({ name: '', pan_card: '', type: 'Equity Shareholder', instrument: 'Equity Shares', amount: '', date: todayISO(), return_pct: '12' })
@@ -90,21 +92,25 @@ export default function FinancialsPage() {
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    loadAllFinancialData()
-    const handleDataChange = () => loadAllFinancialData()
+    loadAllFinancialData(true)
+    const handleDataChange = () => loadAllFinancialData(true)
     window.addEventListener('aa2_data_changed', handleDataChange)
     return () => window.removeEventListener('aa2_data_changed', handleDataChange)
   }, [])
 
-  async function loadAllFinancialData() {
+  async function loadAllFinancialData(force = false) {
     setLoading(true)
     try {
-      const [invs, bors, cashAccs, exps, assets] = await Promise.all([
-        getAll<Investor>('investors'),
-        getAll<Borrowing>('borrowings'),
-        getAll<CashAccount>('cash_accounts'),
-        getAll<Expense>('expenses'),
-        getAll<FixedAsset>('fixed_assets'),
+      if (force) {
+        invalidateCache()
+      }
+      const [invs, bors, cashAccs, exps, assets, loans] = await Promise.all([
+        getAll<Investor>('investors', force),
+        getAll<Borrowing>('borrowings', force),
+        getAll<CashAccount>('cash_accounts', force),
+        getAll<Expense>('expenses', force),
+        getAll<FixedAsset>('fixed_assets', force),
+        getAll<Loan>('loans', force),
       ])
 
       setInvestors(invs)
@@ -112,6 +118,7 @@ export default function FinancialsPage() {
       setCashAccounts(cashAccs)
       setExpenses(exps)
       setFixedAssets(assets)
+      setAllLoans(loans)
     } catch (err) {
       console.error('Failed to load financial data:', err)
     } finally {
@@ -127,7 +134,7 @@ export default function FinancialsPage() {
       const { moveToTrash } = await import('@/lib/trash')
       await moveToTrash(store, id, record, label, user?.email || 'system')
       toast.success('Record Deleted', `${label} has been deleted successfully.`)
-      await loadAllFinancialData()
+      await loadAllFinancialData(true)
     } catch (err: any) {
       toast.error('Deletion Failed', err.message || 'Could not delete record.')
     }
@@ -174,7 +181,7 @@ export default function FinancialsPage() {
       await putOne('investors', invData, 'id')
       toast.success(isEdit ? 'Investor Updated' : 'Investor Added', `Investor "${invData.name}" ${isEdit ? 'updated' : 'registered'} successfully.`)
       handleCancelEditInvestor()
-      await loadAllFinancialData()
+      await loadAllFinancialData(true)
     } catch (err: any) {
       toast.error('Save Failed', err.message || 'Could not save investor.')
     } finally { setSubmitting(false) }
@@ -198,9 +205,31 @@ export default function FinancialsPage() {
       await putOne('borrowings', newBor, 'id')
       toast.success('Borrowing Recorded', `Lender "${newBor.lender_name}" added successfully.`)
       setBorForm({ lender_name: '', sanction_amount: '', interest_rate: '10.5', start_date: todayISO(), maturity_date: todayISO() })
-      await loadAllFinancialData()
+      await loadAllFinancialData(true)
     } catch (err: any) {
       toast.error('Add Failed', err.message || 'Could not add borrowing.')
+    } finally { setSubmitting(false) }
+  }
+
+  const handleAddCashAccount = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!cashForm.name || !cashForm.initial_balance) return
+    setSubmitting(true)
+    try {
+      const newAcc: CashAccount = {
+        id: 'ACC-' + Date.now().toString().slice(-6),
+        name: cashForm.name,
+        account_type: cashForm.account_type,
+        bank_name: cashForm.bank_name,
+        account_number: cashForm.account_number,
+        balance: Number(cashForm.initial_balance) || 0,
+      }
+      await putOne('cash_accounts', newAcc, 'id')
+      toast.success('Account Created', `Account "${newAcc.name}" created successfully.`)
+      setCashForm({ name: '', account_type: 'Bank', bank_name: '', account_number: '', initial_balance: '' })
+      await loadAllFinancialData(true)
+    } catch (err: any) {
+      toast.error('Add Failed', err.message || 'Could not add account.')
     } finally { setSubmitting(false) }
   }
 
@@ -221,7 +250,7 @@ export default function FinancialsPage() {
       await putOne('expenses', newExp, 'id')
       toast.success('Expense Recorded', `Expense of ${inr(newExp.amount)} recorded.`)
       setExpForm({ category: 'Rent', amount: '', payee: '', date: todayISO(), payment_mode: 'Bank Transfer', remarks: '' })
-      await loadAllFinancialData()
+      await loadAllFinancialData(true)
     } catch (err: any) {
       toast.error('Add Failed', err.message || 'Could not record expense.')
     } finally { setSubmitting(false) }
@@ -245,7 +274,7 @@ export default function FinancialsPage() {
       await putOne('fixed_assets', newAsset, 'id')
       toast.success('Fixed Asset Registered', `Asset "${newAsset.asset_name}" added.`)
       setAssetForm({ asset_name: '', category: 'Office Equipment', purchase_date: todayISO(), purchase_cost: '', depreciation_rate: '15' })
-      await loadAllFinancialData()
+      await loadAllFinancialData(true)
     } catch (err: any) {
       toast.error('Add Failed', err.message || 'Could not register asset.')
     } finally { setSubmitting(false) }
@@ -259,18 +288,60 @@ export default function FinancialsPage() {
       await putOne(editingRecord.store, editingRecord.item, 'id')
       toast.success('Record Updated', 'Changes saved successfully.')
       setEditingRecord(null)
-      await loadAllFinancialData()
+      await loadAllFinancialData(true)
     } catch (err: any) {
       toast.error('Update Failed', err.message || 'Could not update record.')
     } finally { setSubmitting(false) }
   }
 
-  // Summary Metrics
-  const totalInvestorCapital = investors.reduce((s, i) => s + (i.amount || 0), 0)
-  const totalBorrowings = borrowings.reduce((s, b) => s + (b.outstanding_principal || 0), 0)
-  const totalCashBalance = cashAccounts.reduce((s, c) => s + (c.balance || 0), 0)
-  const totalExpenses = expenses.reduce((s, e) => s + (e.amount || 0), 0)
-  const totalFixedAssets = fixedAssets.reduce((s, a) => s + (a.current_value || 0), 0)
+  // ─── FINANCIAL CALCULATIONS ENGINE ───
+  // 1. Total Interest Collected across all loans
+  const totalInterestIncome = allLoans.reduce((sum, l) => {
+    const totalLoan = Number(l.total_loan || 0)
+    const totalInterest = Number(l.total_interest || 0)
+    const collected = Number(l.total_collected || 0)
+    if (totalLoan <= 0 || totalInterest <= 0) return sum
+    const ratio = Math.min(1, collected / totalLoan)
+    return sum + (totalInterest * ratio)
+  }, 0)
+
+  // 2. Processing Fee / File Charge Income
+  const totalFileChargeIncome = allLoans.reduce((sum, l) => sum + Number(l.file_charge || 0), 0)
+
+  // 3. Gross Revenue
+  const grossFinancialRevenue = totalInterestIncome + totalFileChargeIncome
+
+  // 4. Operating Expenses
+  const operatingExpenses = expenses.reduce((s, e) => s + Number(e.amount || 0), 0)
+
+  // 5. Financial Borrowing Cost (Debt Interest Expense)
+  const borrowingInterestExpense = borrowings.reduce((s, b) => {
+    const principal = Number(b.outstanding_principal || 0)
+    const rate = Number(b.interest_rate || 0)
+    return s + (principal * (rate / 100))
+  }, 0)
+
+  // 6. NPA Provisioning (90+ DPD Loans)
+  const npaProvisioning = allLoans
+    .filter(l => l.npa_flag || Number(l.dpd || 0) >= 90)
+    .reduce((s, l) => s + Number(l.ledger_balance || 0), 0)
+
+  // 7. Total Expenses & Net Profit
+  const totalExpensesAll = operatingExpenses + borrowingInterestExpense + npaProvisioning
+  const netProfit = grossFinancialRevenue - totalExpensesAll
+
+  // 8. Balance Sheet Assets & Liabilities
+  const activeLoanPortfolioAsset = allLoans
+    .filter(l => l.status === 'ACTIVE')
+    .reduce((s, l) => s + Number(l.ledger_balance || 0), 0)
+
+  const cashAndBankAssets = cashAccounts.reduce((s, c) => s + Number(c.balance || 0), 0)
+  const fixedAssetsNet = fixedAssets.reduce((s, a) => s + Number(a.current_value || a.purchase_cost || 0), 0)
+  const totalAssets = activeLoanPortfolioAsset + cashAndBankAssets + fixedAssetsNet
+
+  const investorEquityCapital = investors.reduce((s, i) => s + Number(i.amount || 0), 0)
+  const institutionalBorrowings = borrowings.reduce((s, b) => s + Number(b.outstanding_principal || 0), 0)
+  const totalCapitalLiabilities = investorEquityCapital + institutionalBorrowings + netProfit
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -280,8 +351,8 @@ export default function FinancialsPage() {
           <h1 className="text-2xl font-bold text-slate-800">Financial Management & Statements</h1>
           <p className="text-slate-500 text-sm mt-0.5">Capital, Institutional Debt, Operating Expenses, Fixed Assets, P&L, and Balance Sheet.</p>
         </div>
-        <button onClick={loadAllFinancialData} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
+        <button onClick={() => loadAllFinancialData(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition shadow-sm">
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh Live Data
         </button>
       </div>
 
@@ -289,27 +360,27 @@ export default function FinancialsPage() {
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Investor Capital</span>
-          <span className="text-xl font-bold text-blue-600 block mt-1">{inr(totalInvestorCapital)}</span>
+          <span className="text-xl font-bold text-blue-600 block mt-1">{inr(investorEquityCapital)}</span>
           <span className="text-[10px] text-slate-400 font-medium">{investors.length} Investors</span>
         </div>
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Debt & Borrowings</span>
-          <span className="text-xl font-bold text-purple-600 block mt-1">{inr(totalBorrowings)}</span>
+          <span className="text-xl font-bold text-purple-600 block mt-1">{inr(institutionalBorrowings)}</span>
           <span className="text-[10px] text-slate-400 font-medium">{borrowings.length} Lenders</span>
         </div>
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Operating Expenses</span>
-          <span className="text-xl font-bold text-red-600 block mt-1">{inr(totalExpenses)}</span>
+          <span className="text-xl font-bold text-red-600 block mt-1">{inr(operatingExpenses)}</span>
           <span className="text-[10px] text-slate-400 font-medium">{expenses.length} Records</span>
         </div>
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Fixed Assets Value</span>
-          <span className="text-xl font-bold text-amber-600 block mt-1">{inr(totalFixedAssets)}</span>
+          <span className="text-xl font-bold text-amber-600 block mt-1">{inr(fixedAssetsNet)}</span>
           <span className="text-[10px] text-slate-400 font-medium">{fixedAssets.length} Assets</span>
         </div>
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 col-span-2 lg:col-span-1">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Cash & Bank Accounts</span>
-          <span className="text-xl font-bold text-emerald-600 block mt-1">{inr(totalCashBalance)}</span>
+          <span className="text-xl font-bold text-emerald-600 block mt-1">{inr(cashAndBankAssets)}</span>
           <span className="text-[10px] text-slate-400 font-medium">{cashAccounts.length} Accounts</span>
         </div>
       </div>
@@ -319,6 +390,7 @@ export default function FinancialsPage() {
         {([
           { id: 'investors', label: `Investor Capital (${investors.length})`, icon: Users },
           { id: 'borrowings', label: `Debt & Borrowings (${borrowings.length})`, icon: Landmark },
+          { id: 'cashbank', label: `Cash & Bank (${cashAccounts.length})`, icon: Wallet },
           { id: 'expenses', label: `Operating Expenses (${expenses.length})`, icon: Receipt },
           { id: 'assets', label: `Fixed Assets (${fixedAssets.length})`, icon: Building2 },
           { id: 'statements', label: 'P&L & Balance Sheet', icon: FileSpreadsheet },
@@ -463,6 +535,71 @@ export default function FinancialsPage() {
         </div>
       )}
 
+      {/* ── TAB: CASH & BANK ACCOUNTS ── */}
+      {activeTab === 'cashbank' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-1 bg-white p-5 rounded-2xl border border-slate-100 space-y-4">
+            <h3 className="text-sm font-bold text-slate-800 border-b pb-2">Add Cash / Bank Account</h3>
+            <form onSubmit={handleAddCashAccount} className="space-y-3">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Account Name *</label>
+                <input type="text" required value={cashForm.name} onChange={e => setCashForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. HDFC Main Operating A/C" className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Account Type</label>
+                <select value={cashForm.account_type} onChange={e => setCashForm(p => ({ ...p, account_type: e.target.value as any }))} className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs">
+                  <option value="Bank">Bank Account</option>
+                  <option value="Cash">Branch Cash Vault</option>
+                </select>
+              </div>
+              {cashForm.account_type === 'Bank' && (
+                <>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Bank Name</label>
+                    <input type="text" value={cashForm.bank_name} onChange={e => setCashForm(p => ({ ...p, bank_name: e.target.value }))} placeholder="HDFC Bank" className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Account Number</label>
+                    <input type="text" value={cashForm.account_number} onChange={e => setCashForm(p => ({ ...p, account_number: e.target.value }))} placeholder="501002345678" className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs font-mono" />
+                  </div>
+                </>
+              )}
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase">Initial Balance (₹) *</label>
+                <input type="number" required value={cashForm.initial_balance} onChange={e => setCashForm(p => ({ ...p, initial_balance: e.target.value }))} placeholder="500000" className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs font-bold" />
+              </div>
+              <button disabled={submitting} className="w-full py-2.5 bg-blue-600 text-white font-bold text-xs rounded-xl hover:bg-blue-500 transition">{submitting ? 'Saving...' : 'Add Account'}</button>
+            </form>
+          </div>
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-100 overflow-hidden p-5 space-y-3">
+            <h3 className="text-sm font-bold text-slate-800">Cash & Bank Accounts Register</h3>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 text-[10px] uppercase">
+                  <th className="p-2 text-left">Account Name</th>
+                  <th className="p-2 text-left">Type / Bank</th>
+                  <th className="p-2 text-right">Balance (₹)</th>
+                  <th className="p-2 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {cashAccounts.map(c => (
+                  <tr key={c.id} className="hover:bg-slate-50/50">
+                    <td className="p-2 font-bold text-slate-800">{c.name}<span className="block text-[9px] font-mono text-slate-400">{c.account_number || c.id}</span></td>
+                    <td className="p-2 text-slate-600">{c.account_type} {c.bank_name ? `(${c.bank_name})` : ''}</td>
+                    <td className="p-2 text-right font-bold text-emerald-600">{inr(c.balance)}</td>
+                    <td className="p-2 text-center">
+                      <button onClick={() => handleDeleteRecord('cash_accounts', c.id, c, `Account "${c.name}"`)} className="p-1 text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </td>
+                  </tr>
+                ))}
+                {cashAccounts.length === 0 && <tr><td colSpan={4} className="p-6 text-center text-slate-400">No cash or bank accounts registered.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* ── TAB 3: OPERATING EXPENSES ── */}
       {activeTab === 'expenses' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -535,39 +672,100 @@ export default function FinancialsPage() {
         </div>
       )}
 
-      {/* ── TAB 5: P&L AND BALANCE SHEET ── */}
+      {/* ── TAB 5: REALTIME P&L AND BALANCE SHEET ── */}
       {activeTab === 'statements' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Profit & Loss */}
+            {/* Profit & Loss Statement */}
             <div className="bg-white p-6 rounded-2xl border border-slate-100 space-y-4 shadow-sm">
               <div className="flex items-center justify-between border-b pb-3">
-                <h3 className="text-sm font-bold text-slate-800">Profit & Loss Statement (P&L)</h3>
-                <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded">Live YTD</span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Profit & Loss Statement (P&L)</h3>
+                  <p className="text-[11px] text-slate-400">Calculated from Live Loan Portfolio & Expense Ledger</p>
+                </div>
+                <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> Live Realtime
+                </span>
               </div>
               <div className="space-y-2.5 text-xs">
-                <div className="flex justify-between py-1.5 border-b"><span className="text-slate-600 font-medium">Interest & Processing Fee Income</span><span className="font-bold text-emerald-600">{inr(150000)}</span></div>
-                <div className="flex justify-between py-1.5 border-b"><span className="text-slate-600 font-medium">Less: Operating Expenses</span><span className="font-bold text-red-600">-{inr(totalExpenses)}</span></div>
-                <div className="flex justify-between py-2 text-sm font-bold border-t border-slate-300 pt-3">
-                  <span>Net Profit / (Loss)</span>
-                  <span className={150000 - totalExpenses >= 0 ? 'text-emerald-600' : 'text-red-600'}>{inr(150000 - totalExpenses)}</span>
+                <div className="flex justify-between py-1.5 border-b">
+                  <span className="text-slate-600 font-medium">Earned Interest Income</span>
+                  <span className="font-bold text-emerald-600">{inr(totalInterestIncome)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b">
+                  <span className="text-slate-600 font-medium">Loan Processing & File Charges</span>
+                  <span className="font-bold text-emerald-600">{inr(totalFileChargeIncome)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b bg-slate-50/70 px-2 rounded font-bold text-slate-800">
+                  <span>Gross Operating Revenue</span>
+                  <span>{inr(grossFinancialRevenue)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b">
+                  <span className="text-slate-600 font-medium">Less: Operating Expenses</span>
+                  <span className="font-bold text-red-600">-{inr(operatingExpenses)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b">
+                  <span className="text-slate-600 font-medium">Less: Debt Interest Expense</span>
+                  <span className="font-bold text-red-600">-{inr(borrowingInterestExpense)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b">
+                  <span className="text-slate-600 font-medium">Less: NPA Bad Debt Provisioning</span>
+                  <span className="font-bold text-red-600">-{inr(npaProvisioning)}</span>
+                </div>
+                <div className="flex justify-between py-2 text-sm font-bold border-t-2 border-slate-300 pt-3">
+                  <span>Net Profit / (Surplus)</span>
+                  <span className={netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}>{inr(netProfit)}</span>
                 </div>
               </div>
             </div>
 
-            {/* Balance Sheet */}
+            {/* Balance Sheet Summary */}
             <div className="bg-white p-6 rounded-2xl border border-slate-100 space-y-4 shadow-sm">
               <div className="flex items-center justify-between border-b pb-3">
-                <h3 className="text-sm font-bold text-slate-800">Balance Sheet Summary</h3>
-                <span className="text-[10px] font-bold bg-purple-50 text-purple-700 px-2 py-0.5 rounded">As of Today</span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Balance Sheet Summary</h3>
+                  <p className="text-[11px] text-slate-400">Statement of Financial Position</p>
+                </div>
+                <span className="text-[10px] font-bold bg-purple-50 text-purple-700 px-2 py-0.5 rounded flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> Live Balanced
+                </span>
               </div>
               <div className="space-y-2 text-xs">
-                <div className="font-bold text-slate-800 uppercase text-[10px] tracking-wider">Assets</div>
-                <div className="flex justify-between py-1 border-b"><span className="text-slate-500">Cash & Bank Balances</span><span className="font-bold">{inr(totalCashBalance)}</span></div>
-                <div className="flex justify-between py-1 border-b"><span className="text-slate-500">Fixed Assets (Net)</span><span className="font-bold">{inr(totalFixedAssets)}</span></div>
-                <div className="font-bold text-slate-800 uppercase text-[10px] tracking-wider pt-2">Capital & Liabilities</div>
-                <div className="flex justify-between py-1 border-b"><span className="text-slate-500">Investor Equity Capital</span><span className="font-bold">{inr(totalInvestorCapital)}</span></div>
-                <div className="flex justify-between py-1 border-b"><span className="text-slate-500">Institutional Borrowings</span><span className="font-bold">{inr(totalBorrowings)}</span></div>
+                <div className="font-bold text-slate-800 uppercase text-[10px] tracking-wider text-blue-600">Assets</div>
+                <div className="flex justify-between py-1 border-b">
+                  <span className="text-slate-600">Gross Loan Portfolio (Active Advances)</span>
+                  <span className="font-bold">{inr(activeLoanPortfolioAsset)}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b">
+                  <span className="text-slate-600">Cash & Bank Balances</span>
+                  <span className="font-bold">{inr(cashAndBankAssets)}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b">
+                  <span className="text-slate-600">Fixed Assets (Net Value)</span>
+                  <span className="font-bold">{inr(fixedAssetsNet)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b bg-blue-50/60 px-2 rounded font-bold text-blue-900">
+                  <span>Total Assets</span>
+                  <span>{inr(totalAssets)}</span>
+                </div>
+
+                <div className="font-bold text-slate-800 uppercase text-[10px] tracking-wider text-purple-600 pt-3">Capital & Liabilities</div>
+                <div className="flex justify-between py-1 border-b">
+                  <span className="text-slate-600">Investor Equity Capital</span>
+                  <span className="font-bold">{inr(investorEquityCapital)}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b">
+                  <span className="text-slate-600">Institutional Debt & Borrowings</span>
+                  <span className="font-bold">{inr(institutionalBorrowings)}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b">
+                  <span className="text-slate-600">Cumulative Operational Surplus (P&L)</span>
+                  <span className={`font-bold ${netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{inr(netProfit)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b bg-purple-50/60 px-2 rounded font-bold text-purple-900">
+                  <span>Total Equity & Liabilities</span>
+                  <span>{inr(totalCapitalLiabilities)}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -595,11 +793,11 @@ export default function FinancialsPage() {
               </div>
               <div>
                 <label className="text-[10px] font-bold text-slate-400 uppercase">Amount (₹)</label>
-                <input type="number" value={editingRecord.item.amount || editingRecord.item.sanction_amount || editingRecord.item.purchase_cost || ''} onChange={e => {
+                <input type="number" value={editingRecord.item.amount || editingRecord.item.sanction_amount || editingRecord.item.purchase_cost || editingRecord.item.balance || ''} onChange={e => {
                   const val = Number(e.target.value) || 0
                   setEditingRecord(prev => prev ? {
                     ...prev,
-                    item: { ...prev.item, amount: val, sanction_amount: val, outstanding_principal: val, purchase_cost: val, current_value: val }
+                    item: { ...prev.item, amount: val, sanction_amount: val, outstanding_principal: val, purchase_cost: val, current_value: val, balance: val }
                   } : null)
                 }} className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs font-bold" />
               </div>
