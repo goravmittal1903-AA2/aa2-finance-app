@@ -21,6 +21,20 @@ export interface SanctionLetterData {
   installment_start_date: string
   product_type: string
   penalty_per_day?: number
+  district?: string
+  state?: string
+  fo_name?: string
+  bm_name?: string
+  total_cost?: number
+  schedule?: {
+    installment_no: number
+    due_date: string
+    opening_balance: number
+    principal_due: number
+    interest_due: number
+    emi_due: number
+    closing_balance: number
+  }[]
 }
 
 export interface PaymentReceiptData {
@@ -180,49 +194,48 @@ function printDocument(title: string, bodyHtml: string) {
         <meta charset="utf-8">
         <title>${title}</title>
         <style>
-          @page { size: A4; margin: 18mm; }
+          @page { size: A4; margin: 15mm; }
           * { box-sizing: border-box; }
-          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; margin: 0; padding: 20px; font-size: 12px; line-height: 1.5; }
-          .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1e3a8a; padding-bottom: 12px; margin-bottom: 18px; }
-          .header-left { display: flex; align-items: center; gap: 12px; }
-          .header-logo { width: 55px; height: 55px; border-radius: 8px; object-fit: contain; }
-          .brand-title { font-size: 18px; font-weight: 900; color: #1e3a8a; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
-          .brand-sub { font-size: 10px; color: #64748b; margin: 2px 0 0 0; font-weight: 600; }
-          .brand-reg { font-size: 9px; color: #94a3b8; margin: 1px 0 0 0; }
-          .header-right { text-align: right; font-size: 10px; color: #64748b; }
-          .header-right strong { color: #334155; }
-          .doc-title { font-size: 14px; font-weight: 800; text-align: center; background: linear-gradient(135deg, #eff6ff, #f1f5f9); padding: 8px 12px; border-radius: 6px; border: 1px solid #cbd5e1; margin: 12px 0 18px 0; text-transform: uppercase; letter-spacing: 1.5px; color: #0f172a; }
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; margin: 0; padding: 15px; font-size: 11px; line-height: 1.5; }
+          .page { page-break-after: always; break-after: page; min-height: 950px; position: relative; padding-bottom: 40px; }
+          .page:last-child { page-break-after: avoid; break-after: avoid; }
+          .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #1e3a8a; padding-bottom: 10px; margin-bottom: 15px; }
+          .header-left { display: flex; align-items: center; gap: 10px; }
+          .header-logo { width: 50px; height: 50px; border-radius: 6px; object-fit: contain; }
+          .brand-title { font-size: 16px; font-weight: 900; color: #1e3a8a; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
+          .brand-sub { font-size: 9px; color: #64748b; margin: 1px 0 0 0; font-weight: 600; }
+          .brand-reg { font-size: 8.5px; color: #475569; margin: 1px 0 0 0; font-weight: 500; }
+          .header-right { text-align: right; font-size: 9.5px; color: #475569; line-height: 1.4; }
+          .header-right strong { color: #1e293b; }
+          .doc-title { font-size: 13px; font-weight: 800; text-align: center; background: linear-gradient(135deg, #eff6ff, #f1f5f9); padding: 7px 10px; border-radius: 6px; border: 1px solid #cbd5e1; margin: 10px 0 15px 0; text-transform: uppercase; letter-spacing: 1.2px; color: #0f172a; }
           .doc-title-blue { background: linear-gradient(135deg, #dbeafe, #eff6ff); border-color: #93c5fd; color: #1e40af; }
           .doc-title-green { background: linear-gradient(135deg, #dcfce7, #f0fdf4); border-color: #86efac; color: #166534; }
-          .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
-          .box { border: 1px solid #e2e8f0; padding: 10px 12px; border-radius: 6px; background: #fafbfc; }
-          .box-title { font-size: 10px; font-weight: 800; text-transform: uppercase; color: #64748b; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 6px; letter-spacing: 0.5px; }
-          .row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 11px; }
+          .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+          .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+          .box { border: 1px solid #e2e8f0; padding: 8px 10px; border-radius: 6px; background: #fafbfc; }
+          .box-title { font-size: 9.5px; font-weight: 800; text-transform: uppercase; color: #475569; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; margin-bottom: 5px; letter-spacing: 0.5px; }
+          .row { display: flex; justify-content: space-between; margin-bottom: 3px; font-size: 10.5px; }
           .label { color: #64748b; font-weight: 500; }
           .value { font-weight: 700; color: #0f172a; }
-          table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 10px; }
-          th { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 5px 6px; text-align: center; font-size: 9px; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: 0.3px; }
-          td { border: 1px solid #cbd5e1; padding: 4px 6px; text-align: center; font-size: 10px; }
+          table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 9.5px; }
+          th { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 5px 6px; text-align: center; font-size: 8.5px; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: 0.3px; }
+          td { border: 1px solid #cbd5e1; padding: 4px 6px; text-align: center; font-size: 9.5px; }
           td.left { text-align: left; }
           tr:nth-child(even) td { background: #f8fafc; }
-          .signatures { display: flex; justify-content: space-between; margin-top: 50px; padding-top: 18px; }
-          .sig-box { width: 200px; text-align: center; border-top: 1px solid #94a3b8; padding-top: 5px; font-size: 10px; font-weight: 700; color: #475569; }
-          .footer { text-align: center; font-size: 9px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; margin-top: 30px; }
-          .badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+          .signatures { display: flex; justify-content: space-between; margin-top: 35px; padding-top: 15px; }
+          .sig-box { width: 180px; text-align: center; border-top: 1px solid #94a3b8; padding-top: 4px; font-size: 9.5px; font-weight: 700; color: #475569; }
+          .footer { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 8.5px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 6px; }
+          .badge { display: inline-block; padding: 2px 5px; border-radius: 3px; font-size: 8.5px; font-weight: 800; text-transform: uppercase; }
           .badge-green { background: #dcfce7; color: #15803d; }
           .badge-blue { background: #dbeafe; color: #1e40af; }
           .badge-red { background: #fee2e2; color: #b91c1c; }
           .badge-amber { background: #fef3c7; color: #92400e; }
           .badge-slate { background: #f1f5f9; color: #334155; }
-          .amount-big { font-size: 24px; font-weight: 900; color: #15803d; }
-          .section-title { font-size: 11px; font-weight: 800; color: #1e3a8a; text-transform: uppercase; margin: 16px 0 8px 0; border-bottom: 1px solid #dbeafe; padding-bottom: 4px; letter-spacing: 0.5px; }
-          .text-sm { font-size: 11px; }
-          .text-xs { font-size: 10px; }
-          .mt-4 { margin-top: 16px; }
-          .mb-4 { margin-bottom: 16px; }
-          .text-center { text-align: center; }
-          .text-right { text-align: right; }
-          .text-bold { font-weight: 700; }
+          .amount-big { font-size: 22px; font-weight: 900; color: #15803d; }
+          .section-title { font-size: 10.5px; font-weight: 800; color: #1e3a8a; text-transform: uppercase; margin: 12px 0 6px 0; border-bottom: 1px solid #dbeafe; padding-bottom: 3px; letter-spacing: 0.5px; }
+          .clause-heading { font-size: 10px; font-weight: 800; color: #0f172a; margin: 8px 0 3px 0; }
+          .clause-text { font-size: 9.5px; color: #334155; text-align: justify; line-height: 1.5; margin-bottom: 6px; }
+          .page-num { position: absolute; bottom: 0; right: 0; font-size: 8.5px; font-weight: 700; color: #64748b; }
           @media print {
             body { padding: 0; }
             .no-print { display: none; }
@@ -230,26 +243,7 @@ function printDocument(title: string, bodyHtml: string) {
         </style>
       </head>
       <body>
-        <div class="header">
-          <div class="header-left">
-            <img src="/brand/aa2-microfinance.png" alt="AA2" class="header-logo" onerror="this.style.display='none'" />
-            <div>
-              <h1 class="brand-title">AA2 MICRO FINANCE</h1>
-              <p class="brand-sub">Gorav MF Solution • Registered MFI</p>
-              <p class="brand-reg">CIN: U65100UK2024PTC020XXX</p>
-            </div>
-          </div>
-          <div class="header-right">
-            <p style="margin: 0;"><strong>Head Office:</strong> Haridwar, Uttarakhand</p>
-            <p style="margin: 2px 0 0 0;"><strong>Helpline:</strong> 1800-AA2-FINANCE</p>
-            <p style="margin: 2px 0 0 0;">Date: <strong>${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</strong></p>
-          </div>
-        </div>
         ${bodyHtml}
-        <div class="footer">
-          <p style="margin: 0;">This is a computer-generated official document from AA2 Finance Platform. No signature required for digital copies.</p>
-          <p style="margin: 3px 0 0 0;">© 2026 AA2 Micro Finance Pvt. Ltd. • Head Office: Haridwar, Uttarakhand • Helpline: 1800-AA2-FINANCE • Powered by Gorav MF Solution</p>
-        </div>
         <script>
           window.onload = function() {
             setTimeout(function() {
@@ -267,74 +261,411 @@ function printDocument(title: string, bodyHtml: string) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 1. LOAN SANCTION LETTER & CREDIT AGREEMENT
+// 1. LOAN SANCTION LETTER & MASTER CREDIT AGREEMENT (12-PAGE MFI SPECIFICATION)
 // ═══════════════════════════════════════════════════════════════════════════════
 export function generateSanctionLetter(data: SanctionLetterData) {
-  const body = `
-    <div class="doc-title">LOAN SANCTION LETTER & CREDIT AGREEMENT</div>
-    <p style="font-size: 12px; margin-bottom: 15px;">
-      <strong>Ref:</strong> AA2/SL/${data.loan_account_no} &nbsp;&nbsp;|&nbsp;&nbsp;
-      <strong>Date:</strong> ${FDATE(data.disbursement_date)}
-    </p>
-
-    <p class="text-sm">Dear <strong>${data.member_name}</strong>,</p>
-    <p class="text-sm">We are pleased to inform you that your application for microfinance facility has been sanctioned under the following terms and conditions:</p>
-
-    <div class="grid">
-      <div class="box">
-        <div class="box-title">Borrower Details</div>
-        <div class="row"><span class="label">Member Name:</span> <span class="value">${data.member_name}</span></div>
-        <div class="row"><span class="label">Customer ID:</span> <span class="value">${data.customer_id}</span></div>
-        <div class="row"><span class="label">Father/Husband:</span> <span class="value">${data.father_husband_name || '-'}</span></div>
-        <div class="row"><span class="label">Mobile:</span> <span class="value">${data.mobile || '-'}</span></div>
-        <div class="row"><span class="label">Address:</span> <span class="value">${data.address || '-'}</span></div>
-        <div class="row"><span class="label">Branch:</span> <span class="value">${data.branch_code}</span></div>
-      </div>
-      <div class="box">
-        <div class="box-title">Loan Sanction Terms</div>
-        <div class="row"><span class="label">Loan Account No:</span> <span class="value">${data.loan_account_no}</span></div>
-        <div class="row"><span class="label">Product Type:</span> <span class="value">${data.product_type}</span></div>
-        <div class="row"><span class="label">Sanctioned Amount:</span> <span class="value">${INR(data.loan_amount)}</span></div>
-        <div class="row"><span class="label">File Processing Charge:</span> <span class="value">${INR(data.file_charge)}</span></div>
-        <div class="row"><span class="label">Net Disbursement:</span> <span class="value">${INR(data.net_disbursement)}</span></div>
-      </div>
-    </div>
-
-    <div class="box mb-4">
-      <div class="box-title">Repayment Structure</div>
-      <div class="grid" style="margin-bottom: 0;">
+  const headerHtml = `
+    <div class="header">
+      <div class="header-left">
+        <img src="/brand/aa2-microfinance.png" alt="AA2" class="header-logo" onerror="this.style.display='none'" />
+        <img src="/brand/aa2-foundation.jpeg" alt="AA2 Foundation" class="header-logo" style="width:65px;" onerror="this.style.display='none'" />
         <div>
-          <div class="row"><span class="label">Interest Rate:</span> <span class="value">${data.interest_rate}% p.a. (Flat)</span></div>
-          <div class="row"><span class="label">Tenure:</span> <span class="value">${data.tenure} Installments</span></div>
-          <div class="row"><span class="label">Repayment Frequency:</span> <span class="value">${data.frequency}</span></div>
-        </div>
-        <div>
-          <div class="row"><span class="label">EMI Amount:</span> <span class="value">${INR(data.installment_amount)}</span></div>
-          <div class="row"><span class="label">Disbursement Date:</span> <span class="value">${FDATE(data.disbursement_date)}</span></div>
-          <div class="row"><span class="label">First EMI Due Date:</span> <span class="value">${FDATE(data.installment_start_date)}</span></div>
+          <h1 class="brand-title">AA2 MICROFINANCE PRIVATE LIMITED</h1>
+          <p class="brand-sub">Gorav MF Solution • Registered Microfinance Institution (MFI)</p>
+          <p class="brand-reg">CIN: U64990UP2023PTC184704 | PAN: AAYCA9551F | TAN: MRTA20479E</p>
         </div>
       </div>
-    </div>
-
-    <div class="section-title">Terms & Conditions</div>
-    <ol style="font-size: 10px; color: #475569; padding-left: 18px; line-height: 1.7;">
-      <li>The borrower shall repay the installments on or before the due date as per the repayment schedule.</li>
-      <li>Late payment penalty of ${INR(data.penalty_per_day || 0)}/day will be levied on overdue installments.</li>
-      <li>The borrower acknowledges that the File Processing Charge of ${INR(data.file_charge)} is non-refundable.</li>
-      <li>The loan can be foreclosed at any time by paying the outstanding principal and accrued interest.</li>
-      <li>AA2 Micro Finance reserves the right to initiate recovery proceedings in case of default.</li>
-    </ol>
-
-    <div style="font-size: 10px; color: #475569; margin-top: 12px; border: 1px solid #e2e8f0; padding: 8px 12px; border-radius: 6px; background: #f8fafc;">
-      <strong>Declaration & Undertaking:</strong> I hereby acknowledge receipt of the loan sanction terms mentioned above. I agree to repay the installments regularly as per the repayment schedule. I confirm that the details provided are true and correct.
-    </div>
-
-    <div class="signatures">
-      <div class="sig-box">Borrower's Signature / Thumb Impression</div>
-      <div class="sig-box">Credit Officer / Branch Manager</div>
-      <div class="sig-box">Authorized Signatory (AA2 Finance)</div>
+      <div class="header-right">
+        <p style="margin:0;"><strong>Corporate Office:</strong> Shanti Kunj Dehradun Rd, Gagalheri, Saharanpur, UP 247669</p>
+        <p style="margin:1px 0 0 0;"><strong>Regd Office:</strong> Opp. Punjab & Sindh Bank, Dehradun Rd, Gagalheri, UP 247669</p>
+        <p style="margin:1px 0 0 0;"><strong>Email:</strong> info@aa2finance.com | <strong>Tel:</strong> +91-9761585314</p>
+        <p style="margin:1px 0 0 0;"><strong>Web:</strong> www.aa2microfinance.com | aa2mutualhelpfoundation.com</p>
+      </div>
     </div>
   `
+
+  const footer = (pageNum: number, totalPages = 12) => `
+    <div class="footer">
+      <p style="margin:0;">AA2 Microfinance Private Limited • Corporate Office: Saharanpur, UP 247669 • Helpline: +91-9761585314</p>
+      <p style="margin:1px 0 0 0;">Confidential & Legally Binding Credit Document • Registered under Companies Act, 2013</p>
+      <div class="page-num">Page ${pageNum} of ${totalPages}</div>
+    </div>
+  `
+
+  const totalInterest = Math.max(0, (data.installment_amount * data.tenure) - data.loan_amount)
+  const totalCost = data.loan_amount + totalInterest + data.file_charge
+  const apr = (((totalInterest + data.file_charge) / data.loan_amount) / (data.tenure / (data.frequency === 'Weekly' ? 52 : 12)) * 100).toFixed(2)
+
+  let body = ''
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // PAGE 1: COVER & KEY FACT STATEMENT (KFS) - PART A
+  // ───────────────────────────────────────────────────────────────────────────
+  body += `
+    <div class="page">
+      ${headerHtml}
+      <div class="doc-title">SANCTION LETTER & MASTER CREDIT AGREEMENT</div>
+      <div style="display:flex; justify-between:space-between; margin-bottom:12px; font-size:10px;">
+        <div><strong>Sanction Letter Ref:</strong> AA2/SL/${data.loan_account_no}</div>
+        <div><strong>Date of Sanction:</strong> ${FDATE(data.disbursement_date)}</div>
+      </div>
+
+      <p class="text-sm">To,<br><strong>${data.member_name}</strong> (Customer ID: <strong>${data.customer_id}</strong>)<br>S/D/W of: <strong>${data.father_husband_name || 'N/A'}</strong><br>Address: ${data.address || 'Gagalheri, Saharanpur, UP 247669'}</p>
+      <p class="text-sm">Dear Borrower,</p>
+      <p class="clause-text">We are pleased to inform you that <strong>AA2 Microfinance Private Limited</strong> ("Lender") has sanctioned your application for a microfinance credit facility as per the Key Fact Statement (KFS) and terms below:</p>
+
+      <div class="section-title">PART A: KEY FACT STATEMENT (KFS) — RBI DIRECTIVES ALIGNED</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Parameter</th>
+            <th>Details & Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="left"><strong>1. Sanctioned Loan Amount</strong></td><td><strong>${INR(data.loan_amount)}</strong></td></tr>
+          <tr><td class="left"><strong>2. File Processing Fee (Inclusive of GST)</strong></td><td>${INR(data.file_charge)} (Non-refundable)</td></tr>
+          <tr><td class="left"><strong>3. Insurance & Other Upfront Charges</strong></td><td>₹0 (Nil)</td></tr>
+          <tr><td class="left"><strong>4. Net Disbursed Amount</strong></td><td><strong>${INR(data.net_disbursement)}</strong></td></tr>
+          <tr><td class="left"><strong>5. Total Interest Chargeable</strong></td><td>${INR(totalInterest)}</td></tr>
+          <tr><td class="left"><strong>6. Total Repayable Amount (Principal + Interest)</strong></td><td><strong>${INR(data.installment_amount * data.tenure)}</strong></td></tr>
+          <tr><td class="left"><strong>7. Flat Interest Rate (% p.a.)</strong></td><td><strong>${data.interest_rate}% p.a.</strong></td></tr>
+          <tr><td class="left"><strong>8. Annual Percentage Rate (APR %)</strong></td><td><strong>${apr}% p.a.</strong></td></tr>
+          <tr><td class="left"><strong>9. Tenure & Installment Frequency</strong></td><td>${data.tenure} ${data.frequency} Installments</td></tr>
+          <tr><td class="left"><strong>10. Installment Amount (EMI)</strong></td><td><strong>${INR(data.installment_amount)}</strong></td></tr>
+          <tr><td class="left"><strong>11. First Installment Due Date</strong></td><td>${FDATE(data.installment_start_date)}</td></tr>
+          <tr><td class="left"><strong>12. Loan Product Type</strong></td><td>${data.product_type}</td></tr>
+        </tbody>
+      </table>
+
+      <div class="box mt-4">
+        <div class="box-title">Important Microfinance Declaration</div>
+        <p class="clause-text" style="margin:0;">This credit facility is extended as a collateral-free microfinance loan in compliance with RBI Directions. The borrower is not subject to any prepayment penalty or hidden charges.</p>
+      </div>
+      ${footer(1)}
+    </div>
+  `
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // PAGE 2: KEY FACT STATEMENT (KFS) - PART B & SCHEDULE OF CHARGES
+  // ───────────────────────────────────────────────────────────────────────────
+  body += `
+    <div class="page">
+      ${headerHtml}
+      <div class="doc-title">KEY FACT STATEMENT (KFS) — PART B: CHARGES & GRIEVANCE</div>
+
+      <div class="section-title">SCHEDULE OF PENAL & OTHER CHARGES</div>
+      <table>
+        <thead>
+          <tr><th>Charge Type</th><th>Rate / Amount</th><th>Conditions & Applicability</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="left"><strong>Overdue Late Payment Fee</strong></td><td>${INR(data.penalty_per_day || 10)} per day</td><td>Applicable on every overdue installment beyond due date</td></tr>
+          <tr><td class="left"><strong>Prepayment / Foreclosure Penalty</strong></td><td>₹0 (NIL)</td><td>Zero foreclosure penalty as per RBI MFI directives</td></tr>
+          <tr><td class="left"><strong>Cheque / NACH Bounce Charge</strong></td><td>₹250 per bounce</td><td>Charged if bank auto-debit fails due to insufficient balance</td></tr>
+          <tr><td class="left"><strong>Legal Recovery Realization Cost</strong></td><td>At actuals</td><td>Applicable only in case of legal recovery proceedings</td></tr>
+        </tbody>
+      </table>
+
+      <div class="section-title">GRIEVANCE REDRESSAL MECHANISM (RBI ALIGNED)</div>
+      <div class="box">
+        <p class="clause-text">In case of any queries, grievances, or complaints regarding loan servicing or collection behavior, borrowers may contact our dedicated Grievance Redressal Officer:</p>
+        <div class="row"><span class="label">Nodal Grievance Officer:</span> <span class="value">Grievance Redressal Cell, AA2 Microfinance</span></div>
+        <div class="row"><span class="label">Office Address:</span> <span class="value">Shanti Kunj Dehradun Road, Gagalheri, Saharanpur, UP 247669</span></div>
+        <div class="row"><span class="label">Customer Helpline:</span> <span class="value">+91-9761585314</span></div>
+        <div class="row"><span class="label">Email:</span> <span class="value">info@aa2finance.com</span></div>
+        <div class="row"><span class="label">RBI Ombudsman Escalation:</span> <span class="value">https://cms.rbi.org.in (If unresolved within 30 days)</span></div>
+      </div>
+      ${footer(2)}
+    </div>
+  `
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // PAGE 3: BORROWER PROFILE & SANCTION PARTICULARS
+  // ───────────────────────────────────────────────────────────────────────────
+  body += `
+    <div class="page">
+      ${headerHtml}
+      <div class="doc-title">BORROWER & SANCTION PARTICULARS</div>
+
+      <div class="grid">
+        <div class="box">
+          <div class="box-title">Borrower Identification</div>
+          <div class="row"><span class="label">Full Name:</span> <span class="value">${data.member_name}</span></div>
+          <div class="row"><span class="label">Customer ID:</span> <span class="value">${data.customer_id}</span></div>
+          <div class="row"><span class="label">Father/Husband Name:</span> <span class="value">${data.father_husband_name || '-'}</span></div>
+          <div class="row"><span class="label">Mobile Number:</span> <span class="value">${data.mobile || '-'}</span></div>
+          <div class="row"><span class="label">Branch Name:</span> <span class="value">${data.branch_code}</span></div>
+        </div>
+        <div class="box">
+          <div class="box-title">Address & Location</div>
+          <div class="row"><span class="label">Village / City:</span> <span class="value">${data.address || 'Gagalheri'}</span></div>
+          <div class="row"><span class="label">District:</span> <span class="value">${data.district || 'Saharanpur'}</span></div>
+          <div class="row"><span class="label">State:</span> <span class="value">${data.state || 'UTTAR PRADESH'}</span></div>
+          <div class="row"><span class="label">Field Officer (FO):</span> <span class="value">${data.fo_name || 'Assigned Officer'}</span></div>
+          <div class="row"><span class="label">Branch Manager (BM):</span> <span class="value">${data.bm_name || 'Branch Manager'}</span></div>
+        </div>
+      </div>
+
+      <div class="box">
+        <div class="box-title">Facility Purpose & Disbursement Account</div>
+        <div class="row"><span class="label">Stated End-Use Purpose:</span> <span class="value">Income Generation / Micro Enterprise Development</span></div>
+        <div class="row"><span class="label">Disbursement Mode:</span> <span class="value">Direct Bank Account Transfer / Authorized NEFT</span></div>
+        <div class="row"><span class="label">Sanctioning Authority:</span> <span class="value">Credit Sanction Committee, AA2 Microfinance</span></div>
+      </div>
+      ${footer(3)}
+    </div>
+  `
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // PAGE 4: MASTER CREDIT AGREEMENT — CLAUSES 1 TO 5
+  // ───────────────────────────────────────────────────────────────────────────
+  body += `
+    <div class="page">
+      ${headerHtml}
+      <div class="doc-title">MASTER CREDIT AGREEMENT — TERMS (CLAUSES 1–5)</div>
+
+      <div class="clause-heading">1. DEFINITIONS AND INTERPRETATION</div>
+      <p class="clause-text">"Loan" means the principal microfinance amount sanctioned under this agreement. "EMI" means the weekly/monthly installment comprising principal and interest components payable on due dates. "Default" means failure to pay any installment on its due date.</p>
+
+      <div class="clause-heading">2. DISBURSEMENT CONDITIONS</div>
+      <p class="clause-text">Disbursement is subject to complete execution of documents, KYC verification, household income evaluation as per RBI guidelines, and verification of non-overindebtedness.</p>
+
+      <div class="clause-heading">3. INTEREST CALCULATION METHODOLOGY</div>
+      <p class="clause-text">Interest is calculated at the flat annual rate of ${data.interest_rate}% per annum across the sanctioned tenure. The total interest payable is spread equally across all installments.</p>
+
+      <div class="clause-heading">4. REPAYMENT WATERFALL & SCHEDULE</div>
+      <p class="clause-text">Payments received from the borrower shall be applied strictly in the following order of priority: (i) Statutory & Legal Fees, (ii) Overdue Penalty Charges, (iii) Interest Overdue, (iv) Principal Overdue.</p>
+
+      <div class="clause-heading">5. ZERO PREPAYMENT PENALTY & FORECLOSURE</div>
+      <p class="clause-text">The borrower has the right to prepay or foreclose the loan at any time. No prepayment penalty, foreclosure charge, or termination fee shall be demanded by the Lender.</p>
+      ${footer(4)}
+    </div>
+  `
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // PAGE 5: MASTER CREDIT AGREEMENT — CLAUSES 6 TO 10
+  // ───────────────────────────────────────────────────────────────────────────
+  body += `
+    <div class="page">
+      ${headerHtml}
+      <div class="doc-title">MASTER CREDIT AGREEMENT — COVENANTS (CLAUSES 6–10)</div>
+
+      <div class="clause-heading">6. BORROWER REPRESENTATIONS & WARRANTIES</div>
+      <p class="clause-text">The borrower represents that all information, income declarations, and KYC documents submitted are true and correct. Annual household income complies with RBI microfinance limits (under ₹3,00,000 p.a.).</p>
+
+      <div class="clause-heading">7. AFFIRMATIVE COVENANTS</div>
+      <p class="clause-text">The borrower covenants to: (a) Utilize funds strictly for income generation/micro-enterprise, (b) Attend center meetings regularly, (c) Inform Lender of any change in residence or contact number within 7 days.</p>
+
+      <div class="clause-heading">8. NEGATIVE COVENANTS</div>
+      <p class="clause-text">The borrower agrees not to: (a) Incur indebtedness exceeding RBI microfinance borrowing limits across all lenders, (b) Use loan proceeds for speculative or illegal activities.</p>
+
+      <div class="clause-heading">9. INSPECTION AND AUDIT RIGHTS</div>
+      <p class="clause-text">The Lender's officers have the right to inspect enterprise activities, verify asset creation, and audit repayment books during business hours.</p>
+
+      <div class="clause-heading">10. CREDIT BUREAU REPORTING</div>
+      <p class="clause-text">The borrower consents to the Lender sharing repayment performance data with credit rating agencies and Credit Information Companies (CIBIL, Equifax, Experian, CRIF High Mark).</p>
+      ${footer(5)}
+    </div>
+  `
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // PAGE 6: MASTER CREDIT AGREEMENT — CLAUSES 11 TO 15
+  // ───────────────────────────────────────────────────────────────────────────
+  body += `
+    <div class="page">
+      ${headerHtml}
+      <div class="doc-title">MASTER CREDIT AGREEMENT — DEFAULT & LEGAL (CLAUSES 11–15)</div>
+
+      <div class="clause-heading">11. EVENTS OF DEFAULT</div>
+      <p class="clause-text">Each of the following constitutes an Event of Default: (a) Failure to pay any installment on or before due date, (b) Submission of false KYC or income documents, (c) Insolvency or death of borrower.</p>
+
+      <div class="clause-heading">12. ACCELERATION AND RECOVERY REMEDIES</div>
+      <p class="clause-text">Upon an Event of Default, the Lender may declare the entire outstanding loan balance immediately due and payable and initiate lawful recovery proceedings.</p>
+
+      <div class="clause-heading">13. RECOVERY EXPENSES REALIZATION</div>
+      <p class="clause-text">All reasonable expenses incurred by the Lender in legal recovery or enforcement of dues shall be recoverable from the borrower.</p>
+
+      <div class="clause-heading">14. RIGHT OF SET-OFF</div>
+      <p class="clause-text">The Lender reserves the right to set-off any credits or refunds due to the borrower against overdue loan balances.</p>
+
+      <div class="clause-heading">15. GOVERNING LAW AND JURISDICTION</div>
+      <p class="clause-text">This agreement is governed by the laws of India. Courts in Saharanpur / Haridwar shall have exclusive jurisdiction over legal disputes.</p>
+      ${footer(6)}
+    </div>
+  `
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // PAGE 7: JOINT LIABILITY GROUP (JLG) CROSS-GUARANTEE CLAUSES 16–18
+  // ───────────────────────────────────────────────────────────────────────────
+  body += `
+    <div class="page">
+      ${headerHtml}
+      <div class="doc-title">JLG CROSS-GUARANTEE & CENTER RULES (CLAUSES 16–18)</div>
+
+      <div class="clause-heading">16. JOINT AND SEVERAL GROUP GUARANTEE (JLG LOANS)</div>
+      <p class="clause-text">For Joint Liability Group (JLG) loans, all group members guarantee repayment of each other's installments jointly and severally. In case a member fails to pay, group members agree to cover the shortfall.</p>
+
+      <div class="clause-heading">17. CENTER MEETING DISCIPLINE</div>
+      <p class="clause-text">Group members commit to attending scheduled Center Meetings punctually and abiding by the instructions of the Center Leader and Field Officer.</p>
+
+      <div class="clause-heading">18. CODE OF CONDUCT FOR GROUP MEMBERS</div>
+      <p class="clause-text">Members agree to maintain harmony, support peer micro-enterprises, and avoid unauthorized group fund collections.</p>
+      ${footer(7)}
+    </div>
+  `
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // PAGE 8: SCHEDULE A — DETAILED REPAYMENT SCHEDULE MATRIX
+  // ───────────────────────────────────────────────────────────────────────────
+  let schedTable = ''
+  if (data.schedule && data.schedule.length > 0) {
+    schedTable = data.schedule.map((s: any) => `
+      <tr>
+        <td>${s.installment_no}</td>
+        <td>${FDATE(s.due_date)}</td>
+        <td>${INR(s.opening_balance)}</td>
+        <td>${INR(s.principal_due)}</td>
+        <td>${INR(s.interest_due)}</td>
+        <td><strong>${INR(s.emi_due)}</strong></td>
+        <td>${INR(s.closing_balance)}</td>
+      </tr>
+    `).join('')
+  } else {
+    // Generate synthetic schedule rows if not passed
+    let bal = data.total_cost || (data.loan_amount + totalInterest)
+    const perInt = Math.round(totalInterest / data.tenure)
+    const perEmi = data.installment_amount
+    for (let i = 1; i <= Math.min(data.tenure, 25); i++) {
+      const prin = perEmi - perInt
+      const cBal = Math.max(0, bal - perEmi)
+      schedTable += `
+        <tr>
+          <td>${i}</td>
+          <td>Installment ${i}</td>
+          <td>${INR(bal)}</td>
+          <td>${INR(prin)}</td>
+          <td>${INR(perInt)}</td>
+          <td><strong>${INR(perEmi)}</strong></td>
+          <td>${INR(cBal)}</td>
+        </tr>
+      `
+      bal = cBal
+    }
+  }
+
+  body += `
+    <div class="page">
+      ${headerHtml}
+      <div class="doc-title">SCHEDULE A — REPAYMENT SCHEDULE MATRIX</div>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Due Date</th>
+            <th>Opening Bal</th>
+            <th>Principal</th>
+            <th>Interest</th>
+            <th>EMI Due</th>
+            <th>Closing Bal</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${schedTable}
+        </tbody>
+      </table>
+      ${footer(8)}
+    </div>
+  `
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // PAGE 9: SCHEDULE B — PRODUCT SPECIFIC ANNEXURES & DIGITAL MANDATE
+  // ───────────────────────────────────────────────────────────────────────────
+  body += `
+    <div class="page">
+      ${headerHtml}
+      <div class="doc-title">SCHEDULE B — PRODUCT ANNEXURE & RECOVERY MANDATE</div>
+
+      <div class="section-title">ANNEXURE B1: PRODUCT SPECIFIC TERMS (${data.product_type})</div>
+      <p class="clause-text">The loan facility sanctioned under ${data.product_type} is governed by product rules including tenure limits, interest floor rates, and center meeting guidelines.</p>
+
+      <div class="section-title">ANNEXURE B2: DIGITAL PAYMENT & CASH COLLECTION MANDATE</div>
+      <p class="clause-text">The borrower is issued an official printed receipt for every cash collection. Digital payments via UPI, NEFT, and NACH auto-debit are strongly encouraged for speed and security.</p>
+      ${footer(9)}
+    </div>
+  `
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // PAGE 10: VERNACULAR BORROWER DECLARATION (ENGLISH & HINDI)
+  // ───────────────────────────────────────────────────────────────────────────
+  body += `
+    <div class="page">
+      ${headerHtml}
+      <div class="doc-title">VERNACULAR BORROWER DECLARATION / स्थानीय भाषा घोषणा</div>
+
+      <div class="box mt-4">
+        <div class="box-title">Declaration in English</div>
+        <p class="clause-text">I hereby declare that all terms and conditions of this Sanction Letter and Master Credit Agreement have been read over and explained to me in Hindi/local language. I have fully understood the interest rates, EMI amounts, fee charges, and repayment obligations. I accept the loan facility willingly without any coercion.</p>
+      </div>
+
+      <div class="box mt-4" style="background:#fff7ed; border-color:#fed7aa;">
+        <div class="box-title" style="color:#c2410c;">हिंदी में घोषणा (Local Language Acknowledgment)</div>
+        <p class="clause-text" style="color:#9a3412;">मैं एतद्द्वारा घोषणा करता/करती हूँ कि इस स्वीकृति पत्र एवं ऋण समझौते के सभी नियमों एवं शर्तों को मुझे मेरी स्थानीय भाषा (हिंदी) में पढ़कर सुनाया और समझाया गया है। मैंने ब्याज दर, मासिक/साप्ताहिक किस्त (EMI), शुल्क एवं भुगतान तिथियों को भली-भांति समझ लिया है और मैं इस ऋण स्वीकृति को अपनी स्वेच्छा से स्वीकार करता/करती हूँ।</p>
+      </div>
+      ${footer(10)}
+    </div>
+  `
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // PAGE 11: EXECUTION & SIGNATURES PAGE
+  // ───────────────────────────────────────────────────────────────────────────
+  body += `
+    <div class="page">
+      ${headerHtml}
+      <div class="doc-title">EXECUTION AND SIGNATURES PAGE</div>
+
+      <p class="clause-text" style="margin-bottom:25px;">IN WITNESS WHEREOF, the parties hereto have executed this Sanction Letter and Credit Agreement on the date first above written.</p>
+
+      <div class="signatures" style="margin-top:60px;">
+        <div class="sig-box">Borrower Signature / Left Thumb Impression<br>(${data.member_name})</div>
+        <div class="sig-box">Co-Borrower / Guarantor Signature</div>
+        <div class="sig-box">Center Leader Signature</div>
+      </div>
+
+      <div class="signatures" style="margin-top:70px;">
+        <div class="sig-box">Field Officer (FO) Signature</div>
+        <div class="sig-box">Branch Manager (BM) Signature</div>
+        <div class="sig-box">For AA2 Microfinance Pvt. Ltd.<br>(Authorized Sanctioning Signatory)</div>
+      </div>
+      ${footer(11)}
+    </div>
+  `
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // PAGE 12: FAIR PRACTICES CODE & BORROWER RIGHTS CHARTER
+  // ───────────────────────────────────────────────────────────────────────────
+  body += `
+    <div class="page">
+      ${headerHtml}
+      <div class="doc-title">FAIR PRACTICES CODE & BORROWER RIGHTS CHARTER</div>
+
+      <div class="section-title">AA2 MICROFINANCE FAIR PRACTICES CODE SUMMARY</div>
+      <ol style="font-size: 9.5px; color: #334155; padding-left: 16px; line-height: 1.6;">
+        <li><strong>No Harassment Policy:</strong> Our staff will treat all borrowers with dignity and respect. Recovery visits are conducted only at designated residential/center meeting places between 07:00 AM and 07:00 PM.</li>
+        <li><strong>Transparent Pricing:</strong> No hidden charges, security deposits, or compulsory tie-in insurance products.</li>
+        <li><strong>Receipt Guarantee:</strong> An official printed or SMS receipt is generated instantly for every single collection.</li>
+        <li><strong>Customer Privacy:</strong> Borrower data is strictly protected as per Indian Privacy Laws and shared only with regulated Credit Bureaus.</li>
+      </ol>
+
+      <div class="box mt-4" style="text-align:center; background:#f0fdf4; border-color:#bbf7d0;">
+        <div style="font-size:11px; font-weight:800; color:#166534;">CUSTOMER HELPLINE & SUPPORT</div>
+        <p style="font-size:10px; color:#15803d; margin:3px 0 0 0;">Phone: +91-9761585314 | Email: info@aa2finance.com</p>
+        <p style="font-size:9.5px; color:#166534; margin:2px 0 0 0;">Web: www.aa2microfinance.com | Corporate Office: Gagalheri, Saharanpur, UP 247669</p>
+      </div>
+      ${footer(12)}
+    </div>
+  `
+
   printDocument(`Sanction_Letter_${data.loan_account_no}`, body)
 }
 
