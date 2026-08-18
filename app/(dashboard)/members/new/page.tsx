@@ -6,8 +6,9 @@ import { getAll, putOne } from '@/lib/supabase'
 import { toast } from '@/lib/toast'
 import type { Customer } from '@/lib/types'
 import { ArrowLeft, Save, AlertTriangle } from 'lucide-react'
-import { todayISO } from '@/lib/utils'
+import { todayISO, calculateAgeInYearsMonths } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
+import { confirmAction } from '@/lib/confirm'
 
 export default function NewMemberPage() {
   const DRAFT_KEY = 'aa2_draft_member'
@@ -41,8 +42,18 @@ export default function NewMemberPage() {
   const [duplicateWarning, setDuplicateWarning] = useState<Customer | null>(null)
   const router = useRouter()
 
+  const ageInfo = calculateAgeInYearsMonths(formData.dob)
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target
+    let { name, value } = e.target
+
+    // Format sanitizations
+    if (name === 'mobile') {
+      value = value.replace(/\D/g, '').slice(0, 10)
+    } else if (name === 'aadhar_last4') {
+      value = value.replace(/\D/g, '').slice(0, 4)
+    }
+
     setFormData((prev: Record<string, string>) => {
       const updated = { ...prev, [name]: value }
       if (typeof window !== 'undefined') localStorage.setItem(DRAFT_KEY, JSON.stringify(updated))
@@ -56,8 +67,14 @@ export default function NewMemberPage() {
     setTimeout(() => setDraftSavedMsg(''), 4000)
   }
 
-  const handleClearDraft = () => {
-    if (window.confirm('Clear draft form and reset all fields?')) {
+  const handleClearDraft = async () => {
+    const ok = await confirmAction({
+      title: 'Clear Form Draft',
+      message: 'Are you sure you want to clear the saved draft and reset all member onboarding fields?',
+      confirmText: 'Yes, Clear Draft',
+      variant: 'danger',
+    })
+    if (ok) {
       if (typeof window !== 'undefined') localStorage.removeItem(DRAFT_KEY)
       setFormData({
         full_name: '', father_husband_name: '', gender: 'Female', dob: '',
@@ -257,7 +274,14 @@ export default function NewMemberPage() {
 
             {/* DOB */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Date of Birth</label>
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Date of Birth</label>
+                {ageInfo && (
+                  <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    🎂 Age: {ageInfo.label} ({ageInfo.years} Yrs)
+                  </span>
+                )}
+              </div>
               <input
                 type="date"
                 name="dob"
@@ -269,30 +293,41 @@ export default function NewMemberPage() {
 
             {/* Mobile */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Mobile Number</label>
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Mobile Number *</label>
+                {formData.mobile.length > 0 && formData.mobile.length < 10 && (
+                  <span className="text-[10px] text-amber-600 font-semibold">{10 - formData.mobile.length} digits left</span>
+                )}
+                {formData.mobile.length === 10 && (
+                  <span className="text-[10px] text-emerald-600 font-bold">✓ 10 Digits</span>
+                )}
+              </div>
               <input
                 type="text"
                 name="mobile"
                 value={formData.mobile}
                 onChange={handleChange}
                 maxLength={10}
-                pattern="[0-9]{10}"
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                placeholder="10-digit mobile"
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400"
+                placeholder="10-digit mobile (e.g. 9876543210)"
               />
             </div>
 
             {/* Aadhaar Last 4 */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Aadhaar (last 4 digits)</label>
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Aadhaar (last 4 digits)</label>
+                {formData.aadhar_last4.length === 4 && (
+                  <span className="text-[10px] text-emerald-600 font-bold">✓ 4 Digits</span>
+                )}
+              </div>
               <input
                 type="text"
                 name="aadhar_last4"
                 value={formData.aadhar_last4}
                 onChange={handleChange}
                 maxLength={4}
-                pattern="[0-9]{4}"
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400"
                 placeholder="e.g. 1234"
               />
             </div>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { getAll, putOne } from '@/lib/supabase'
 import { Download, Upload, Trash2, RefreshCw, CheckCircle, AlertCircle, Database, RotateCcw, Shield } from 'lucide-react'
+import { confirmAction } from '@/lib/confirm'
 
 // All data stores in the system
 const STORES = [
@@ -98,7 +99,13 @@ export default function DataToolsPage() {
   // ── RESTORE ────────────────────────────────────────────────────────────────
   async function handleRestore() {
     if (!restoreFile) return
-    if (!window.confirm('⚠️ This will OVERWRITE existing data in the database with the backup file contents. Are you sure?')) return
+    const ok = await confirmAction({
+      title: 'Confirm Database Restore',
+      message: '⚠️ This will OVERWRITE existing data in the database with the backup file contents. Are you sure?',
+      confirmText: 'Overwrite & Restore',
+      variant: 'danger',
+    })
+    if (!ok) return
 
     setRestoreStatus('running')
     setRestoreLog([])
@@ -177,7 +184,13 @@ export default function DataToolsPage() {
   const [migrationResult, setMigrationResult] = useState<any>(null)
 
   async function handleRunMigration() {
-    if (!window.confirm('Run Member ID Format Migration now? This will convert non-standard Member IDs (like MEM-1D8KJ0JNOW) to standard MEM12345 format and update all related loans, documents, and grievances.')) return
+    const ok = await confirmAction({
+      title: 'Run Member ID Migration',
+      message: 'Run Member ID Format Migration now? This will convert non-standard Member IDs (like MEM-1D8KJ0JNOW) to standard MEM12345 format and update all related loans, documents, and grievances.',
+      confirmText: 'Run Migration',
+      variant: 'warning',
+    })
+    if (!ok) return
     setMigrating(true)
     setMessage('')
     setErrorMessage('')

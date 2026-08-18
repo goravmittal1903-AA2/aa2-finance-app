@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { getAll } from '@/lib/supabase'
 import { applyPayment } from '@/lib/calculations'
 import { toast } from '@/lib/toast'
+import { confirmAction } from '@/lib/confirm'
 import type { Loan, ScheduleRow } from '@/lib/types'
 import { inr, todayISO, fdate } from '@/lib/utils'
 import {
@@ -82,7 +83,7 @@ function downloadSampleCSV() {
 // ─── Field Sheet Printout ─────────────────────────────────────────────────────
 function printFieldSheet(entries: CollectionEntry[], date: string, branch: string, foName: string) {
   const pw = window.open('', '_blank', 'width=900,height=1000')
-  if (!pw) { alert('Please allow popups.'); return }
+  if (!pw) { toast.error('Popup Blocked', 'Please allow popups.'); return }
   const rows = entries.map(e => `
     <tr>
       <td>${e.loan.loan_account_no}</td>
@@ -258,7 +259,13 @@ export default function CollectionsPage() {
   async function handleSaveAll() {
     const toProcess = entries.filter(e => Number(e.collectedAmount) > 0)
     if (toProcess.length === 0) { setErrorMessage('No collection amounts entered.'); return }
-    if (!window.confirm(`Post ${toProcess.length} collections (${inr(totalCollectedSum)}) to the database?`)) return
+    const ok = await confirmAction({
+      title: 'Post Collections',
+      message: `Post ${toProcess.length} collections (${inr(totalCollectedSum)}) to the database?`,
+      confirmText: 'Post Collections',
+      variant: 'warning',
+    })
+    if (!ok) return
     setSaving(true); setErrorMessage(''); setMessage('')
     try {
       // Process payments in parallel batch for instant completion
@@ -300,7 +307,13 @@ export default function CollectionsPage() {
 
   async function processCsvRows() {
     if (csvRows.length === 0) return
-    if (!window.confirm(`Process ${csvRows.length} CSV payment rows?`)) return
+    const ok = await confirmAction({
+      title: 'Process CSV Payments',
+      message: `Process ${csvRows.length} CSV payment rows?`,
+      confirmText: 'Process Payments',
+      variant: 'warning',
+    })
+    if (!ok) return
     setCsvProcessing(true)
     const updated = [...csvRows]
     for (let i = 0; i < updated.length; i++) {
@@ -536,7 +549,7 @@ export default function CollectionsPage() {
                           <button
                             onClick={async () => {
                               const amt = Number(e.collectAmt)
-                              if (!amt || amt <= 0) { alert('Enter a valid collection amount'); return }
+                              if (!amt || amt <= 0) { toast.warning('Invalid Amount', 'Enter a valid collection amount'); return }
                               setEmiEntries(prev => prev.map((x, i) => i === idx ? { ...x, status: 'saving' as const } : x))
                               try {
                                 await applyPayment(
@@ -548,7 +561,7 @@ export default function CollectionsPage() {
                                 setEmiEntries(prev => prev.map((x, i) => i === idx ? { ...x, status: 'success' as const } : x))
                               } catch (err: any) {
                                 setEmiEntries(prev => prev.map((x, i) => i === idx ? { ...x, status: 'error' as const } : x))
-                                alert('Collection failed: ' + (err.message || 'Unknown error'))
+                                toast.error('Collection Failed', err.message || 'Unknown error')
                               }
                             }}
                             className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg transition">

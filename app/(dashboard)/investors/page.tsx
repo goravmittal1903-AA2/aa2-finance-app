@@ -11,6 +11,7 @@ import {
   Edit2, Printer, Download, X, AlertCircle, CheckCircle2
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
+import { confirmAction } from '@/lib/confirm'
 
 interface Investor {
   id: string
@@ -128,7 +129,12 @@ export default function FinancialsPage() {
 
   // Soft Delete to Trash Can
   const handleDeleteRecord = async (store: string, id: string, record: any, label: string) => {
-    const ok = window.confirm(`Are you sure you want to delete ${label}?`)
+    const ok = await confirmAction({
+      title: 'Confirm Soft Delete',
+      message: `Are you sure you want to delete ${label}? It will be safely moved to the Trash Can with a complete audit trail.`,
+      confirmText: 'Move to Trash',
+      variant: 'danger',
+    })
     if (!ok) return
     try {
       const { moveToTrash } = await import('@/lib/trash')

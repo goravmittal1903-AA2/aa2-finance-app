@@ -7,6 +7,7 @@ import { getOne, getFiltered } from '@/lib/supabase'
 import type { Customer, Loan } from '@/lib/types'
 import { inr, fdate, statusColor } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
+import { confirmAction } from '@/lib/confirm'
 import { ArrowLeft, Phone, MapPin, User, Landmark, Shield, FileText, Plus } from 'lucide-react'
 
 interface PageProps {
@@ -106,8 +107,13 @@ export default function MemberDetailPage({ params }: PageProps) {
                 return
               }
 
-              const confirm = window.confirm(`Are you sure you want to delete member "${customer.full_name}" (${customer.customer_id})?`)
-              if (!confirm) return
+              const ok = await confirmAction({
+                title: 'Confirm Delete Member',
+                message: `Are you sure you want to delete member "${customer.full_name}" (${customer.customer_id})? The record will be moved to Trash Can.`,
+                confirmText: 'Yes, Delete Member',
+                variant: 'danger'
+              })
+              if (!ok) return
 
               try {
                 const { moveToTrash } = await import('@/lib/trash')

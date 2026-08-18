@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import type { AppUser } from '@/lib/types'
 import { UserPlus, Shield, Power, Trash2, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { confirmAction } from '@/lib/confirm'
+import { toast } from '@/lib/toast'
 
 const ROLES = [
   { value: 'it',       label: 'IT (Full Access)' },
@@ -106,7 +108,7 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(data.error || 'Failed to update status.')
       await loadUsers()
     } catch (err: any) {
-      alert(err.message || 'Failed to update user status.')
+      toast.error('Status Update Failed', err.message || 'Failed to update user status.')
     }
   }
 
@@ -121,16 +123,21 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(data.error || 'Failed to update role.')
       await loadUsers()
     } catch (err: any) {
-      alert(err.message || 'Failed to update user role.')
+      toast.error('Role Update Failed', err.message || 'Failed to update user role.')
     }
   }
 
   const handleDeleteUser = async (userId: string) => {
     if (userId === 'management@aa2finance.com') {
-      alert('Cannot delete the primary IT account.')
+      toast.warning('Action Restricted', 'Cannot delete the primary IT account.')
       return
     }
-    const ok = window.confirm(`Are you sure you want to delete user ${userId}?`)
+    const ok = await confirmAction({
+      title: 'Confirm Delete',
+      message: `Are you sure you want to delete user ${userId}?`,
+      confirmText: 'Delete User',
+      variant: 'danger',
+    })
     if (!ok) return
     try {
       const res = await fetch(`/api/admin/users?userId=${encodeURIComponent(userId)}`, { method: 'DELETE' })
@@ -138,7 +145,7 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(data.error || 'Failed to delete user.')
       await loadUsers()
     } catch (err: any) {
-      alert(err.message || 'Failed to delete user.')
+      toast.error('Deletion Failed', err.message || 'Failed to delete user.')
     }
   }
 

@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ChevronRight, Home, User, ShieldCheck, Building2, LogOut, ChevronDown, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { cn } from '@/lib/utils'
+import { confirmAction } from '@/lib/confirm'
 
 const LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -139,9 +140,15 @@ export function Header() {
 
               <div className="pt-2 border-t border-slate-100">
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     setProfileOpen(false)
-                    logout()
+                    const ok = await confirmAction({
+                      title: 'Confirm Sign Out',
+                      message: `Are you sure you want to sign out from ${user?.email || 'your account'}? Any unsaved work will be lost.`,
+                      confirmText: 'Yes, Sign Out',
+                      variant: 'danger',
+                    })
+                    if (ok) await logout()
                   }}
                   className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-bold rounded-xl border border-red-100 transition"
                 >

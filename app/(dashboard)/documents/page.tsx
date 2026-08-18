@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth-context'
 import type { Loan } from '@/lib/types'
 import { fdate } from '@/lib/utils'
 import { Search, Upload, Trash2, Eye, CheckCircle, AlertCircle } from 'lucide-react'
+import { confirmAction } from '@/lib/confirm'
 
 interface DocumentRecord {
   doc_id: string
@@ -166,7 +167,12 @@ export default function DocumentsPage() {
   }
 
   const handleDelete = async (doc: DocumentRecord) => {
-    const ok = window.confirm('Are you sure you want to delete this document?')
+    const ok = await confirmAction({
+      title: 'Confirm Delete',
+      message: `Are you sure you want to delete "${doc.file_name || 'this document'}"?`,
+      confirmText: 'Delete Document',
+      variant: 'danger',
+    })
     if (!ok) return
 
     try {

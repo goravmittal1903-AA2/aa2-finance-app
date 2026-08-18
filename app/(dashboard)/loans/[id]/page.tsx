@@ -7,8 +7,10 @@ import { getOne, getFiltered, putOne, delOne, getAll, supabase } from '@/lib/sup
 import { recalcLoanLedger, applyPayment, computeForeclosure, addDays, addMonthsLike, computeLoanEconomics, generateSchedule } from '@/lib/calculations'
 import type { Loan, ScheduleRow, Transaction, Customer } from '@/lib/types'
 import { inr, fdate, fdatetime, todayISO, statusColor, username } from '@/lib/utils'
-import { generateSanctionLetter, generatePaymentReceipt, generateForeclosureNoc } from '@/lib/document-generator'
+import { generateSanctionLetter, generatePaymentReceipt, generateForeclosureNoc, generateRepaymentSchedule, generateSOA, generateTopUpLetter, generateRestructureAgreement } from '@/lib/document-generator'
 import { useAuth } from '@/lib/auth-context'
+import { confirmAction } from '@/lib/confirm'
+import { toast } from '@/lib/toast'
 import {
   ArrowLeft, Landmark, Calendar, Clock, DollarSign, Tag, Save, AlertTriangle,
   ShieldCheck, CheckCircle, Printer, FileText, Edit2, RefreshCw, TrendingUp,
@@ -162,7 +164,7 @@ export default function LoanDetailPage({ params }: PageProps) {
       setTimeout(() => setPostMessage(''), 4000)
       await loadLoanDetails()
     } catch (err: any) {
-      alert(err.message || 'Payment failed')
+      toast.error('Payment Failed', err.message || 'Payment failed')
     } finally {
       setPostLoading(false)
     }
@@ -170,7 +172,12 @@ export default function LoanDetailPage({ params }: PageProps) {
 
   const handleProcessForeclosure = async () => {
     if (!loan || !fcCalculation || fcCalculation.payoff <= 0) return
-    const ok = window.confirm(`Confirm early foreclosure payoff of ${inr(fcCalculation.payoff)}?`)
+    const ok = await confirmAction({
+      title: 'Confirm Foreclosure',
+      message: `Confirm early foreclosure payoff of ${inr(fcCalculation.payoff)}?`,
+      confirmText: 'Foreclose Loan',
+      variant: 'warning',
+    })
     if (!ok) return
     setFcLoading(true)
     try {
@@ -193,11 +200,11 @@ export default function LoanDetailPage({ params }: PageProps) {
       loan.updated_at = new Date().toISOString()
       await putOne('loans', loan, 'loan_account_no')
       await recalcLoanLedger(id)
-      alert('Loan foreclosed successfully!')
+      toast.success('Loan Foreclosed', 'Loan foreclosed successfully!')
       setActiveTab('schedule')
       await loadLoanDetails()
     } catch (err: any) {
-      alert(err.message || 'Foreclosure failed')
+      toast.error('Foreclosure Failed', err.message || 'Foreclosure failed')
     } finally {
       setFcLoading(false)
     }
@@ -210,9 +217,9 @@ export default function LoanDetailPage({ params }: PageProps) {
       const updated = { ...loan, ...editForm, updated_at: new Date().toISOString() }
       await putOne('loans', updated, 'loan_account_no')
       setLoan(updated as Loan)
-      alert('Loan details updated.')
+      toast.success('Loan Updated', 'Loan details updated.')
     } catch (err: any) {
-      alert(err.message || 'Save failed')
+      toast.error('Save Failed', err.message || 'Save failed')
     } finally {
       setEditSaving(false)
     }
@@ -220,7 +227,12 @@ export default function LoanDetailPage({ params }: PageProps) {
 
   const handleRestructure = async () => {
     if (!loan || !rstPreview) return
-    const ok = window.confirm(`Restructure this loan with new EMI of ${inr(rstPreview.installment_amount)} for ${rstNewTenure} installments starting ${rstStartDate}?`)
+    const ok = await confirmAction({
+      title: 'Confirm Restructure',
+      message: `Restructure this loan with new EMI of ${inr(rstPreview.installment_amount)} for ${rstNewTenure} installments starting ${rstStartDate}?`,
+      confirmText: 'Restructure Loan',
+      variant: 'warning',
+    })
     if (!ok) return
     setRstLoading(true)
     try {
@@ -260,11 +272,11 @@ export default function LoanDetailPage({ params }: PageProps) {
       }
       await putOne('loans', updatedLoan, 'loan_account_no')
       await recalcLoanLedger(id)
-      alert('Loan restructured successfully! New schedule generated.')
+      toast.success('Loan Restructured', 'Loan restructured successfully! New schedule generated.')
       setActiveTab('schedule')
       await loadLoanDetails()
     } catch (err: any) {
-      alert(err.message || 'Restructure failed')
+      toast.error('Restructure Failed', err.message || 'Restructure failed')
     } finally {
       setRstLoading(false)
     }
@@ -272,7 +284,12 @@ export default function LoanDetailPage({ params }: PageProps) {
 
   const handleTopUp = async () => {
     if (!loan || !topupAmount || Number(topupAmount) <= 0) return
-    const ok = window.confirm(`Issue Top-Up loan of ${inr(Number(topupAmount))} to this borrower?`)
+    const ok = await confirmAction({
+      title: 'Confirm Top-Up Loan',
+      message: `Issue Top-Up loan of ${inr(Number(topupAmount))} to this borrower?`,
+      confirmText: 'Issue Top-Up',
+      variant: 'warning',
+    })
     if (!ok) return
     setTopupLoading(true)
     try {
@@ -287,11 +304,11 @@ export default function LoanDetailPage({ params }: PageProps) {
         created_at: new Date().toISOString(), entered_by: user?.email || 'system', voided: false,
       }
       await putOne('transactions', topupTxn, 'txn_id')
-      alert('Top-Up disbursement recorded. Please create a new loan account for the new top-up amount or restructure this one.')
+      toast.success('Top-Up Recorded', 'Top-Up disbursement recorded. Please create a new loan account for the new top-up amount or restructure this one.')
       setTopupAmount('')
       await loadLoanDetails()
     } catch (err: any) {
-      alert(err.message || 'Top-Up failed')
+      toast.error('Top-Up Failed', err.message || 'Top-Up failed')
     } finally {
       setTopupLoading(false)
     }
@@ -332,55 +349,66 @@ export default function LoanDetailPage({ params }: PageProps) {
       await putOne('loan_documents', docRecord, 'doc_id')
       setDocFile(null)
       setDocuments(prev => [...prev, docRecord])
-      alert('Document uploaded successfully!')
+      toast.success('Document Uploaded', 'Document uploaded successfully!')
     } catch (err: any) {
-      alert(`Upload error: ${err.message || 'Failed'}`)
+      toast.error('Upload Error', `Upload error: ${err.message || 'Failed'}`)
     } finally {
       setDocUploading(false)
     }
   }
 
   const handleDeleteDoc = async (doc: LoanDocument) => {
-    if (!confirm(`Delete document "${doc.file_name}"?`)) return
+    const ok = await confirmAction({
+      title: 'Confirm Delete',
+      message: `Delete document "${doc.file_name}"?`,
+      confirmText: 'Delete Document',
+      variant: 'danger',
+    })
+    if (!ok) return
     const { moveToTrash } = await import('@/lib/trash')
     await moveToTrash('loan_documents', doc.doc_id, doc, doc.file_name || doc.doc_id, user?.email || 'system')
     setDocuments(prev => prev.filter(d => d.doc_id !== doc.doc_id))
-    const { toast } = await import('@/lib/toast')
     toast.success('Document Deleted', `Document "${doc.file_name}" has been moved to Trash Can.`)
   }
 
   const handleDeleteLoan = async () => {
-    const ok = window.confirm('Are you sure you want to delete this loan account?')
+    const ok = await confirmAction({
+      title: 'Confirm Delete',
+      message: 'Are you sure you want to delete this loan account?',
+      confirmText: 'Delete Loan Account',
+      variant: 'danger',
+    })
     if (!ok) return
     try {
       setLoading(true)
       const { moveToTrash } = await import('@/lib/trash')
       await moveToTrash('loans', id, loan, `${loan?.member_name_cache || loan?.member_name || ''} (${id})`, user?.email || 'system')
-      const { toast } = await import('@/lib/toast')
       toast.success('Loan Account Deleted', 'Loan account deleted successfully.')
       router.push('/loans')
     } catch (err: any) {
-      const { toast } = await import('@/lib/toast')
       toast.error('Deletion Failed', err.message || 'Could not delete loan account.')
       setLoading(false)
     }
   }
 
   const handleDeleteTxn = async (txn: Transaction) => {
-    const ok = window.confirm(`Are you sure you want to delete transaction "${txn.reference_no || txn.txn_id}" of ${inr(txn.amount)}? The loan schedule and balances will be recalculated.`)
+    const ok = await confirmAction({
+      title: 'Confirm Delete',
+      message: `Are you sure you want to delete transaction "${txn.reference_no || txn.txn_id}" of ${inr(txn.amount)}? The loan schedule and balances will be recalculated.`,
+      confirmText: 'Delete Transaction',
+      variant: 'danger',
+    })
     if (!ok) return
     try {
       setLoading(true)
       const { moveToTrash } = await import('@/lib/trash')
       const { recalcLoanLedger } = await import('@/lib/calculations')
-      const { toast } = await import('@/lib/toast')
 
       await moveToTrash('transactions', txn.txn_id, txn, `Transaction ${txn.reference_no || txn.txn_id} (${inr(txn.amount)})`, user?.email || 'system')
       await recalcLoanLedger(id)
       toast.success('Transaction Deleted', 'Transaction deleted and loan ledger recalculated successfully.')
       await loadLoanDetails()
     } catch (err: any) {
-      const { toast } = await import('@/lib/toast')
       toast.error('Deletion Failed', err.message || 'Could not delete transaction.')
     } finally {
       setLoading(false)
@@ -390,75 +418,71 @@ export default function LoanDetailPage({ params }: PageProps) {
   // Generate SOA - Statement of Account
   const handleGenerateSOA = () => {
     if (!loan) return
-    const printWindow = window.open('', '_blank', 'width=900,height=1100')
-    if (!printWindow) { alert('Please allow popups.'); return }
+    generateSOA({
+      loan_account_no: loan.loan_account_no,
+      member_name: loan.member_name_cache || loan.member_name || '',
+      customer_id: loan.customer_id,
+      father_husband_name: member?.father_husband_name || '',
+      mobile: member?.mobile || '',
+      address: member?.address_current || member?.village_city || '',
+      branch_code: loan.branch_code || '',
+      loan_amount: loan.loan_amount,
+      interest_rate: loan.interest_rate,
+      tenure: loan.tenure,
+      frequency: loan.frequency,
+      installment_amount: loan.installment_amount,
+      disbursement_date: loan.disbursement_date,
+      file_charge: loan.file_charge || 0,
+      total_loan: loan.total_loan,
+      total_collected: loan.total_collected,
+      ledger_balance: loan.ledger_balance,
+      status: loan.status,
+      product_type: loan.product_type || '',
+      schedule: schedule.map(r => ({
+        installment_no: r.installment_no,
+        due_date: r.due_date,
+        emi_due: r.emi_due,
+        paid_amount: r.paid_amount,
+        status: r.status,
+        dpd: r.dpd || 0,
+      })),
+      transactions: transactions.filter(t => !t.voided).map(t => ({
+        txn_id: t.txn_id,
+        txn_date: t.txn_date,
+        amount: t.amount,
+        mode: t.mode || 'Cash',
+        reference_no: t.reference_no || '',
+      })),
+    })
+  }
 
-    const scheduleRows = schedule.map((r, i) => `
-      <tr>
-        <td>${r.installment_no}</td>
-        <td>${fdate(r.due_date)}</td>
-        <td style="text-align:right">${inr(r.emi_due)}</td>
-        <td style="text-align:right">${inr(r.paid_amount)}</td>
-        <td style="text-align:right">${inr(Math.max(0, r.emi_due - r.paid_amount))}</td>
-        <td style="text-align:center">${r.dpd || 0}</td>
-        <td style="text-align:center"><span style="padding:2px 6px;border-radius:4px;font-size:10px;background:${r.status === 'Paid' ? '#dcfce7' : r.status === 'Overdue' ? '#fee2e2' : '#f8fafc'};color:${r.status === 'Paid' ? '#15803d' : r.status === 'Overdue' ? '#dc2626' : '#475569'}">${r.status}</span></td>
-      </tr>
-    `).join('')
-
-    const txnRows = transactions.map(t => `
-      <tr>
-        <td>${fdate(t.txn_date)}</td>
-        <td>${t.txn_type}</td>
-        <td style="text-align:right">${inr(t.amount)}</td>
-        <td>${t.mode || '-'}</td>
-        <td>${t.reference_no || '-'}</td>
-      </tr>
-    `).join('')
-
-    printWindow.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>SOA - ${id}</title>
-    <style>
-      @page{size:A4;margin:15mm}body{font-family:'Segoe UI',sans-serif;color:#1e293b;font-size:12px}
-      h2{font-size:18px;font-weight:800;color:#1e3a8a;margin:0}
-      .header{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #2563eb;padding-bottom:12px;margin-bottom:16px}
-      .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
-      .box{border:1px solid #e2e8f0;padding:10px;border-radius:8px;background:#fafafa}
-      .box-title{font-size:10px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:6px}
-      .row{display:flex;justify-content:space-between;margin-bottom:4px;font-size:11px}
-      .label{color:#64748b}.value{font-weight:700;color:#0f172a}
-      table{width:100%;border-collapse:collapse;margin:8px 0 20px}
-      th{background:#f1f5f9;border:1px solid #cbd5e1;padding:6px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:#475569}
-      td{border:1px solid #e2e8f0;padding:6px 8px;font-size:11px}
-      .section-title{font-size:13px;font-weight:700;margin:16px 0 8px;color:#1e293b;border-bottom:1px solid #e2e8f0;padding-bottom:4px}
-      .footer{text-align:center;font-size:10px;color:#94a3b8;border-top:1px solid #e2e8f0;margin-top:30px;padding-top:12px}
-    </style></head><body>
-    <div class="header"><div><h2>AA2 MICRO FINANCE</h2><p style="font-size:11px;color:#64748b;margin:2px 0 0">Gorav MF Solution • Registered MFI</p></div>
-    <div style="text-align:right"><p style="font-size:14px;font-weight:700;color:#1e3a8a;margin:0">STATEMENT OF ACCOUNT</p><p style="font-size:11px;color:#64748b;margin:2px 0 0">Generated: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p></div></div>
-    <div class="info-grid">
-      <div class="box"><div class="box-title">Borrower Details</div>
-        <div class="row"><span class="label">Member Name:</span><span class="value">${loan.member_name_cache || loan.member_name}</span></div>
-        <div class="row"><span class="label">Customer ID:</span><span class="value">${loan.customer_id}</span></div>
-        <div class="row"><span class="label">Mobile:</span><span class="value">${member?.mobile || '-'}</span></div>
-        <div class="row"><span class="label">Branch:</span><span class="value">${loan.branch_code}</span></div>
-      </div>
-      <div class="box"><div class="box-title">Loan Account Summary</div>
-        <div class="row"><span class="label">Account No:</span><span class="value">${loan.loan_account_no}</span></div>
-        <div class="row"><span class="label">Sanctioned Amount:</span><span class="value">${inr(loan.loan_amount)}</span></div>
-        <div class="row"><span class="label">Total Repayable:</span><span class="value">${inr(loan.total_loan)}</span></div>
-        <div class="row"><span class="label">Total Collected:</span><span class="value">${inr(loan.total_collected)}</span></div>
-        <div class="row"><span class="label">Outstanding Balance:</span><span class="value">${inr(loan.ledger_balance)}</span></div>
-        <div class="row"><span class="label">Status:</span><span class="value">${loan.status} | DPD: ${loan.dpd || 0}</span></div>
-      </div>
-    </div>
-    <div class="section-title">Repayment Schedule</div>
-    <table><thead><tr><th>No</th><th>Due Date</th><th style="text-align:right">EMI Due</th><th style="text-align:right">Paid</th><th style="text-align:right">Balance</th><th style="text-align:center">DPD</th><th style="text-align:center">Status</th></tr></thead>
-    <tbody>${scheduleRows}</tbody></table>
-    <div class="section-title">Transaction History</div>
-    <table><thead><tr><th>Date</th><th>Type</th><th style="text-align:right">Amount</th><th>Mode</th><th>Reference</th></tr></thead>
-    <tbody>${txnRows}</tbody></table>
-    <div class="footer"><p>This is a computer-generated Statement of Account from AA2 Finance Platform.</p></div>
-    <script>window.onload=function(){setTimeout(function(){window.print()},300)}</script>
-    </body></html>`)
-    printWindow.document.close()
+  const handleGenerateRepaymentSchedule = () => {
+    if (!loan) return
+    generateRepaymentSchedule({
+      loan_account_no: loan.loan_account_no,
+      member_name: loan.member_name_cache || loan.member_name || '',
+      customer_id: loan.customer_id,
+      branch_code: loan.branch_code || '',
+      loan_amount: loan.loan_amount,
+      interest_rate: loan.interest_rate,
+      tenure: loan.tenure,
+      frequency: loan.frequency,
+      installment_amount: loan.installment_amount,
+      disbursement_date: loan.disbursement_date,
+      installment_start_date: loan.installment_start_date || loan.disbursement_date,
+      product_type: loan.product_type || '',
+      schedule: schedule.map(r => ({
+        installment_no: r.installment_no,
+        due_date: r.due_date,
+        opening_balance: r.opening_balance,
+        principal_due: r.principal_due,
+        interest_due: r.interest_due,
+        emi_due: r.emi_due,
+        closing_balance: r.closing_balance,
+        paid_amount: r.paid_amount,
+        status: r.status,
+      })),
+    })
   }
 
   if (loading) {
@@ -533,6 +557,13 @@ export default function LoanDetailPage({ params }: PageProps) {
             className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold rounded-xl transition border border-blue-200"
           >
             <Printer className="w-3.5 h-3.5" /> Sanction Letter
+          </button>
+
+          <button
+            onClick={handleGenerateRepaymentSchedule}
+            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-bold rounded-xl transition border border-indigo-200"
+          >
+            <Printer className="w-3.5 h-3.5" /> Repayment Schedule
           </button>
 
           {isClosed && (

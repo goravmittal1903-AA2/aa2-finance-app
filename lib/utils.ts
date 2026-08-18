@@ -32,6 +32,31 @@ export function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+// Live Age Calculator from DOB string (returns Years & Months)
+export function calculateAgeInYearsMonths(dobString: string | null | undefined): { years: number; months: number; label: string } | null {
+  if (!dobString) return null
+  const dob = new Date(dobString)
+  if (isNaN(dob.getTime())) return null
+
+  const today = new Date()
+  let years = today.getFullYear() - dob.getFullYear()
+  let months = today.getMonth() - dob.getMonth()
+
+  if (today.getDate() < dob.getDate()) {
+    months--
+  }
+
+  if (months < 0) {
+    years--
+    months += 12
+  }
+
+  if (years < 0) return null
+
+  const label = `${years} Year${years !== 1 ? 's' : ''}, ${months} Month${months !== 1 ? 's' : ''}`
+  return { years, months, label }
+}
+
 // DPD bucket label
 export function dpdBucket(dpd: number): string {
   if (dpd <= 0) return 'Current'

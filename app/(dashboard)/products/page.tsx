@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth-context'
 import type { Product } from '@/lib/types'
 import { inr } from '@/lib/utils'
 import { Plus, Edit2, Trash2, ToggleLeft, ToggleRight, CheckCircle, AlertCircle, Package, X, Save } from 'lucide-react'
+import { confirmAction } from '@/lib/confirm'
 
 const EMPTY_PRODUCT: Omit<Product, 'product_id' | 'created_at' | 'updated_at'> = {
   name: '',
@@ -100,7 +101,13 @@ export default function ProductsPage() {
   }
 
   async function handleDelete(p: Product) {
-    if (!window.confirm(`Move product "${p.name}" to Trash Can?`)) return
+    const ok = await confirmAction({
+      title: 'Confirm Delete',
+      message: `Move product "${p.name}" to Trash Can?`,
+      confirmText: 'Move to Trash',
+      variant: 'danger',
+    })
+    if (!ok) return
     try {
       const { moveToTrash } = await import('@/lib/trash')
       await moveToTrash('products', p.product_id, p, p.name, user?.email || 'system')

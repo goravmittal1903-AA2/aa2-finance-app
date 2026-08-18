@@ -7,6 +7,7 @@ import { fdate } from '@/lib/utils'
 import {
   Trash2, RotateCcw, ShieldAlert, Search, RefreshCw, CheckCircle, AlertCircle, FileText, User, Landmark, HelpCircle
 } from 'lucide-react'
+import { confirmAction } from '@/lib/confirm'
 
 export default function TrashRecoveryPage() {
   const { user } = useAuth()
@@ -43,7 +44,13 @@ export default function TrashRecoveryPage() {
   }
 
   async function handleRestore(item: TrashItem) {
-    if (!window.confirm(`Restore "${item.title}" (${item.store_name}) back into the active database?`)) return
+    const ok = await confirmAction({
+      title: 'Confirm Restore',
+      message: `Restore "${item.title}" (${item.store_name}) back into the active database?`,
+      confirmText: 'Restore Item',
+      variant: 'warning',
+    })
+    if (!ok) return
     setRestoringId(item.trash_id)
     setActionMsg('')
     setErrorMsg('')

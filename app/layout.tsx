@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { AuthProvider } from '@/lib/auth-context'
 import { ToastContainer } from '@/components/ui/ToastContainer'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 
 export const metadata: Metadata = {
   title: 'AA2 Finance — MFI Management System',
@@ -20,6 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AuthProvider>
           {children}
           <ToastContainer />
+          <ConfirmDialog />
         </AuthProvider>
       </body>
     </html>
