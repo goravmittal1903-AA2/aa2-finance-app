@@ -112,19 +112,50 @@ export default function SettingsPage() {
     }
   }
 
-  const handleChangeRole = async (userId: string, newRole: string) => {
+  const [pendingRoles, setPendingRoles] = useState<Record<string, string>>({})
+
+  const handleSaveRole = async (email: string) => {
+    const newRole = pendingRoles[email]
+    const userObj = users.find(u => u.email === email)
+    if (!newRole || newRole === userObj?.role) return
+
+    const roleLabel = ROLES.find(r => r.value === newRole)?.label || newRole
+
+    const ok = await confirmAction({
+      title: 'Confirm Role Change',
+      message: `Are you sure you want to change the access role for ${userObj?.name || email} to "${roleLabel}"?`,
+      confirmText: 'Save Role Change',
+      variant: 'warning',
+    })
+    if (!ok) return
+
     try {
       const res = await fetch('/api/admin/users', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, role: newRole }),
+        body: JSON.stringify({ userId: email, role: newRole }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to update role.')
+      
+      toast.success('Role Updated Successfully', `Role for ${userObj?.name || email} changed to ${newRole.toUpperCase()}`)
+      setPendingRoles(prev => {
+        const next = { ...prev }
+        delete next[email]
+        return next
+      })
       await loadUsers()
     } catch (err: any) {
       toast.error('Role Update Failed', err.message || 'Failed to update user role.')
     }
+  }
+
+  const handleCancelRoleChange = (email: string) => {
+    setPendingRoles(prev => {
+      const next = { ...prev }
+      delete next[email]
+      return next
+    })
   }
 
   const handleDeleteUser = async (userId: string) => {
@@ -267,21 +298,44 @@ export default function SettingsPage() {
                   {loading && (
                     <tr><td colSpan={6} className="px-5 py-8 text-center text-slate-400">Loading team users…</td></tr>
                   )}
-                  {users.map(u => (
-                    <tr key={u.email} className="tbl-row align-middle">
-                      <td className="px-5 py-3 font-mono font-semibold text-slate-600">{u.email}</td>
-                      <td className="px-5 py-3 font-semibold text-slate-800">{u.name}</td>
-                      <td className="px-5 py-3">
-                        <select
-                          value={u.role}
-                          onChange={e => handleChangeRole(u.email, e.target.value)}
-                          className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[11px] focus:outline-none"
-                        >
-                          {ROLES.map(r => (
-                            <option key={r.value} value={r.value}>{r.label.split(' (')[0]}</option>
-                          ))}
-                        </select>
-                      </td>
+                  {users.map(u => {
+                    const currentSelectedRole = pendingRoles[u.email] !== undefined ? pendingRoles[u.email] : u.role
+                    const isChanged = pendingRoles[u.email] !== undefined && pendingRoles[u.email] !== u.role
+
+                    return (
+                      <tr key={u.email} className="tbl-row align-middle">
+                        <td className="px-5 py-3 font-mono font-semibold text-slate-600">{u.email}</td>
+                        <td className="px-5 py-3 font-semibold text-slate-800">{u.name}</td>
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <select
+                              value={currentSelectedRole}
+                              onChange={e => setPendingRoles(prev => ({ ...prev, [u.email]: e.target.value }))}
+                              className={`px-2 py-1 border rounded text-[11px] focus:outline-none transition ${isChanged ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold' : 'bg-slate-50 border-slate-200'}`}
+                            >
+                              {ROLES.map(r => (
+                                <option key={r.value} value={r.value}>{r.label.split(' (')[0]}</option>
+                              ))}
+                            </select>
+                            {isChanged && (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => handleSaveRole(u.email)}
+                                  className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded text-[10px] shadow-sm transition"
+                                >
+                                  Save Role
+                                </button>
+                                <button
+                                  onClick={() => handleCancelRoleChange(u.email)}
+                                  className="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-[10px] transition"
+                                  title="Cancel change"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </td>
                       <td className="px-5 py-3 font-semibold text-slate-600">{u.branch || 'ALL'}</td>
                       <td className="px-5 py-3 text-center">
                         <span className={`badge text-[9px] ${u.active !== false ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
@@ -307,7 +361,7 @@ export default function SettingsPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>
