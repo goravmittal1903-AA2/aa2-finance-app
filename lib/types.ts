@@ -6,10 +6,12 @@ export interface Customer {
   mobile: string
   father_husband_name: string
   aadhar_last4: string
+  pan_no?: string
   dob: string
   gender: string
   address_current: string
   village_city: string
+  pincode?: string
   district: string
   state: string
   branch_code: string
@@ -62,6 +64,8 @@ export interface Loan {
   dpd_bucket?: string
   mobile?: string
   aadhar_last4?: string
+  pan_no?: string
+  pincode?: string
   created_at: string
   created_by: string
   updated_at: string

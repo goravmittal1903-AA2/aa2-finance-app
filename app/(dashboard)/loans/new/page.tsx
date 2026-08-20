@@ -6,7 +6,7 @@ import { getAll, putOne, putMany } from '@/lib/supabase'
 import { computeLoanEconomics, generateSchedule, generateUniqueLoanAccountNo } from '@/lib/calculations'
 import type { Customer, Loan } from '@/lib/types'
 import { inr, todayISO } from '@/lib/utils'
-import { ArrowLeft, Calculator, Save } from 'lucide-react'
+import { ArrowLeft, Calculator, Save, Search, CheckCircle2, UserCheck, UserPlus } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 
 export default function NewLoanPage() {
@@ -27,6 +27,31 @@ function NewLoanForm() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+
+  // SFDC Quick Lookup state
+  const [sfdcQuery, setSfdcQuery] = useState('')
+  const [sfdcResults, setSfdcResults] = useState<Customer[]>([])
+  const [sfdcSearched, setSfdcSearched] = useState(false)
+
+  const handleSfdcSearch = (q: string) => {
+    setSfdcQuery(q)
+    const trimmed = q.trim().toLowerCase()
+    if (!trimmed) {
+      setSfdcResults([])
+      setSfdcSearched(false)
+      return
+    }
+    setSfdcSearched(true)
+    const matches = customers.filter(c => {
+      const nameMatch = (c.full_name || '').toLowerCase().includes(trimmed)
+      const mobileMatch = (c.mobile || '').includes(trimmed)
+      const panMatch = (c.pan_no || '').toLowerCase().includes(trimmed)
+      const aadharMatch = (c.aadhar_last4 || '').includes(trimmed)
+      const idMatch = (c.customer_id || '').toLowerCase().includes(trimmed)
+      return nameMatch || mobileMatch || panMatch || aadharMatch || idMatch
+    })
+    setSfdcResults(matches)
+  }
 
   // Form State
   const [formData, setFormData] = useState({
@@ -280,11 +305,73 @@ function NewLoanForm() {
         </div>
       </div>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
-          {error}
+      {/* Salesforce (SFDC) Style Quick Lookup Box */}
+      <div className="bg-gradient-to-r from-blue-900 to-slate-900 rounded-2xl p-5 text-white shadow-md space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 font-bold text-sm">
+            <Search className="w-4 h-4 text-blue-400" />
+            <span>SFDC Quick Lookup Search (PAN / Aadhaar / Mobile / Member ID)</span>
+          </div>
+          <span className="text-[10px] bg-blue-500/20 text-blue-300 font-semibold px-2 py-0.5 rounded">Salesforce Engine</span>
         </div>
-      )}
+        <p className="text-xs text-slate-300">Search existing registered members before sanctioning a loan.</p>
+
+        <div className="relative">
+          <input
+            type="text"
+            value={sfdcQuery}
+            onChange={e => handleSfdcSearch(e.target.value)}
+            placeholder="Type Mobile (10 digits), Aadhaar (4/12 digits), PAN (e.g. ABCDE1234F), or Name…"
+            className="w-full px-4 py-2.5 bg-slate-800/90 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </div>
+
+        {sfdcSearched && (
+          <div className="mt-3 bg-slate-800/95 border border-slate-700/80 rounded-xl p-3 space-y-2">
+            {sfdcResults.length > 0 ? (
+              <div className="space-y-2">
+                <div className="text-[11px] text-emerald-400 font-bold flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Registered Member Found ({sfdcResults.length}):
+                </div>
+                {sfdcResults.map(m => (
+                  <div key={m.customer_id} className="flex items-center justify-between bg-slate-900/90 p-2.5 rounded-lg border border-slate-700/60 text-xs">
+                    <div>
+                      <div className="font-bold text-white flex items-center gap-2">
+                        {m.full_name} <span className="text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded font-mono">{m.customer_id}</span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        Mobile: {m.mobile || '—'} | Aadhaar: {m.aadhar_last4 || '—'} | PAN: {m.pan_no || '—'} | Branch: {m.branch_code || 'ALL'}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormData(prev => ({ ...prev, customer_id: m.customer_id }))
+                        setSfdcQuery('')
+                        setSfdcSearched(false)
+                      }}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-[11px] flex items-center gap-1 transition"
+                    >
+                      <UserCheck className="w-3 h-3" /> Select Member
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-slate-300 flex items-center justify-between">
+                <span>✓ No existing member found with query &quot;<strong>{sfdcQuery}</strong>&quot;.</span>
+                <button
+                  type="button"
+                  onClick={() => router.push('/members/new')}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-[11px] flex items-center gap-1 transition"
+                >
+                  <UserPlus className="w-3 h-3" /> Onboard New Member
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Form Column */}
@@ -373,48 +460,6 @@ function NewLoanForm() {
               />
             </div>
 
-            {/* Interest Rate & EMI Amount (₹) Editable with Auto-Calc */}
-            <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-              <div className="space-y-1">
-                <div className="flex justify-between items-center">
-                  <label className="block text-[10px] font-bold text-blue-900 uppercase tracking-wider">Flat Interest Rate (% p.a.) *</label>
-                  <span className="text-[9px] text-blue-600 font-medium">Auto-calcs EMI</span>
-                </div>
-                <input
-                  type="number"
-                  step="0.01"
-                  name="interest_rate"
-                  value={formData.interest_rate}
-                  onChange={handleChange}
-                  required
-                  className="w-full px-4 py-2.5 bg-white border border-blue-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  placeholder="24"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex justify-between items-center">
-                  <label className="block text-[10px] font-bold text-blue-900 uppercase tracking-wider">EMI Amount (₹) Editable *</label>
-                  <span className="text-[9px] text-blue-600 font-medium">Auto-calcs Rate</span>
-                </div>
-                <input
-                  type="number"
-                  name="emi_amount"
-                  value={formData.emi_amount}
-                  onChange={handleChange}
-                  required
-                  className="w-full px-4 py-2.5 bg-white border border-blue-200 rounded-xl text-sm font-bold text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-400 font-mono"
-                  placeholder="3100"
-                />
-                {Number(formData.emi_amount) > 0 &&
-                  (Number(formData.emi_amount) * Number(formData.tenure) < Number(formData.loan_amount)) && (
-                    <p className="text-[10px] text-amber-700 font-medium bg-amber-50 px-2 py-1 rounded border border-amber-200 mt-1">
-                      ⚠️ EMI of ₹{formData.emi_amount} is less than principal recovery (min ₹{Math.ceil((Number(formData.loan_amount) || 0) / (Number(formData.tenure) || 1))}/installment). Interest rate is 0.00%.
-                    </p>
-                  )}
-              </div>
-            </div>
-
             {/* Tenure */}
             <div className="space-y-1">
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tenure (Installments) *</label>
@@ -451,7 +496,48 @@ function NewLoanForm() {
                 onChange={handleChange}
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
               />
-              <p className="text-[10px] text-slate-400 mt-0.5">Auto: ₹{formData.file_charge} on ₹{formData.loan_amount}</p>
+            </div>
+
+            {/* Interest Rate & Installment Amount (₹) Editable — Placed LAST for correct calculations */}
+            <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 bg-blue-50/70 p-4 rounded-xl border border-blue-200 shadow-sm">
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="block text-[10px] font-bold text-blue-900 uppercase tracking-wider">Flat Interest Rate (% p.a.) *</label>
+                  <span className="text-[9px] text-blue-600 font-medium">Auto-calcs Installment</span>
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  name="interest_rate"
+                  value={formData.interest_rate}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-4 py-2.5 bg-white border border-blue-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="24"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="block text-[10px] font-bold text-blue-900 uppercase tracking-wider">Installment Amount (₹) Editable *</label>
+                  <span className="text-[9px] text-blue-600 font-medium">Auto-calcs Rate</span>
+                </div>
+                <input
+                  type="number"
+                  name="emi_amount"
+                  value={formData.emi_amount}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-4 py-2.5 bg-white border border-blue-200 rounded-xl text-sm font-bold text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-400 font-mono"
+                  placeholder="3100"
+                />
+                {Number(formData.emi_amount) > 0 &&
+                  (Number(formData.emi_amount) * Number(formData.tenure) < Number(formData.loan_amount)) && (
+                    <p className="text-[10px] text-amber-700 font-medium bg-amber-50 px-2 py-1 rounded border border-amber-200 mt-1">
+                      ⚠️ Installment of ₹{formData.emi_amount} is less than principal recovery (min ₹{Math.ceil((Number(formData.loan_amount) || 0) / (Number(formData.tenure) || 1))}/installment). Interest rate is 0.00%.
+                    </p>
+                  )}
+              </div>
             </div>
 
             {/* Disbursement Date */}

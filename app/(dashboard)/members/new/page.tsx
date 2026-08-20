@@ -10,6 +10,9 @@ import { todayISO, calculateAgeInYearsMonths } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
 import { confirmAction } from '@/lib/confirm'
 
+import { lookupPincode } from '@/lib/pincode'
+import { Search, UserCheck, CheckCircle2 } from 'lucide-react'
+
 export default function NewMemberPage() {
   const DRAFT_KEY = 'aa2_draft_member'
   const { user } = useAuth()
@@ -27,9 +30,11 @@ export default function NewMemberPage() {
       dob: '',
       mobile: '',
       aadhar_last4: '',
+      pan_no: '',
       village_city: '',
+      pincode: '',
       district: '',
-      state: '',
+      state: 'UTTARAKHAND',
       branch_code: '',
       bm_name: '',
       fo_name: '',
@@ -40,18 +45,69 @@ export default function NewMemberPage() {
   const [error, setError] = useState('')
   const [draftSavedMsg, setDraftSavedMsg] = useState('')
   const [duplicateWarning, setDuplicateWarning] = useState<Customer | null>(null)
+  
+  // Salesforce (SFDC) style quick search state
+  const [sfdcSearchQuery, setSfdcSearchQuery] = useState('')
+  const [sfdcSearchResults, setSfdcSearchResults] = useState<Customer[]>([])
+  const [sfdcSearching, setSfdcSearching] = useState(false)
+  const [sfdcSearched, setSfdcSearched] = useState(false)
+
   const router = useRouter()
 
   const ageInfo = calculateAgeInYearsMonths(formData.dob)
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+  const handleSfdcSearch = async (query: string) => {
+    setSfdcSearchQuery(query)
+    const clean = query.trim().toUpperCase()
+    if (!clean || clean.length < 3) {
+      setSfdcSearchResults([])
+      setSfdcSearched(false)
+      return
+    }
+    setSfdcSearching(true)
+    setSfdcSearched(true)
+    try {
+      const all = await getAll<Customer>('customers')
+      const matches = all.filter(c => {
+        const mob = c.mobile?.toUpperCase() || ''
+        const aad = c.aadhar_last4?.toUpperCase() || ''
+        const pan = (c.pan_no || '').toUpperCase()
+        const id = (c.customer_id || '').toUpperCase()
+        const name = (c.full_name || '').toUpperCase()
+        return mob.includes(clean) || aad.includes(clean) || pan.includes(clean) || id.includes(clean) || name.includes(clean)
+      })
+      setSfdcSearchResults(matches.slice(0, 5))
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setSfdcSearching(false)
+    }
+  }
+
+  const handleChange = async (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     let { name, value } = e.target
 
-    // Format sanitizations
     if (name === 'mobile') {
       value = value.replace(/\D/g, '').slice(0, 10)
     } else if (name === 'aadhar_last4') {
       value = value.replace(/\D/g, '').slice(0, 4)
+    } else if (name === 'pan_no') {
+      value = value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10)
+    } else if (name === 'pincode') {
+      value = value.replace(/\D/g, '').slice(0, 6)
+      if (value.length === 6) {
+        const res = await lookupPincode(value)
+        if (res && res.success) {
+          setFormData((prev: Record<string, string>) => ({
+            ...prev,
+            pincode: value,
+            district: res.district,
+            state: res.state,
+          }))
+          toast.success('Pincode Verified', `Auto-filled District: ${res.district}, State: ${res.state}`)
+          return
+        }
+      }
     }
 
     setFormData((prev: Record<string, string>) => {
@@ -189,6 +245,65 @@ export default function NewMemberPage() {
           <h1 className="text-2xl font-bold text-slate-800">Member Onboarding</h1>
           <p className="text-slate-500 text-sm mt-0.5">Sanction master profile record for new members.</p>
         </div>
+      </div>
+      {/* Salesforce (SFDC) Style Quick Lookup Box */}
+      <div className="bg-gradient-to-r from-blue-900 to-slate-900 rounded-2xl p-5 text-white shadow-md space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 font-bold text-sm">
+            <Search className="w-4 h-4 text-blue-400" />
+            <span>SFDC Quick Lookup Search (PAN / Aadhaar / Mobile / Member ID)</span>
+          </div>
+          <span className="text-[10px] bg-blue-500/20 text-blue-300 font-semibold px-2 py-0.5 rounded">Salesforce Engine</span>
+        </div>
+        <p className="text-xs text-slate-300">Search existing records before creating a duplicate member profile.</p>
+
+        <div className="relative">
+          <input
+            type="text"
+            value={sfdcSearchQuery}
+            onChange={e => handleSfdcSearch(e.target.value)}
+            placeholder="Type Mobile (10 digits), Aadhaar (4/12 digits), PAN (e.g. ABCDE1234F), or Name…"
+            className="w-full px-4 py-2.5 bg-slate-800/90 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+          {sfdcSearching && (
+            <span className="absolute right-3 top-2.5 text-xs text-blue-400 font-semibold animate-pulse">Searching…</span>
+          )}
+        </div>
+
+        {sfdcSearched && (
+          <div className="mt-3 bg-slate-800/95 border border-slate-700/80 rounded-xl p-3 space-y-2">
+            {sfdcSearchResults.length > 0 ? (
+              <div className="space-y-2">
+                <div className="text-[11px] text-emerald-400 font-bold flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Existing Member Records Found ({sfdcSearchResults.length}):
+                </div>
+                {sfdcSearchResults.map(m => (
+                  <div key={m.customer_id} className="flex items-center justify-between bg-slate-900/90 p-2.5 rounded-lg border border-slate-700/60 text-xs">
+                    <div>
+                      <div className="font-bold text-white flex items-center gap-2">
+                        {m.full_name} <span className="text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded font-mono">{m.customer_id}</span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        Mobile: {m.mobile || '—'} | Aadhaar: {m.aadhar_last4 || '—'} | PAN: {m.pan_no || '—'} | Branch: {m.branch_code || 'ALL'}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/members/${m.customer_id}`)}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-[11px] flex items-center gap-1 transition"
+                    >
+                      <UserCheck className="w-3 h-3" /> Open Member
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-slate-300 flex items-center justify-between">
+                <span>✓ No existing member found with query &quot;<strong>{sfdcSearchQuery}</strong>&quot;. Proceed with new registration below.</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -332,6 +447,25 @@ export default function NewMemberPage() {
               />
             </div>
 
+            {/* PAN Number */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">PAN Number</label>
+                {formData.pan_no.length === 10 && (
+                  <span className="text-[10px] text-emerald-600 font-bold">✓ Valid Format</span>
+                )}
+              </div>
+              <input
+                type="text"
+                name="pan_no"
+                value={formData.pan_no}
+                onChange={handleChange}
+                maxLength={10}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-blue-400"
+                placeholder="e.g. ABCDE1234F"
+              />
+            </div>
+
             {/* Village / City */}
             <div className="space-y-1.5">
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Village / City</label>
@@ -342,6 +476,25 @@ export default function NewMemberPage() {
                 onChange={handleChange}
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                 placeholder="Village or City name"
+              />
+            </div>
+
+            {/* Pincode (Auto-fetches District & State) */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Pincode (Auto-Fetch)</label>
+                {formData.pincode.length === 6 && (
+                  <span className="text-[10px] text-blue-600 font-bold">⚡ Auto-Filled</span>
+                )}
+              </div>
+              <input
+                type="text"
+                name="pincode"
+                value={formData.pincode}
+                onChange={handleChange}
+                maxLength={6}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400"
+                placeholder="6-digit Pincode (e.g. 247669)"
               />
             </div>
 

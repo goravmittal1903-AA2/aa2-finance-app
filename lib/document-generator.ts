@@ -237,14 +237,21 @@ function printDocument(title: string, bodyHtml: string) {
         </style>
       </head>
       <body>
+        <div class="no-print" style="position: sticky; top: 0; z-index: 9999; background: #0f172a; color: #ffffff; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-family: sans-serif; border-bottom: 2px solid #2563eb;">
+          <div style="font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 10px;">
+            <span>📄 Document Preview Mode</span>
+            <span style="font-size: 10px; background: #2563eb; color: #ffffff; padding: 3px 10px; border-radius: 12px; font-weight: 600;">${title}</span>
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <button onclick="window.print()" style="background: #2563eb; color: #ffffff; border: none; padding: 8px 18px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.2);">
+              🖨️ Print Document
+            </button>
+            <button onclick="window.close()" style="background: #475569; color: #ffffff; border: none; padding: 8px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
+              ❌ Close Preview
+            </button>
+          </div>
+        </div>
         ${bodyHtml}
-        <script>
-          window.onload = function() {
-            setTimeout(function() {
-              window.print();
-            }, 400);
-          }
-        </script>
       </body>
     </html>
   `
@@ -336,11 +343,9 @@ export function generateSanctionLetter(data: SanctionLetterData) {
           <tr><td class="left"><strong>3. Net Disbursed Amount</strong></td><td><strong>${INR(data.net_disbursement)}</strong></td></tr>
           <tr><td class="left"><strong>4. Total Interest Chargeable</strong></td><td>${INR(totalInterest)}</td></tr>
           <tr><td class="left"><strong>5. Total Repayable Amount</strong></td><td><strong>${INR(data.installment_amount * data.tenure)}</strong></td></tr>
-          <tr><td class="left"><strong>6. Interest Rate (% p.a.)</strong></td><td><strong>${data.interest_rate}% p.a. (Flat)</strong></td></tr>
-          <tr><td class="left"><strong>7. Annual Percentage Rate (APR %)</strong></td><td><strong>${apr}% p.a.</strong></td></tr>
-          <tr><td class="left"><strong>8. Tenure & Frequency</strong></td><td>${data.tenure} ${data.frequency} Installments</td></tr>
-          <tr><td class="left"><strong>9. Installment Amount (EMI)</strong></td><td><strong>${INR(data.installment_amount)}</strong></td></tr>
-          <tr><td class="left"><strong>10. First Due Date</strong></td><td>${FDATE(data.installment_start_date)}</td></tr>
+          <tr><td class="left"><strong>6. Tenure & Frequency</strong></td><td>${data.tenure} ${data.frequency} Installments</td></tr>
+          <tr><td class="left"><strong>7. Installment Amount</strong></td><td><strong>${INR(data.installment_amount)}</strong></td></tr>
+          <tr><td class="left"><strong>8. First Due Date</strong></td><td>${FDATE(data.installment_start_date)}</td></tr>
         </tbody>
       </table>
 
@@ -376,7 +381,7 @@ export function generateSanctionLetter(data: SanctionLetterData) {
       <p class="clause-text">AA2 Microfinance Private Limited ("Lender") agrees to advance the Loan Amount specified in the Key Fact Statement to the Borrower (${data.member_name}). Disbursement is made directly into the borrower's verified bank account post KYC and household income evaluation as prescribed under RBI Microfinance Directions.</p>
 
       <div class="clause-heading">2. INTEREST COMPUTATION & PAYMENT WATERFALL</div>
-      <p class="clause-text">Interest is levied at the rate of ${data.interest_rate}% p.a. flat over the sanctioned tenure. Payments received shall be credited in the following order: (i) Statutory Charges & Taxes, (ii) Overdue Late Penalties, (iii) Interest Overdue, (iv) Principal Outstanding.</p>
+      <p class="clause-text">Interest is levied as specified in the Key Fact Statement over the sanctioned tenure. Payments received shall be credited in the following order: (i) Statutory Charges & Taxes, (ii) Overdue Late Penalties, (iii) Interest Overdue, (iv) Principal Outstanding.</p>
 
       <div class="clause-heading">3. ZERO PREPAYMENT PENALTY & FORECLOSURE RIGHTS</div>
       <p class="clause-text">The borrower has the full right to prepay or foreclose the loan facility at any time by clearing the outstanding principal and accrued interest. No foreclosure fees or prepayment penalties shall be demanded by the Lender.</p>

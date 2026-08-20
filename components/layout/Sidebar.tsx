@@ -23,8 +23,8 @@ const navItems = [
   { href: '/reports',      label: 'MIS & Reports',   icon: BarChart3,       allowedRoles: [] },
   // Admin + IT only
   { href: '/products',     label: 'Loan Products',   icon: Package,         allowedRoles: ['admin', 'it'] },
-  { href: '/grievances',   label: 'Grievances',      icon: MessageSquare,   allowedRoles: ['admin', 'it'] },
-  { href: '/documents',    label: 'Documents',       icon: FolderOpen,      allowedRoles: ['admin', 'it'] },
+  { href: '/grievances',   label: 'Grievances',      icon: MessageSquare,   allowedRoles: [] },
+  { href: '/documents',    label: 'Documents',       icon: FolderOpen,      allowedRoles: [] },
   { href: '/investors',    label: 'Financials',      icon: Landmark,        allowedRoles: ['admin', 'it'] },
   { href: '/audit',        label: 'Audit Log',       icon: ClipboardList,   allowedRoles: ['admin', 'it'] },
   // IT only

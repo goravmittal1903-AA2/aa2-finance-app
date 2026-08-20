@@ -162,6 +162,7 @@ export default function MemberDetailPage({ params }: PageProps) {
                 <span className="flex items-center gap-2 text-slate-700 text-sm">
                   <Shield className="w-4 h-4 text-slate-400" /> Aadhaar (Last 4): <span className="font-mono">{customer.aadhar_last4 || '—'}</span>
                 </span>
+                <span className="text-xs text-slate-700 block font-mono">PAN: {customer.pan_no || '—'}</span>
                 <span className="text-xs text-slate-500 block">DOB: {fdate(customer.dob)} ({customer.gender || '—'})</span>
               </div>
 

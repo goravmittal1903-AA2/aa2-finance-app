@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import { getPortfolio } from '@/lib/calculations'
 import { getAll } from '@/lib/supabase'
-import type { PortfolioRow, ScheduleRow, Loan, Transaction } from '@/lib/types'
+import type { PortfolioRow, ScheduleRow, Loan, Transaction, Customer } from '@/lib/types'
 import { inr, fdate, todayISO, dpdBucket } from '@/lib/utils'
 import {
   FileText, Download, BarChart2, ShieldAlert, Building2, TrendingUp,
@@ -44,6 +44,7 @@ export default function ReportsPage() {
   const [loans, setLoans] = useState<Loan[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [schedule, setSchedule] = useState<ScheduleRow[]>([])
+  const [customers, setCustomers] = useState<Customer[]>([])
 
   // Global filters
   const [filterBranch, setFilterBranch] = useState('')
@@ -62,16 +63,18 @@ export default function ReportsPage() {
   async function loadData() {
     setLoading(true)
     try {
-      const [port, ls, txs, sched] = await Promise.all([
+      const [port, ls, txs, sched, custs] = await Promise.all([
         getPortfolio(),
         getAll<Loan>('loans'),
         getAll<Transaction>('transactions'),
         getAll<ScheduleRow>('schedule'),
+        getAll<Customer>('customers'),
       ])
       setPortfolio(port)
       setLoans(ls)
       setTransactions(txs)
       setSchedule(sched)
+      setCustomers(custs)
     } catch (err) { console.error(err) }
     finally { setLoading(false) }
   }
@@ -113,6 +116,131 @@ export default function ReportsPage() {
     }
     return rows
   }, [portfolio, filterBranch, filterFo, filterStatus, filterDpdBucket, searchTerm, sortField, sortAsc])
+
+  // ─── 33-Column Loan Register Rows ──────────────────────────────────────────
+  const loanRegisterRows = useMemo(() => {
+    const custMap = new Map(customers.map(c => [c.customer_id, c]))
+    const loanMap = new Map(loans.map(l => [l.loan_account_no, l]))
+    const schedByLoan = new Map<string, ScheduleRow[]>()
+    schedule.forEach(s => {
+      const arr = schedByLoan.get(s.loan_account_no) || []
+      arr.push(s)
+      schedByLoan.set(s.loan_account_no, arr)
+    })
+
+    const today = todayISO()
+
+    return filteredPortfolio.map((p, index) => {
+      const l = loanMap.get(p.loan_account_no)
+      const cust = custMap.get(p.customer_id || (l ? l.customer_id : ''))
+      const lSched = (schedByLoan.get(p.loan_account_no) || []).sort((a, b) => a.installment_no - b.installment_no)
+
+      const sno = index + 1
+      const loanAcc = p.loan_account_no
+      const branchName = p.branch || l?.branch_code || 'Head Office'
+      const bmName = l?.bm_name || cust?.bm_name || '—'
+      const foName = p.fo || l?.fo_name || cust?.fo_name || '—'
+      const memberName = p.member_name || l?.member_name_cache || cust?.full_name || '—'
+      const fatherHusband = cust?.father_husband_name || '—'
+
+      const addressParts = [
+        cust?.address_current,
+        cust?.village_city,
+        cust?.district || l?.district,
+        cust?.state || l?.state,
+        cust?.pincode || l?.pincode
+      ].filter(Boolean)
+      const address = addressParts.length > 0 ? addressParts.join(', ') : (l?.district ? `${l.district}, ${l.state}` : '—')
+
+      const aadharLast4 = l?.aadhar_last4 || cust?.aadhar_last4 || '—'
+      const panNo = l?.pan_no || cust?.pan_no || '—'
+      const mobileNo = l?.mobile || cust?.mobile || '—'
+      const disbDate = p.disb_date || l?.disbursement_date || ''
+      const formattedDisbDate = disbDate ? fdate(disbDate) : '—'
+      const loanAmt = p.loan_amount || l?.loan_amount || 0
+      const fileCharge = l?.file_charge || 0
+      const netDisb = p.net_disbursement || (loanAmt - fileCharge)
+      const instAmt = l?.installment_amount || 0
+      const repFreq = p.frequency || l?.frequency || 'Monthly'
+      const tenure = l?.tenure || lSched.length || 0
+
+      let instDay = '—'
+      if (l?.installment_start_date) {
+        try {
+          const d = new Date(l.installment_start_date)
+          instDay = d.toLocaleDateString('en-US', { weekday: 'long' })
+        } catch (e) {}
+      }
+      const instStartDate = l?.installment_start_date ? fdate(l.installment_start_date) : '—'
+
+      const totalPaidInst = lSched.filter(s => s.status === 'Paid').length
+      const dueInstNo = lSched.filter(s => s.due_date <= today && s.status !== 'Paid').length
+      const balInstTenure = lSched.filter(s => s.status !== 'Paid').length
+
+      let pendingInstAmt = 0
+      let shortInstAmt = 0
+      lSched.forEach(s => {
+        if (s.due_date <= today && s.status !== 'Paid') {
+          pendingInstAmt += Math.max(0, s.emi_due - s.paid_amount)
+        }
+        if (s.status === 'Partial') {
+          shortInstAmt += Math.max(0, s.emi_due - s.paid_amount)
+        }
+      })
+
+      const advanceInstAmt = 0
+      const totalRepaymentAmt = l?.total_loan || (loanAmt + p.total_interest)
+      const totalCollected = p.total_collected || 0
+
+      const totalInterest = p.total_interest || l?.total_interest || 0
+      const interestRatio = totalRepaymentAmt > 0 ? (totalInterest / totalRepaymentAmt) : 0
+      const interestPaidEst = Math.round(totalCollected * interestRatio)
+      const totalPrinciplePaid = Math.max(0, totalCollected - interestPaidEst)
+
+      const totalInstalmentPaid = totalCollected
+      const ledgerBal = p.status?.startsWith('CLOS') ? 0 : (p.outstanding || l?.ledger_balance || 0)
+      const penaltyDays = p.dpd || l?.dpd || 0
+      const penaltyRate = l?.penalty_per_day || 0
+      const penaltyAmt = penaltyDays * penaltyRate
+      const instDpd = p.dpd || l?.dpd || 0
+
+      return {
+        sno,
+        loanAcc,
+        branchName,
+        bmName,
+        foName,
+        memberName,
+        fatherHusband,
+        address,
+        aadharLast4,
+        panNo,
+        mobileNo,
+        disbDate: formattedDisbDate,
+        loanAmt,
+        fileCharge,
+        netDisb,
+        instAmt,
+        repFreq,
+        tenure,
+        instDay,
+        instStartDate,
+        totalPaidInst,
+        dueInstNo,
+        balInstTenure,
+        pendingInstAmt,
+        shortInstAmt,
+        advanceInstAmt,
+        totalRepaymentAmt,
+        totalPrinciplePaid,
+        totalInstalmentPaid,
+        ledgerBal,
+        penaltyDays,
+        penaltyAmt,
+        instDpd
+      }
+    })
+  }, [filteredPortfolio, customers, loans, schedule])
 
   // ─── Filtered transactions ────────────────────────────────────────────────
   const filteredTxns = useMemo(() => {
@@ -342,80 +470,104 @@ export default function ReportsPage() {
         {activeTab === 'loan_register' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-slate-800">Loan Register — Individual Entries ({filteredPortfolio.length})</h2>
+              <h2 className="text-sm font-bold text-slate-800">MIS Loan Register — 33-Column Detailed Format ({loanRegisterRows.length})</h2>
               <button onClick={() => {
-                let csv = 'Loan Account,Member,Branch,FO,Status,Loan Amount,Total Loan,Net Disbursed,Total Interest,Collected,Outstanding,DPD,DPD Bucket,NPA,Disb Date\n'
-                filteredPortfolio.forEach(p => {
-                  csv += `${p.loan_account_no},"${p.member_name}",${p.branch},${p.fo},${p.status},${p.loan_amount},${(p.loan_amount + p.total_interest) || 0},${p.net_disbursement},${p.total_interest},${p.total_collected},${p.outstanding},${p.dpd || 0},${p.dpd_bucket || 'Current'},${p.npa_flag ? 'Yes' : 'No'},${p.disb_date}\n`
+                let csv = 'S.NO.,LOAN ACCOUNT NUMBER,Branch Name,BM Name,FO Name,Member Name,Father/Husband Name,ADDRESS,Aadhar No. (last 4 Digits),PAN No.,Mobile No.,Disbursement DATE (DD-MM-YYYY),Loan Amount,File Charge,Net Disbursement,Installment Amount,Repayment Frequency,Loan Tenure,Installment Day,Installment start date (DD-MM-YYYY),Total No. of Paid Installment,Due Installment No.,Balance Installment Tenure,Pending Installment amount,Short Installment Amount,Advance Installment amount,Total Repayment amount,TOTAL PRINCIPLE PAID,TOTAL INSTALMENT PAID,Ledger Balance (OUTSTANDING PRINCIPLE + INT),Total Penality days,Total Penality amount,Installment DPD\n'
+                loanRegisterRows.forEach(r => {
+                  const safeAddr = `"${r.address.replace(/"/g, '""')}"`
+                  csv += `${r.sno},${r.loanAcc},"${r.branchName}","${r.bmName}","${r.foName}","${r.memberName}","${r.fatherHusband}",${safeAddr},${r.aadharLast4},${r.panNo},${r.mobileNo},${r.disbDate},${r.loanAmt},${r.fileCharge},${r.netDisb},${r.instAmt},${r.repFreq},${r.tenure},"${r.instDay}",${r.instStartDate},${r.totalPaidInst},${r.dueInstNo},${r.balInstTenure},${r.pendingInstAmt},${r.shortInstAmt},${r.advanceInstAmt},${r.totalRepaymentAmt},${r.totalPrinciplePaid},${r.totalInstalmentPaid},${r.ledgerBal},${r.penaltyDays},${r.penaltyAmt},${r.instDpd}\n`
                 })
-                downloadCSV(csv, `Loan_Register_${todayISO()}.csv`)
-              }} className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 text-xs font-bold rounded-xl hover:bg-slate-50">
-                <Download className="w-3.5 h-3.5" /> Export CSV
+                downloadCSV(csv, `Loan_Register_33Cols_${todayISO()}.csv`)
+              }} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 text-xs shadow-sm transition">
+                <Download className="w-3.5 h-3.5" /> Export 33-Col CSV
               </button>
             </div>
             <FilterBar />
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+            <div className="overflow-x-auto border border-slate-200 rounded-xl">
+              <table className="w-full text-xs min-w-[3200px]">
                 <thead>
-                  <tr className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wide">
-                    {th('Loan Account', 'loan_account_no')}
-                    {th('Member Name', 'member_name')}
-                    {th('Branch', 'branch')}
-                    {th('Field Officer', 'fo')}
-                    {th('Status', 'status')}
-                    {thr('Loan Amount', 'loan_amount')}
-                    {thr('Disbursed', 'net_disbursement')}
-                    {thr('Collected', 'total_collected')}
-                    {thr('Outstanding', 'outstanding')}
-                    {thr('DPD', 'dpd')}
-                    <th className="text-center px-4 py-3 font-semibold">Bucket</th>
-                    <th className="px-4 py-3" />
+                  <tr className="bg-slate-800 text-white text-[10px] uppercase tracking-wide">
+                    <th className="px-3 py-2.5 text-center font-bold border-r border-slate-700">S.NO.</th>
+                    <th className="px-3 py-2.5 text-left font-bold border-r border-slate-700">LOAN ACCOUNT NUMBER</th>
+                    <th className="px-3 py-2.5 text-left font-bold border-r border-slate-700">Branch Name</th>
+                    <th className="px-3 py-2.5 text-left font-bold border-r border-slate-700">BM Name</th>
+                    <th className="px-3 py-2.5 text-left font-bold border-r border-slate-700">FO Name</th>
+                    <th className="px-3 py-2.5 text-left font-bold border-r border-slate-700">Member Name</th>
+                    <th className="px-3 py-2.5 text-left font-bold border-r border-slate-700">Father/Husband Name</th>
+                    <th className="px-3 py-2.5 text-left font-bold border-r border-slate-700 min-w-[250px]">ADDRESS</th>
+                    <th className="px-3 py-2.5 text-center font-bold border-r border-slate-700">Aadhar No. (last 4)</th>
+                    <th className="px-3 py-2.5 text-center font-bold border-r border-slate-700">PAN No.</th>
+                    <th className="px-3 py-2.5 text-center font-bold border-r border-slate-700">Mobile No.</th>
+                    <th className="px-3 py-2.5 text-center font-bold border-r border-slate-700">Disbursement DATE</th>
+                    <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">Loan Amount</th>
+                    <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">File Charge</th>
+                    <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">Net Disbursement</th>
+                    <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">Installment Amount</th>
+                    <th className="px-3 py-2.5 text-center font-bold border-r border-slate-700">Repayment Frequency</th>
+                    <th className="px-3 py-2.5 text-center font-bold border-r border-slate-700">Loan Tenure</th>
+                    <th className="px-3 py-2.5 text-center font-bold border-r border-slate-700">Installment Day</th>
+                    <th className="px-3 py-2.5 text-center font-bold border-r border-slate-700">Installment start date</th>
+                    <th className="px-3 py-2.5 text-center font-bold border-r border-slate-700">Total Paid Inst</th>
+                    <th className="px-3 py-2.5 text-center font-bold border-r border-slate-700">Due Inst No</th>
+                    <th className="px-3 py-2.5 text-center font-bold border-r border-slate-700">Bal Inst Tenure</th>
+                    <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">Pending Inst Amt</th>
+                    <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">Short Inst Amt</th>
+                    <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">Advance Inst Amt</th>
+                    <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">Total Repayment Amt</th>
+                    <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">TOTAL PRINCIPLE PAID</th>
+                    <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">TOTAL INSTALMENT PAID</th>
+                    <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">Ledger Balance</th>
+                    <th className="px-3 py-2.5 text-center font-bold border-r border-slate-700">Penalty Days</th>
+                    <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">Penalty Amount</th>
+                    <th className="px-3 py-2.5 text-center font-bold">Installment DPD</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredPortfolio.slice(0, 200).map((p, i) => (
-                    <tr key={i} className={`hover:bg-slate-50/50 ${p.npa_flag ? 'bg-red-50/20' : ''}`}>
-                      <td className="px-4 py-2.5 font-mono text-[10px] text-blue-600 font-bold">{p.loan_account_no}</td>
-                      <td className="px-4 py-2.5 font-semibold text-slate-800">{p.member_name}</td>
-                      <td className="px-4 py-2.5 text-slate-500">{p.branch || '—'}</td>
-                      <td className="px-4 py-2.5 text-slate-500">{p.fo || '—'}</td>
-                      <td className="px-4 py-2.5">
-                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${p.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : p.status?.startsWith('CLOS') ? 'bg-slate-100 text-slate-600' : 'bg-blue-100 text-blue-700'}`}>
-                          {p.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 text-right font-mono text-slate-700">{inr(p.loan_amount)}</td>
-                      <td className="px-4 py-2.5 text-right font-mono text-slate-600">{inr(p.net_disbursement)}</td>
-                      <td className="px-4 py-2.5 text-right font-mono text-emerald-700 font-semibold">{inr(p.total_collected)}</td>
-                      <td className="px-4 py-2.5 text-right font-mono font-bold text-amber-700">{inr(p.outstanding)}</td>
-                      <td className="px-4 py-2.5 text-right font-bold text-red-600">{p.dpd || 0}</td>
-                      <td className="px-4 py-2.5 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${p.npa_flag ? 'bg-red-100 text-red-700' : (p.dpd || 0) > 30 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
-                          {p.dpd_bucket || dpdBucket(p.dpd || 0)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <Link href={`/loans/${p.loan_account_no}`} className="text-blue-500 hover:text-blue-700">
-                          <ArrowUpRight className="w-3.5 h-3.5" />
-                        </Link>
-                      </td>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {loanRegisterRows.map((r) => (
+                    <tr key={r.sno} className="hover:bg-blue-50/40 transition">
+                      <td className="px-3 py-2 text-center text-slate-400 font-mono text-[11px] border-r border-slate-100">{r.sno}</td>
+                      <td className="px-3 py-2 font-mono text-[11px] text-blue-600 font-bold border-r border-slate-100">{r.loanAcc}</td>
+                      <td className="px-3 py-2 text-slate-700 border-r border-slate-100">{r.branchName}</td>
+                      <td className="px-3 py-2 text-slate-600 border-r border-slate-100">{r.bmName}</td>
+                      <td className="px-3 py-2 text-slate-600 border-r border-slate-100">{r.foName}</td>
+                      <td className="px-3 py-2 font-bold text-slate-800 border-r border-slate-100">{r.memberName}</td>
+                      <td className="px-3 py-2 text-slate-600 border-r border-slate-100">{r.fatherHusband}</td>
+                      <td className="px-3 py-2 text-slate-500 text-[11px] border-r border-slate-100">{r.address}</td>
+                      <td className="px-3 py-2 text-center font-mono text-slate-600 border-r border-slate-100">{r.aadharLast4}</td>
+                      <td className="px-3 py-2 text-center font-mono text-slate-700 font-medium border-r border-slate-100">{r.panNo}</td>
+                      <td className="px-3 py-2 text-center font-mono text-slate-600 border-r border-slate-100">{r.mobileNo}</td>
+                      <td className="px-3 py-2 text-center text-slate-600 border-r border-slate-100">{r.disbDate}</td>
+                      <td className="px-3 py-2 text-right font-mono font-bold text-slate-800 border-r border-slate-100">{inr(r.loanAmt)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-500 border-r border-slate-100">{inr(r.fileCharge)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-700 border-r border-slate-100">{inr(r.netDisb)}</td>
+                      <td className="px-3 py-2 text-right font-mono font-bold text-blue-700 border-r border-slate-100">{inr(r.instAmt)}</td>
+                      <td className="px-3 py-2 text-center text-slate-600 border-r border-slate-100">{r.repFreq}</td>
+                      <td className="px-3 py-2 text-center text-slate-700 font-medium border-r border-slate-100">{r.tenure}</td>
+                      <td className="px-3 py-2 text-center text-slate-600 border-r border-slate-100">{r.instDay}</td>
+                      <td className="px-3 py-2 text-center text-slate-600 border-r border-slate-100">{r.instStartDate}</td>
+                      <td className="px-3 py-2 text-center font-bold text-emerald-600 border-r border-slate-100">{r.totalPaidInst}</td>
+                      <td className="px-3 py-2 text-center font-bold text-amber-600 border-r border-slate-100">{r.dueInstNo}</td>
+                      <td className="px-3 py-2 text-center text-slate-600 border-r border-slate-100">{r.balInstTenure}</td>
+                      <td className="px-3 py-2 text-right font-mono text-amber-700 border-r border-slate-100">{inr(r.pendingInstAmt)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-orange-600 border-r border-slate-100">{inr(r.shortInstAmt)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-400 border-r border-slate-100">{inr(r.advanceInstAmt)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-700 border-r border-slate-100">{inr(r.totalRepaymentAmt)}</td>
+                      <td className="px-3 py-2 text-right font-mono font-bold text-emerald-700 border-r border-slate-100">{inr(r.totalPrinciplePaid)}</td>
+                      <td className="px-3 py-2 text-right font-mono font-bold text-emerald-600 border-r border-slate-100">{inr(r.totalInstalmentPaid)}</td>
+                      <td className="px-3 py-2 text-right font-mono font-bold text-amber-700 border-r border-slate-100">{inr(r.ledgerBal)}</td>
+                      <td className="px-3 py-2 text-center font-bold text-red-600 border-r border-slate-100">{r.penaltyDays}</td>
+                      <td className="px-3 py-2 text-right font-mono text-red-600 border-r border-slate-100">{inr(r.penaltyAmt)}</td>
+                      <td className="px-3 py-2 text-center font-bold text-red-600">{r.instDpd}</td>
                     </tr>
                   ))}
-                  {filteredPortfolio.length === 0 && <tr><td colSpan={12} className="py-10 text-center text-slate-400">No loans match the selected filters</td></tr>}
-                  {filteredPortfolio.length > 200 && <tr><td colSpan={12} className="py-3 text-center text-slate-400 text-xs">Showing 200 of {filteredPortfolio.length}. Export CSV for full data.</td></tr>}
-                </tbody>
-                {filteredPortfolio.length > 0 && (
-                  <tfoot>
-                    <tr className="bg-slate-900 text-white text-xs font-bold">
-                      <td className="px-4 py-3" colSpan={5}>TOTALS ({filteredPortfolio.length} loans)</td>
-                      <td className="px-4 py-3 text-right font-mono">{inr(filteredPortfolio.reduce((s, p) => s + p.loan_amount, 0))}</td>
-                      <td className="px-4 py-3 text-right font-mono">{inr(filteredPortfolio.reduce((s, p) => s + p.net_disbursement, 0))}</td>
-                      <td className="px-4 py-3 text-right font-mono text-emerald-400">{inr(filteredPortfolio.reduce((s, p) => s + p.total_collected, 0))}</td>
-                      <td className="px-4 py-3 text-right font-mono text-amber-400">{inr(filteredPortfolio.reduce((s, p) => s + p.outstanding, 0))}</td>
-                      <td className="px-4 py-3" colSpan={3} />
+                  {loanRegisterRows.length === 0 && (
+                    <tr>
+                      <td colSpan={33} className="py-12 text-center text-slate-400 text-sm">
+                        No loans found matching the current filters.
+                      </td>
                     </tr>
-                  </tfoot>
-                )}
+                  )}
+                </tbody>
               </table>
             </div>
           </div>
