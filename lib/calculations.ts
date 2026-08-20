@@ -260,10 +260,19 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
     const fullyPaid = activeRows.length > 0 &&
       activeRows.every(r => r.status === 'Paid' || r.status === 'Waived')
 
-    if (fullyPaid && !(loan.status || '').toUpperCase().startsWith('CLOS')) {
-      loan.status = 'CLOSE'
-      loan.close_date = txns.length ? txns[txns.length - 1].txn_date : today
-      loan.closure_type = 'FULL_REPAYMENT'
+    if (fullyPaid) {
+      if (!(loan.status || '').toUpperCase().startsWith('CLOS')) {
+        loan.status = 'CLOSE'
+        loan.close_date = txns.length ? txns[txns.length - 1].txn_date : today
+        loan.closure_type = 'FULL_REPAYMENT'
+      }
+    } else {
+      // If loan was closed from full repayment but a transaction was deleted/voided, revert to ACTIVE
+      if (loan.closure_type === 'FULL_REPAYMENT' || (loan.status || '').toUpperCase().startsWith('CLOS')) {
+        loan.status = 'ACTIVE'
+        loan.close_date = null
+        loan.closure_type = null
+      }
     }
 
     const isClosed = (loan.status || '').toUpperCase().startsWith('CLOS')

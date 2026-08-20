@@ -56,6 +56,10 @@ export default function TrashRecoveryPage() {
     setErrorMsg('')
     try {
       await restoreFromTrash(item.trash_id, user?.email || 'system')
+      if (item.store_name === 'transactions' && item.data?.loan_account_no) {
+        const { recalcLoanLedger } = await import('@/lib/calculations')
+        await recalcLoanLedger(item.data.loan_account_no)
+      }
       setActionMsg(`Successfully restored "${item.title}" back into ${item.store_name}.`)
       await loadTrash()
     } catch (err: any) {
