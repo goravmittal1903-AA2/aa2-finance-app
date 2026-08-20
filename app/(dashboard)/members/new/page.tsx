@@ -46,7 +46,7 @@ export default function NewMemberPage() {
   const [draftSavedMsg, setDraftSavedMsg] = useState('')
   const [duplicateWarning, setDuplicateWarning] = useState<Customer | null>(null)
   
-  // Salesforce (SFDC) style quick search state
+  // Quick search state
   const [sfdcSearchQuery, setSfdcSearchQuery] = useState('')
   const [sfdcSearchResults, setSfdcSearchResults] = useState<Customer[]>([])
   const [sfdcSearching, setSfdcSearching] = useState(false)
@@ -246,14 +246,14 @@ export default function NewMemberPage() {
           <p className="text-slate-500 text-sm mt-0.5">Sanction master profile record for new members.</p>
         </div>
       </div>
-      {/* Salesforce (SFDC) Style Quick Lookup Box */}
+      {/* Quick Member Lookup Box */}
       <div className="bg-gradient-to-r from-blue-900 to-slate-900 rounded-2xl p-5 text-white shadow-md space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 font-bold text-sm">
             <Search className="w-4 h-4 text-blue-400" />
-            <span>SFDC Quick Lookup Search (PAN / Aadhaar / Mobile / Member ID)</span>
+            <span>Quick Member Lookup (PAN / Aadhaar / Mobile / Member ID)</span>
           </div>
-          <span className="text-[10px] bg-blue-500/20 text-blue-300 font-semibold px-2 py-0.5 rounded">Salesforce Engine</span>
+          <span className="text-[10px] bg-blue-500/20 text-blue-300 font-semibold px-2 py-0.5 rounded">Smart Search</span>
         </div>
         <p className="text-xs text-slate-300">Search existing records before creating a duplicate member profile.</p>
 
