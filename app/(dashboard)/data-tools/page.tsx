@@ -206,6 +206,28 @@ export default function DataToolsPage() {
     }
   }
 
+  async function handleRunDeduplication() {
+    const ok = await confirmAction({
+      title: 'Purge Duplicate Transactions',
+      message: 'Scan all payment transactions and purge any duplicate entries (same account, date, amount, mode) across all loan accounts?',
+      confirmText: 'Clean Duplicates',
+      variant: 'warning',
+    })
+    if (!ok) return
+    setMigrating(true)
+    setMessage('')
+    setErrorMessage('')
+    try {
+      const { cleanupAllDuplicateTransactions } = await import('@/lib/calculations')
+      const res = await cleanupAllDuplicateTransactions()
+      setMessage(`Cleanup complete! Purged ${res.cleaned} duplicate transaction(s) across ${res.loansAffected} loan account(s). All ledgers recalculated.`)
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Cleanup failed.')
+    } finally {
+      setMigrating(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -358,6 +380,21 @@ export default function DataToolsPage() {
             <RefreshCw className={`w-4 h-4 ${migrating ? 'animate-spin' : ''}`} />
             {migrating ? 'Running Migration…' : 'Run Member ID Format Migration'}
           </button>
+
+          <div className="pt-4 border-t border-slate-100 space-y-3">
+            <div className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-amber-600" />
+              <h3 className="font-bold text-slate-800 text-sm">Purge Duplicate Payment Transactions</h3>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Scans the entire database for any duplicate payment entries (posted twice due to double click or multi-upload) and automatically voids duplicates while recalculating loan ledgers.
+            </p>
+            <button onClick={handleRunDeduplication} disabled={migrating}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold rounded-xl transition text-sm shadow-lg shadow-amber-500/20">
+              <Trash2 className={`w-4 h-4 ${migrating ? 'animate-spin' : ''}`} />
+              {migrating ? 'Cleaning Duplicates…' : 'Purge Duplicate Payment Transactions'}
+            </button>
+          </div>
         </div>
       )}
 

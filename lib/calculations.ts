@@ -216,10 +216,24 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
     }
   }
 
-  // Step 2: Filter and sort payment transactions chronologically
-  const txns = rawTxns
+  // Step 2: Filter, sort, and deduplicate payment transactions chronologically
+  const sortedRaw = rawTxns
     .filter(t => (t.txn_type === 'PAYMENT' || t.txn_type === 'FORECLOSURE') && !t.voided)
     .sort((a, b) => a.txn_date.localeCompare(b.txn_date) || (a.txn_id || 0) - (b.txn_id || 0))
+
+  const txns: Transaction[] = []
+  const seenKeys = new Set<string>()
+
+  for (const t of sortedRaw) {
+    const key = `${t.loan_account_no}_${t.amount}_${t.txn_date}_${t.mode}_${t.reference_no || ''}`
+    if (seenKeys.has(key)) {
+      t.voided = true
+      await putOne('transactions', t, 'txn_id')
+      continue
+    }
+    seenKeys.add(key)
+    txns.push(t)
+  }
 
   // Step 3: Re-apply payments — oldest payment fills oldest installment first
   for (const t of txns) {
@@ -430,4 +444,35 @@ export async function computeForeclosure(loan_account_no: string, asOfDate: stri
     payoff,
     pendingCount: pending.length,
   }
+}
+
+/** Scans all payment transactions and voids duplicates across all loan accounts */
+export async function cleanupAllDuplicateTransactions(): Promise<{ cleaned: number; loansAffected: number }> {
+  const allTxns = await getAll<Transaction>('transactions')
+  const paymentTxns = allTxns
+    .filter(t => (t.txn_type === 'PAYMENT' || t.txn_type === 'FORECLOSURE') && !t.voided)
+    .sort((a, b) => a.txn_date.localeCompare(b.txn_date) || (a.txn_id || 0) - (b.txn_id || 0))
+
+  const seenKeys = new Set<string>()
+  const affectedLoans = new Set<string>()
+  let cleanedCount = 0
+
+  for (const t of paymentTxns) {
+    const key = `${t.loan_account_no}_${t.amount}_${t.txn_date}_${t.mode}_${t.reference_no || ''}`
+    if (seenKeys.has(key)) {
+      t.voided = true
+      await putOne('transactions', t, 'txn_id')
+      affectedLoans.add(t.loan_account_no)
+      cleanedCount++
+    } else {
+      seenKeys.add(key)
+    }
+  }
+
+  // Recalculate ledgers for all affected loans
+  for (const loanNo of Array.from(affectedLoans)) {
+    await recalcLoanLedger(loanNo)
+  }
+
+  return { cleaned: cleanedCount, loansAffected: affectedLoans.size }
 }

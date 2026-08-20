@@ -152,7 +152,7 @@ export default function LoanDetailPage({ params }: PageProps) {
 
   const handlePostPayment = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!payAmount || Number(payAmount) <= 0) return
+    if (!payAmount || Number(payAmount) <= 0 || postLoading) return
     setPostLoading(true)
     setPostMessage('')
     try {
