@@ -173,9 +173,10 @@ export default function ReportsPage() {
       }
       const instStartDate = l?.installment_start_date ? fdate(l.installment_start_date) : '—'
 
-      const totalPaidInst = lSched.filter(s => s.status === 'Paid').length
+      const paidRowsCount = lSched.filter(s => s.status === 'Paid').length
+      const totalPaidInst = paidRowsCount > 0 ? paidRowsCount : (instAmt > 0 ? Math.floor((p.total_collected || 0) / instAmt) : 0)
       const dueInstNo = lSched.filter(s => s.due_date <= today && s.status !== 'Paid').length
-      const balInstTenure = lSched.filter(s => s.status !== 'Paid').length
+      const balInstTenure = Math.max(0, tenure - totalPaidInst)
 
       let pendingInstAmt = 0
       let shortInstAmt = 0
