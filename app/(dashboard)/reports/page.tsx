@@ -179,22 +179,26 @@ export default function ReportsPage() {
 
       let pendingInstAmt = 0
       let shortInstAmt = 0
+      let totalDueInstAmtToDate = 0
       lSched.forEach(s => {
-        if (s.due_date <= today && s.status !== 'Paid') {
-          pendingInstAmt += Math.max(0, s.emi_due - s.paid_amount)
+        if (s.due_date <= today) {
+          totalDueInstAmtToDate += s.emi_due
+          if (s.status !== 'Paid') {
+            pendingInstAmt += Math.max(0, s.emi_due - s.paid_amount)
+          }
         }
-        if (s.status === 'Partial') {
+        if (s.status === 'Partial' || (s.paid_amount > 0 && s.paid_amount < s.emi_due)) {
           shortInstAmt += Math.max(0, s.emi_due - s.paid_amount)
         }
       })
 
-      const advanceInstAmt = 0
-      const totalRepaymentAmt = l?.total_loan || (instAmt * tenure) || (loanAmt + p.total_interest)
       const totalCollected = p.total_collected || 0
+      const advanceInstAmt = Math.max(0, totalCollected - totalDueInstAmtToDate)
+      const totalRepaymentAmt = l?.total_loan || (instAmt * tenure) || (loanAmt + p.total_interest)
 
       const totalInterest = p.total_interest || l?.total_interest || Math.max(0, totalRepaymentAmt - loanAmt)
       const interestRatio = totalRepaymentAmt > 0 ? (totalInterest / totalRepaymentAmt) : 0
-      const totalInterestPaid = Math.round(totalCollected * interestRatio)
+      const totalInterestPaid = Math.floor(totalCollected * interestRatio)
       const totalPrinciplePaid = Math.max(0, totalCollected - totalInterestPaid)
 
       const totalInstalmentPaid = totalCollected

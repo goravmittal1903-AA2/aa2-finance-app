@@ -162,7 +162,7 @@ export async function getPortfolio(): Promise<PortfolioRow[]> {
     const outstanding = isClosed ? 0 : (l.ledger_balance || 0)
     const maxDpd = l.dpd || 0
     const paidFrac = l.total_loan ? total_collected / l.total_loan : 0
-    const interest_received = Math.round(paidFrac * (l.total_interest || 0))
+    const interest_received = Math.floor(paidFrac * (l.total_interest || 0))
 
     return {
       loan_account_no: l.loan_account_no,
