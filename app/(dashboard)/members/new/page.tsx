@@ -97,16 +97,18 @@ export default function NewMemberPage() {
       value = value.replace(/\D/g, '').slice(0, 6)
       if (value.length === 6) {
         const res = await lookupPincode(value)
-        if (res && res.success) {
-          setFormData((prev: Record<string, string>) => ({
+        setFormData((prev: Record<string, string>) => {
+          const updated = {
             ...prev,
             pincode: value,
             district: res.district,
             state: res.state,
-          }))
-          toast.success('Pincode Verified', `Auto-filled District: ${res.district}, State: ${res.state}`)
-          return
-        }
+          }
+          if (typeof window !== 'undefined') localStorage.setItem(DRAFT_KEY, JSON.stringify(updated))
+          return updated
+        })
+        toast.success('Pincode Verified', `Auto-filled District: ${res.district}, State: ${res.state}`)
+        return
       }
     }
 
