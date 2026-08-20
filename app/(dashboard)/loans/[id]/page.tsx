@@ -88,14 +88,15 @@ export default function LoanDetailPage({ params }: PageProps) {
     setFcDate(todayISO())
     setRstStartDate(todayISO())
     setTopupDate(todayISO())
-    loadLoanDetails()
+    // Run full ledger recalc on first load only (cleans duplicates, syncs schedule)
+    import('@/lib/calculations').then(({ recalcLoanLedger }) =>
+      recalcLoanLedger(id).then(() => loadLoanDetails())
+    )
   }, [id])
 
   async function loadLoanDetails() {
+    setLoading(true)
     try {
-      const { recalcLoanLedger } = await import('@/lib/calculations')
-      await recalcLoanLedger(id)
-
       const l = await getOne<Loan>('loans', id)
       if (!l) { setLoading(false); return }
       setLoan(l)
@@ -541,9 +542,18 @@ export default function LoanDetailPage({ params }: PageProps) {
     <div className="space-y-6">
       {/* Top Navigation */}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <button onClick={() => router.back()} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 transition-colors">
-          <ArrowLeft className="w-4 h-4" /> Back to Loans
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={() => router.back()} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 transition-colors">
+            <ArrowLeft className="w-4 h-4" /> Back to Loans
+          </button>
+          <button
+            onClick={() => loadLoanDetails()}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl text-xs font-semibold transition disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => generateSanctionLetter({

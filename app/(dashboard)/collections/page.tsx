@@ -388,8 +388,8 @@ export default function CollectionsPage() {
               </select>
             </div>
             <div className="flex items-end gap-2">
-              <button onClick={() => loadCollectionSheet()} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5">
-                <RefreshCw className="w-3.5 h-3.5" /> Reload
+              <button onClick={() => loadCollectionSheet()} disabled={loading} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50">
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Reload
               </button>
               <button onClick={fillAllDue} className="flex-1 py-2 border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 text-xs font-bold rounded-xl transition">Fill All</button>
             </div>
@@ -469,8 +469,8 @@ export default function CollectionsPage() {
                 <h3 className="text-sm font-bold text-slate-800">Individual EMI Collection</h3>
                 <p className="text-xs text-slate-500 mt-1">Collect individual installments one by one. Each installment row can be collected separately.</p>
               </div>
-              <button onClick={loadEmiEntries} className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">
-                <RefreshCw className="w-3.5 h-3.5" /> Refresh
+              <button onClick={loadEmiEntries} disabled={loading} className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition disabled:opacity-50">
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
               </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -661,9 +661,9 @@ export default function CollectionsPage() {
               </div>
             </div>
             <div className="flex items-center gap-3 pt-2">
-              <button onClick={() => loadCollectionSheet()}
-                className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">
-                <RefreshCw className="w-3.5 h-3.5" /> Reload Data
+              <button onClick={() => loadCollectionSheet()} disabled={loading}
+                className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition disabled:opacity-50">
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Reload Data
               </button>
               <button
                 onClick={() => printFieldSheet(filteredEntries, date, branch, foName)}

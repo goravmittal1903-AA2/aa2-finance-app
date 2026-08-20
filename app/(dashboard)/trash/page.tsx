@@ -127,9 +127,10 @@ export default function TrashRecoveryPage() {
         </div>
         <button
           onClick={loadTrash}
-          className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl text-xs font-semibold transition"
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 rounded-xl text-xs font-semibold transition"
         >
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh Trash
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh Trash
         </button>
       </div>
 
