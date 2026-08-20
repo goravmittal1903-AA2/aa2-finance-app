@@ -189,16 +189,16 @@ export default function ReportsPage() {
       })
 
       const advanceInstAmt = 0
-      const totalRepaymentAmt = l?.total_loan || (loanAmt + p.total_interest)
+      const totalRepaymentAmt = l?.total_loan || (instAmt * tenure) || (loanAmt + p.total_interest)
       const totalCollected = p.total_collected || 0
 
-      const totalInterest = p.total_interest || l?.total_interest || 0
+      const totalInterest = p.total_interest || l?.total_interest || Math.max(0, totalRepaymentAmt - loanAmt)
       const interestRatio = totalRepaymentAmt > 0 ? (totalInterest / totalRepaymentAmt) : 0
-      const interestPaidEst = Math.round(totalCollected * interestRatio)
-      const totalPrinciplePaid = Math.max(0, totalCollected - interestPaidEst)
+      const totalInterestPaid = Math.round(totalCollected * interestRatio)
+      const totalPrinciplePaid = Math.max(0, totalCollected - totalInterestPaid)
 
       const totalInstalmentPaid = totalCollected
-      const ledgerBal = p.status?.startsWith('CLOS') ? 0 : (p.outstanding || l?.ledger_balance || 0)
+      const ledgerBal = p.status?.startsWith('CLOS') ? 0 : Math.max(0, totalRepaymentAmt - totalInstalmentPaid)
       const penaltyDays = p.dpd || l?.dpd || 0
       const penaltyRate = l?.penalty_per_day || 0
       const penaltyAmt = penaltyDays * penaltyRate
@@ -233,6 +233,7 @@ export default function ReportsPage() {
         advanceInstAmt,
         totalRepaymentAmt,
         totalPrinciplePaid,
+        totalInterestPaid,
         totalInstalmentPaid,
         ledgerBal,
         penaltyDays,
@@ -470,21 +471,21 @@ export default function ReportsPage() {
         {activeTab === 'loan_register' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-slate-800">MIS Loan Register — 33-Column Detailed Format ({loanRegisterRows.length})</h2>
+              <h2 className="text-sm font-bold text-slate-800">MIS Loan Register — 34-Column Detailed Format ({loanRegisterRows.length})</h2>
               <button onClick={() => {
-                let csv = 'S.NO.,LOAN ACCOUNT NUMBER,Branch Name,BM Name,FO Name,Member Name,Father/Husband Name,ADDRESS,Aadhar No. (last 4 Digits),PAN No.,Mobile No.,Disbursement DATE (DD-MM-YYYY),Loan Amount,File Charge,Net Disbursement,Installment Amount,Repayment Frequency,Loan Tenure,Installment Day,Installment start date (DD-MM-YYYY),Total No. of Paid Installment,Due Installment No.,Balance Installment Tenure,Pending Installment amount,Short Installment Amount,Advance Installment amount,Total Repayment amount,TOTAL PRINCIPLE PAID,TOTAL INSTALMENT PAID,Ledger Balance (OUTSTANDING PRINCIPLE + INT),Total Penality days,Total Penality amount,Installment DPD\n'
+                let csv = 'S.NO.,LOAN ACCOUNT NUMBER,Branch Name,BM Name,FO Name,Member Name,Father/Husband Name,ADDRESS,Aadhar No. (last 4 Digits),PAN No.,Mobile No.,Disbursement DATE (DD-MM-YYYY),Loan Amount,File Charge,Net Disbursement,Installment Amount,Repayment Frequency,Loan Tenure,Installment Day,Installment start date (DD-MM-YYYY),Total No. of Paid Installment,Due Installment No.,Balance Installment Tenure,Pending Installment amount,Short Installment Amount,Advance Installment amount,Total Repayment amount,TOTAL PRINCIPLE PAID,TOTAL INTEREST PAID,TOTAL INSTALMENT PAID,Ledger Balance (OUTSTANDING PRINCIPLE + INT),Total Penality days,Total Penality amount,Installment DPD\n'
                 loanRegisterRows.forEach(r => {
                   const safeAddr = `"${r.address.replace(/"/g, '""')}"`
-                  csv += `${r.sno},${r.loanAcc},"${r.branchName}","${r.bmName}","${r.foName}","${r.memberName}","${r.fatherHusband}",${safeAddr},${r.aadharLast4},${r.panNo},${r.mobileNo},${r.disbDate},${r.loanAmt},${r.fileCharge},${r.netDisb},${r.instAmt},${r.repFreq},${r.tenure},"${r.instDay}",${r.instStartDate},${r.totalPaidInst},${r.dueInstNo},${r.balInstTenure},${r.pendingInstAmt},${r.shortInstAmt},${r.advanceInstAmt},${r.totalRepaymentAmt},${r.totalPrinciplePaid},${r.totalInstalmentPaid},${r.ledgerBal},${r.penaltyDays},${r.penaltyAmt},${r.instDpd}\n`
+                  csv += `${r.sno},${r.loanAcc},"${r.branchName}","${r.bmName}","${r.foName}","${r.memberName}","${r.fatherHusband}",${safeAddr},${r.aadharLast4},${r.panNo},${r.mobileNo},${r.disbDate},${r.loanAmt},${r.fileCharge},${r.netDisb},${r.instAmt},${r.repFreq},${r.tenure},"${r.instDay}",${r.instStartDate},${r.totalPaidInst},${r.dueInstNo},${r.balInstTenure},${r.pendingInstAmt},${r.shortInstAmt},${r.advanceInstAmt},${r.totalRepaymentAmt},${r.totalPrinciplePaid},${r.totalInterestPaid},${r.totalInstalmentPaid},${r.ledgerBal},${r.penaltyDays},${r.penaltyAmt},${r.instDpd}\n`
                 })
-                downloadCSV(csv, `Loan_Register_33Cols_${todayISO()}.csv`)
+                downloadCSV(csv, `Loan_Register_34Cols_${todayISO()}.csv`)
               }} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 text-xs shadow-sm transition">
-                <Download className="w-3.5 h-3.5" /> Export 33-Col CSV
+                <Download className="w-3.5 h-3.5" /> Export 34-Col CSV
               </button>
             </div>
             <FilterBar />
             <div className="overflow-x-auto border border-slate-200 rounded-xl">
-              <table className="w-full text-xs min-w-[3200px]">
+              <table className="w-full text-xs min-w-[3400px]">
                 <thead>
                   <tr className="bg-slate-800 text-white text-[10px] uppercase tracking-wide">
                     <th className="px-3 py-2.5 text-center font-bold border-r border-slate-700">S.NO.</th>
@@ -515,6 +516,7 @@ export default function ReportsPage() {
                     <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">Advance Inst Amt</th>
                     <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">Total Repayment Amt</th>
                     <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">TOTAL PRINCIPLE PAID</th>
+                    <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700 text-blue-300">TOTAL INTEREST PAID</th>
                     <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">TOTAL INSTALMENT PAID</th>
                     <th className="px-3 py-2.5 text-right font-bold border-r border-slate-700">Ledger Balance</th>
                     <th className="px-3 py-2.5 text-center font-bold border-r border-slate-700">Penalty Days</th>
@@ -553,6 +555,7 @@ export default function ReportsPage() {
                       <td className="px-3 py-2 text-right font-mono text-slate-400 border-r border-slate-100">{inr(r.advanceInstAmt)}</td>
                       <td className="px-3 py-2 text-right font-mono text-slate-700 border-r border-slate-100">{inr(r.totalRepaymentAmt)}</td>
                       <td className="px-3 py-2 text-right font-mono font-bold text-emerald-700 border-r border-slate-100">{inr(r.totalPrinciplePaid)}</td>
+                      <td className="px-3 py-2 text-right font-mono font-bold text-blue-700 border-r border-slate-100">{inr(r.totalInterestPaid)}</td>
                       <td className="px-3 py-2 text-right font-mono font-bold text-emerald-600 border-r border-slate-100">{inr(r.totalInstalmentPaid)}</td>
                       <td className="px-3 py-2 text-right font-mono font-bold text-amber-700 border-r border-slate-100">{inr(r.ledgerBal)}</td>
                       <td className="px-3 py-2 text-center font-bold text-red-600 border-r border-slate-100">{r.penaltyDays}</td>
@@ -562,7 +565,7 @@ export default function ReportsPage() {
                   ))}
                   {loanRegisterRows.length === 0 && (
                     <tr>
-                      <td colSpan={33} className="py-12 text-center text-slate-400 text-sm">
+                      <td colSpan={34} className="py-12 text-center text-slate-400 text-sm">
                         No loans found matching the current filters.
                       </td>
                     </tr>

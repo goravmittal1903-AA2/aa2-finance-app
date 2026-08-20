@@ -230,14 +230,15 @@ function printDocument(title: string, bodyHtml: string) {
           .clause-heading { font-size: 9px; font-weight: 800; color: #0f172a; margin: 5px 0 2px 0; }
           .clause-text { font-size: 8.5px; color: #334155; text-align: justify; text-justify: inter-word; line-height: 1.4; margin-bottom: 4px; }
           .page-num { position: absolute; bottom: 0; right: 0; font-size: 8px; font-weight: 700; color: #64748b; }
+          .preview-toolbar { position: sticky; top: 0; z-index: 9999; background: #0f172a; color: #ffffff; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-family: sans-serif; border-bottom: 2px solid #2563eb; }
           @media print {
             body { padding: 0; }
-            .no-print { display: none; }
+            .no-print, .preview-toolbar { display: none !important; visibility: hidden !important; }
           }
         </style>
       </head>
       <body>
-        <div class="no-print" style="position: sticky; top: 0; z-index: 9999; background: #0f172a; color: #ffffff; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-family: sans-serif; border-bottom: 2px solid #2563eb;">
+        <div class="no-print preview-toolbar">
           <div style="font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 10px;">
             <span>📄 Document Preview Mode</span>
             <span style="font-size: 10px; background: #2563eb; color: #ffffff; padding: 3px 10px; border-radius: 12px; font-weight: 600;">${title}</span>
