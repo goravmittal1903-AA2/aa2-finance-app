@@ -1,6 +1,6 @@
 /**
- * All-India Pincode Auto-Fetch Engine (100% Coverage)
- * Guarantees District & State auto-fill for all 19,000+ pincodes in India (110000 - 859999).
+ * All-India Pincode Lookup Engine (100% Coverage)
+ * Guarantees District & State resolution for all 19,000+ pincodes in India (110000 - 859999).
  * Layer 1: Server API (/api/pincode) for exact India Post office details.
  * Layer 2: All-India Postal Zone Prefix Engine for 0ms offline/fallback coverage.
  */

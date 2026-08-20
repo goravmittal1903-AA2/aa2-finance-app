@@ -107,7 +107,6 @@ export default function NewMemberPage() {
           if (typeof window !== 'undefined') localStorage.setItem(DRAFT_KEY, JSON.stringify(updated))
           return updated
         })
-        toast.success('Pincode Verified', `Auto-filled District: ${res.district}, State: ${res.state}`)
         return
       }
     }
@@ -481,14 +480,9 @@ export default function NewMemberPage() {
               />
             </div>
 
-            {/* Pincode (Auto-fetches District & State) */}
+            {/* Pincode */}
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Pincode (Auto-Fetch)</label>
-                {formData.pincode.length === 6 && (
-                  <span className="text-[10px] text-blue-600 font-bold">⚡ Auto-Filled</span>
-                )}
-              </div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Pincode</label>
               <input
                 type="text"
                 name="pincode"
