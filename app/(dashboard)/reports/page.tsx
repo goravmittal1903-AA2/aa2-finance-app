@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
-import { getPortfolio } from '@/lib/calculations'
+import { getPortfolio, generateSchedule, daysBetween } from '@/lib/calculations'
 import { getAll } from '@/lib/supabase'
 import type { PortfolioRow, ScheduleRow, Loan, Transaction, Customer } from '@/lib/types'
 import { inr, fdate, todayISO, dpdBucket } from '@/lib/utils'
@@ -133,7 +133,27 @@ export default function ReportsPage() {
     return filteredPortfolio.map((p, index) => {
       const l = loanMap.get(p.loan_account_no)
       const cust = custMap.get(p.customer_id || (l ? l.customer_id : ''))
-      const lSched = (schedByLoan.get(p.loan_account_no) || []).sort((a, b) => a.installment_no - b.installment_no)
+      let lSched = (schedByLoan.get(p.loan_account_no) || []).sort((a, b) => a.installment_no - b.installment_no)
+      if (lSched.length === 0 && l) {
+        const generated = generateSchedule(l)
+        let remPay = p.total_collected || 0
+        lSched = generated.map((r: ScheduleRow) => {
+          let paid = 0
+          if (remPay > 0) {
+            paid = Math.min(r.emi_due, remPay)
+            remPay -= paid
+          }
+          const isPaid = paid >= r.emi_due - 0.5
+          const dpd = !isPaid && r.due_date < today ? daysBetween(r.due_date, today) : 0
+          const status = isPaid ? 'Paid' : (paid > 0 ? 'Partial' : (dpd > 0 ? 'Overdue' : 'Pending'))
+          return {
+            ...r,
+            paid_amount: paid,
+            status,
+            dpd,
+          }
+        })
+      }
 
       const sno = index + 1
       const loanAcc = p.loan_account_no

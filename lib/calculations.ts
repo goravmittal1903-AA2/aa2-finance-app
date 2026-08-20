@@ -216,7 +216,7 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
     }
   }
 
-  // Step 2: Filter, sort, and deduplicate payment transactions chronologically
+  // Step 2: Filter, sort, and physically purge duplicate payment transactions
   const sortedRaw = rawTxns
     .filter(t => (t.txn_type === 'PAYMENT' || t.txn_type === 'FORECLOSURE') && !t.voided)
     .sort((a, b) => a.txn_date.localeCompare(b.txn_date) || (a.txn_id || 0) - (b.txn_id || 0))
@@ -225,10 +225,12 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
   const seenKeys = new Set<string>()
 
   for (const t of sortedRaw) {
-    const key = `${t.loan_account_no}_${t.amount}_${t.txn_date}_${t.mode}_${t.reference_no || ''}`
+    const key = t.reference_no && t.reference_no.startsWith('EMIPAY-')
+      ? `${t.loan_account_no}_REF_${t.reference_no}`
+      : `${t.loan_account_no}_${t.amount}_${t.txn_date}_${t.mode}`
+
     if (seenKeys.has(key)) {
-      t.voided = true
-      await putOne('transactions', t, 'txn_id')
+      await delOne('transactions', t.txn_id)
       continue
     }
     seenKeys.add(key)
@@ -446,7 +448,7 @@ export async function computeForeclosure(loan_account_no: string, asOfDate: stri
   }
 }
 
-/** Scans all payment transactions and voids duplicates across all loan accounts */
+/** Scans all payment transactions and physically purges duplicates across all loan accounts */
 export async function cleanupAllDuplicateTransactions(): Promise<{ cleaned: number; loansAffected: number }> {
   const allTxns = await getAll<Transaction>('transactions')
   const paymentTxns = allTxns
@@ -458,10 +460,12 @@ export async function cleanupAllDuplicateTransactions(): Promise<{ cleaned: numb
   let cleanedCount = 0
 
   for (const t of paymentTxns) {
-    const key = `${t.loan_account_no}_${t.amount}_${t.txn_date}_${t.mode}_${t.reference_no || ''}`
+    const key = t.reference_no && t.reference_no.startsWith('EMIPAY-')
+      ? `${t.loan_account_no}_REF_${t.reference_no}`
+      : `${t.loan_account_no}_${t.amount}_${t.txn_date}_${t.mode}`
+
     if (seenKeys.has(key)) {
-      t.voided = true
-      await putOne('transactions', t, 'txn_id')
+      await delOne('transactions', t.txn_id)
       affectedLoans.add(t.loan_account_no)
       cleanedCount++
     } else {

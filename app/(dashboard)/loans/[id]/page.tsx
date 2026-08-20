@@ -93,6 +93,9 @@ export default function LoanDetailPage({ params }: PageProps) {
 
   async function loadLoanDetails() {
     try {
+      const { recalcLoanLedger } = await import('@/lib/calculations')
+      await recalcLoanLedger(id)
+
       const l = await getOne<Loan>('loans', id)
       if (!l) { setLoading(false); return }
       setLoan(l)
@@ -116,9 +119,11 @@ export default function LoanDetailPage({ params }: PageProps) {
         getFiltered<LoanDocument>('loan_documents', 'loan_account_no', id),
       ])
 
+      const cleanTxs = txs.filter(t => !t.voided)
+
       setMember(m)
       setSchedule(sched.sort((a, b) => a.installment_no - b.installment_no))
-      setTransactions(txs.sort((a, b) => (b.txn_date || '').localeCompare(a.txn_date || '') || (b.txn_id || 0) - (a.txn_id || 0)))
+      setTransactions(cleanTxs.sort((a, b) => (b.txn_date || '').localeCompare(a.txn_date || '') || Number(b.txn_id || 0) - Number(a.txn_id || 0)))
       setDocuments(docs)
       if (l.installment_amount) setPayAmount(String(l.installment_amount))
     } catch (err) {
