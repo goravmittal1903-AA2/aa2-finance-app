@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   Sparkles,
   X,
@@ -29,6 +29,151 @@ interface Message {
   timestamp: string
 }
 
+// Custom Human-friendly Markdown Formatter (eliminates raw ###, ***, etc.)
+function FormattedMessage({ content, isUser }: { content: string; isUser: boolean }) {
+  if (isUser) {
+    return <div className="whitespace-pre-wrap">{content}</div>
+  }
+
+  const lines = content.split('\n')
+  const elements: React.ReactNode[] = []
+
+  let inBlockquote = false
+  let blockquoteBuffer: string[] = []
+
+  const flushBlockquote = (key: number) => {
+    if (blockquoteBuffer.length > 0) {
+      elements.push(
+        <div
+          key={`bq-${key}`}
+          className="my-2 border-l-4 border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 px-3 py-2 rounded-r-lg text-slate-700 dark:text-slate-200 text-xs italic"
+        >
+          {blockquoteBuffer.map((bLine, i) => (
+            <p key={i} className="my-0.5">{renderInline(bLine)}</p>
+          ))}
+        </div>
+      )
+      blockquoteBuffer = []
+      inBlockquote = false
+    }
+  }
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trim()
+
+    // Handle blockquotes
+    if (trimmed.startsWith('>')) {
+      inBlockquote = true
+      blockquoteBuffer.push(trimmed.replace(/^>\s?/, ''))
+      return
+    } else if (inBlockquote) {
+      flushBlockquote(index)
+    }
+
+    // Handle empty lines
+    if (!trimmed) {
+      elements.push(<div key={`space-${index}`} className="h-1.5" />)
+      return
+    }
+
+    // Handle Headers (###, ##, #)
+    if (trimmed.startsWith('### ') || trimmed.startsWith('## ') || trimmed.startsWith('# ')) {
+      const headerText = trimmed.replace(/^#+\s*/, '')
+      elements.push(
+        <h4
+          key={`h-${index}`}
+          className="font-bold text-sm text-slate-800 dark:text-slate-100 mt-2.5 mb-1 flex items-center gap-1.5"
+        >
+          {renderInline(headerText)}
+        </h4>
+      )
+      return
+    }
+
+    // Handle Bullet points (- or *)
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      const bulletText = trimmed.replace(/^[-*]\s+/, '')
+      elements.push(
+        <div key={`li-${index}`} className="flex items-start gap-2 my-1 text-slate-700 dark:text-slate-200">
+          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />
+          <span className="leading-relaxed">{renderInline(bulletText)}</span>
+        </div>
+      )
+      return
+    }
+
+    // Handle Numbered lists (1., 2., etc.)
+    const numMatch = trimmed.match(/^(\d+)\.\s+(.+)$/)
+    if (numMatch) {
+      elements.push(
+        <div key={`num-${index}`} className="flex items-start gap-2 my-1 text-slate-700 dark:text-slate-200">
+          <span className="font-bold text-blue-600 dark:text-blue-400 text-xs flex-shrink-0 min-w-[16px]">
+            {numMatch[1]}.
+          </span>
+          <span className="leading-relaxed">{renderInline(numMatch[2])}</span>
+        </div>
+      )
+      return
+    }
+
+    // Standard Paragraph
+    elements.push(
+      <p key={`p-${index}`} className="my-1 text-slate-700 dark:text-slate-200 leading-relaxed">
+        {renderInline(line)}
+      </p>
+    )
+  })
+
+  if (inBlockquote) {
+    flushBlockquote(lines.length)
+  }
+
+  return <div className="space-y-0.5">{elements}</div>
+}
+
+// Inline parser for bold, italics, and code tags
+function renderInline(text: string): React.ReactNode[] {
+  // Regex to match **bold**, *italic*, `code`, and [links]
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g
+  const parts = text.split(regex)
+
+  return parts.map((part, i) => {
+    if (!part) return null
+
+    // Bold: **text**
+    if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+      return (
+        <strong key={i} className="font-bold text-slate-900 dark:text-white">
+          {part.slice(2, -2)}
+        </strong>
+      )
+    }
+
+    // Italic: *text*
+    if (part.startsWith('*') && part.endsWith('*') && part.length >= 2) {
+      return (
+        <em key={i} className="italic text-slate-600 dark:text-slate-300">
+          {part.slice(1, -1)}
+        </em>
+      )
+    }
+
+    // Code: `text`
+    if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
+      return (
+        <code
+          key={i}
+          className="bg-slate-200/80 dark:bg-slate-700/80 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded font-mono text-[11px]"
+        >
+          {part.slice(1, -1)}
+        </code>
+      )
+    }
+
+    return part
+  })
+}
+
 export function AICopilot() {
   const [isOpen, setIsOpen] = useState(false)
   const [isExpanded, setIsExpanded] = useState(false)
@@ -39,7 +184,7 @@ export function AICopilot() {
     {
       id: 'welcome',
       role: 'assistant',
-      content: `👋 **Welcome to AA2 Executive Copilot.**\n\nI am your real-time portfolio intelligence assistant. You can ask me anything about your loans, DPD risk, branch performance, borrower summaries, or draft collection notices in English & Hindi.\n\n*How can I assist you today?*`,
+      content: `Hello! I am your portfolio and operations copilot for AA2 Microfinance.\n\nI can analyze our live loans, monitor DPD risk, compare branch collections, or draft customized payment reminders in Hindi and English.\n\nWhat would you like to explore today?`,
       timestamp: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
     },
   ])
@@ -169,7 +314,7 @@ export function AICopilot() {
           {
             id: String(Date.now() + 1),
             role: 'assistant',
-            content: `⚠️ Error: ${data.error || 'Could not process query. Please try again.'}`,
+            content: `I encountered an issue processing that query: ${data.error || 'Please try asking again.'}`,
             timestamp: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
           },
         ])
@@ -180,7 +325,7 @@ export function AICopilot() {
         {
           id: String(Date.now() + 1),
           role: 'assistant',
-          content: '⚠️ Failed to connect to AI service. Please check your network connection.',
+          content: 'I could not reach the server. Please check your internet connection and try again.',
           timestamp: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
         },
       ])
@@ -190,16 +335,21 @@ export function AICopilot() {
   }
 
   const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text)
+    // Strip markdown formatting when copying plain text for WhatsApp
+    const cleanText = text
+      .replace(/^#+\s+/gm, '')
+      .replace(/\*\*/g, '')
+      .replace(/^>\s?/gm, '')
+    navigator.clipboard.writeText(cleanText)
     setCopiedId(id)
     setTimeout(() => setCopiedId(null), 2000)
   }
 
   const quickPrompts = [
-    { label: 'Portfolio Summary', icon: TrendingUp, query: 'Provide a complete portfolio and NPA executive summary.' },
-    { label: 'Top Overdue Accounts', icon: AlertTriangle, query: 'Show all top overdue accounts (30+ DPD) with details.' },
-    { label: 'Branch Performance', icon: Building2, query: 'Compare branch performance across all active locations.' },
-    { label: 'WhatsApp Reminder (Hindi)', icon: MessageSquare, query: 'Draft a polite WhatsApp payment reminder in Hindi.' },
+    { label: 'Portfolio Summary', icon: TrendingUp, query: 'How is our portfolio performing right now? Give me an executive breakdown.' },
+    { label: 'Overdue Accounts', icon: AlertTriangle, query: 'Which borrower accounts are currently overdue (30+ DPD)?' },
+    { label: 'Branch Comparison', icon: Building2, query: 'How do our branches compare in terms of disbursements and collections?' },
+    { label: 'WhatsApp Reminder (Hindi)', icon: MessageSquare, query: 'Can you draft a polite payment reminder message in Hindi for our borrowers?' },
   ]
 
   return (
@@ -232,7 +382,7 @@ export function AICopilot() {
               </div>
               <div>
                 <h3 className="font-bold text-sm leading-tight text-white">AA2 AI Copilot</h3>
-                <p className="text-[10px] text-slate-300">Executive Portfolio Intelligence</p>
+                <p className="text-[10px] text-slate-300">Operations & Portfolio Assistant</p>
               </div>
             </div>
 
@@ -298,9 +448,8 @@ export function AICopilot() {
                       : 'bg-slate-100 dark:bg-slate-800/90 text-slate-800 dark:text-slate-100 rounded-bl-none border border-slate-200/60 dark:border-slate-700/60'
                   }`}
                 >
-                  <div className="whitespace-pre-wrap font-sans text-xs">
-                    {msg.content}
-                  </div>
+                  {/* Clean Human Markdown Formatted Content */}
+                  <FormattedMessage content={msg.content} isUser={msg.role === 'user'} />
 
                   <div className="flex items-center justify-between mt-2 pt-1 border-t border-black/5 dark:border-white/5 text-[10px] opacity-60">
                     <span>{msg.timestamp}</span>
@@ -308,7 +457,7 @@ export function AICopilot() {
                       <button
                         onClick={() => copyToClipboard(msg.content, msg.id)}
                         className="hover:opacity-100 flex items-center gap-1 font-medium ml-2 text-blue-600 dark:text-blue-400"
-                        title="Copy text"
+                        title="Copy Clean Text"
                       >
                         {copiedId === msg.id ? (
                           <>
@@ -341,7 +490,7 @@ export function AICopilot() {
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce" />
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.2s]" />
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.4s]" />
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 ml-1.5">Thinking & analyzing portfolio...</span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 ml-1.5">Reviewing portfolio and typing...</span>
                 </div>
               </div>
             )}
@@ -361,7 +510,7 @@ export function AICopilot() {
                 type="text"
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                placeholder="Ask anything about loans, overdue, policy, reminder drafts..."
+                placeholder="Ask me anything in natural English or Hindi..."
                 className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs px-3.5 py-2.5 rounded-xl border border-transparent focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 outline-none transition"
               />
               <button
@@ -373,14 +522,14 @@ export function AICopilot() {
               </button>
             </form>
             <div className="flex items-center justify-between px-1 mt-1.5 text-[10px] text-slate-400">
-              <span>AA2 Core Banking AI Copilot</span>
+              <span>AA2 Core Banking Copilot</span>
               <button
                 onClick={() =>
                   setMessages([
                     {
                       id: 'welcome',
                       role: 'assistant',
-                      content: `👋 Chat cleared! How can I assist you with your loan operations today?`,
+                      content: `Chat history cleared. How can I help you right now?`,
                       timestamp: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
                     },
                   ])
