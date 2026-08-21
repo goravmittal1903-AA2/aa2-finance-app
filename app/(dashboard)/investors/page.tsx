@@ -781,14 +781,6 @@ export default function FinancialsPage() {
         // Derive unique branches from all loans
         const branchNames = Array.from(new Set(allLoans.map(l => l.branch_code || 'Head Office'))).sort()
 
-        // Total GLP across all branches (for proportional expense allocation)
-        const totalGLP = allLoans
-          .filter(l => l.status === 'ACTIVE' || l.status === 'SANCTIONED')
-          .reduce((s, l) => s + Number(l.ledger_balance || 0), 0)
-
-        // Total operating expenses pool (to allocate proportionally)
-        const totalOpEx = expenses.reduce((s, e) => s + Number(e.amount || 0), 0)
-
         const branchRows = branchNames.map(branch => {
           const bLoans = allLoans.filter(l => (l.branch_code || 'Head Office') === branch)
           const activeLoans = bLoans.filter(l => l.status === 'ACTIVE' || l.status === 'SANCTIONED')
@@ -806,14 +798,12 @@ export default function FinancialsPage() {
           // 4. Processing Fee / File Charge — actual file_charge stored on each loan (no hardcoded %)
           const processingFees = bLoans.reduce((s, l) => {
             const fc = Number(l.file_charge || 0)
-            // Fallback: if file_charge is 0, compute from file_charge_pct × loan_amount
             if (fc > 0) return s + fc
             const pct = Number(l.file_charge_pct || 0)
             return s + (pct > 0 ? (pct / 100) * Number(l.loan_amount || 0) : 0)
           }, 0)
 
           // 5. Interest Revenue — proportional based on actual collections vs total loan amount
-          //    Formula: sum of (total_interest × min(1, total_collected / total_loan)) per loan
           const interestEarned = bLoans.reduce((s, l) => {
             const totalLoan = Number(l.total_loan || 0)
             const totalInterest = Number(l.total_interest || 0)
@@ -826,33 +816,25 @@ export default function FinancialsPage() {
           // 6. Total Collections Received
           const totalCollected = bLoans.reduce((s, l) => s + Number(l.total_collected || 0), 0)
 
-          // 7. Gross Operating Income = Interest Earned + Processing Fees
+          // 7. Gross Operating Revenue = Interest Earned + Processing Fees
           const grossIncome = interestEarned + processingFees
+          const netProfit = grossIncome
 
-          // 8. Proportional Expense Allocation based on this branch's GLP share
-          const glpShare = totalGLP > 0 ? glp / totalGLP : (branchNames.length > 0 ? 1 / branchNames.length : 0)
-          const allocatedExpenses = totalOpEx * glpShare
-
-          // 9. Net Operating Profit / Loss
-          const netProfit = grossIncome - allocatedExpenses
-
-          // 10. NPA Value — outstanding balance for 90+ DPD loans in this branch
+          // 8. NPA Value — outstanding balance for 90+ DPD loans in this branch
           const npaValue = bLoans
             .filter(l => l.npa_flag || Number(l.dpd || 0) >= 90)
             .reduce((s, l) => s + Number(l.ledger_balance || 0), 0)
 
-          // 11. PAR 30+ (outstanding of loans with DPD >= 30)
+          // 9. PAR 30+ (outstanding of loans with DPD >= 30)
           const par30 = bLoans
             .filter(l => Number(l.dpd || 0) >= 30)
             .reduce((s, l) => s + Number(l.ledger_balance || 0), 0)
-
-          const profitMargin = grossIncome > 0 ? (netProfit / grossIncome) * 100 : 0
 
           return {
             branch, activeLoans: activeLoans.length, closedLoans: closedLoans.length,
             totalLoans: bLoans.length, glp, totalSanctioned, totalNetDisbursed,
             processingFees, interestEarned, totalCollected, grossIncome,
-            allocatedExpenses, netProfit, npaValue, par30, profitMargin,
+            netProfit, npaValue, par30,
           }
         })
 
@@ -860,8 +842,8 @@ export default function FinancialsPage() {
           <div className="space-y-6">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
-                <h2 className="text-sm font-bold text-slate-800">Branch-wise Profit & Loss Allocation</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Calculated from actual loan data — interest earned proportional to collections, file charges from actual loan records, expenses allocated by GLP share.</p>
+                <h2 className="text-sm font-bold text-slate-800">Branch-wise Revenue & Portfolio Performance</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Calculated from actual loan records — interest earned proportional to collections and actual processing file charges.</p>
               </div>
               <button
                 onClick={() => exportToExcel(
@@ -876,14 +858,11 @@ export default function FinancialsPage() {
                     'Total Collected (₹)': Math.round(r.totalCollected),
                     'Interest Earned (₹)': Math.round(r.interestEarned),
                     'Processing Fees (₹)': Math.round(r.processingFees),
-                    'Gross Income (₹)': Math.round(r.grossIncome),
-                    'Allocated Expenses (₹)': Math.round(r.allocatedExpenses),
-                    'Net Profit / Loss (₹)': Math.round(r.netProfit),
+                    'Gross Revenue (₹)': Math.round(r.grossIncome),
                     'NPA Value (₹)': Math.round(r.npaValue),
                     'PAR 30+ (₹)': Math.round(r.par30),
-                    'Profit Margin (%)': r.profitMargin.toFixed(2),
                   })),
-                  'Branch_PnL_Report'
+                  'Branch_P_and_L_Report'
                 )}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition"
               >
@@ -893,7 +872,7 @@ export default function FinancialsPage() {
 
             {branchRows.length === 0 && (
               <div className="bg-slate-50 rounded-2xl p-10 text-center text-slate-400 text-sm">
-                No branch data found. Add loans with branch codes to see Branch P&L.
+                No branch data found. Add loans with branch codes to view Branch P&L.
               </div>
             )}
 
@@ -909,11 +888,9 @@ export default function FinancialsPage() {
                       <th className="text-right px-3 py-3 font-bold">Total Collected</th>
                       <th className="text-right px-3 py-3 font-bold">Interest Earned</th>
                       <th className="text-right px-3 py-3 font-bold">Processing Fees</th>
-                      <th className="text-right px-3 py-3 font-bold">Gross Income</th>
-                      <th className="text-right px-3 py-3 font-bold">Alloc. Expenses</th>
-                      <th className="text-right px-3 py-3 font-bold">Net Profit/Loss</th>
-                      <th className="text-right px-3 py-3 font-bold">NPA Value</th>
-                      <th className="text-right px-3 py-3 font-bold">Margin%</th>
+                      <th className="text-right px-3 py-3 font-bold">Gross Revenue</th>
+                      <th className="text-right px-3 py-3 font-bold">NPA Value (90+)</th>
+                      <th className="text-right px-3 py-3 font-bold">PAR 30+</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -926,10 +903,8 @@ export default function FinancialsPage() {
                         <td className="text-right px-3 py-2.5 font-mono text-emerald-700 font-semibold">{inr(r.interestEarned)}</td>
                         <td className="text-right px-3 py-2.5 font-mono text-indigo-700 font-semibold">{inr(r.processingFees)}</td>
                         <td className="text-right px-3 py-2.5 font-mono text-emerald-800 font-bold">{inr(r.grossIncome)}</td>
-                        <td className="text-right px-3 py-2.5 font-mono text-red-600">{inr(r.allocatedExpenses)}</td>
-                        <td className={`text-right px-3 py-2.5 font-mono font-bold ${r.netProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{inr(r.netProfit)}</td>
-                        <td className="text-right px-3 py-2.5 font-mono text-orange-600">{inr(r.npaValue)}</td>
-                        <td className={`text-right px-3 py-2.5 font-mono font-bold ${r.profitMargin >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{r.profitMargin.toFixed(1)}%</td>
+                        <td className="text-right px-3 py-2.5 font-mono text-orange-600 font-bold">{inr(r.npaValue)}</td>
+                        <td className="text-right px-3 py-2.5 font-mono text-yellow-600 font-bold">{inr(r.par30)}</td>
                       </tr>
                     ))}
                     {/* Totals Row */}
@@ -941,10 +916,8 @@ export default function FinancialsPage() {
                       <td className="text-right px-3 py-3 font-mono">{inr(branchRows.reduce((s, r) => s + r.interestEarned, 0))}</td>
                       <td className="text-right px-3 py-3 font-mono">{inr(branchRows.reduce((s, r) => s + r.processingFees, 0))}</td>
                       <td className="text-right px-3 py-3 font-mono">{inr(branchRows.reduce((s, r) => s + r.grossIncome, 0))}</td>
-                      <td className="text-right px-3 py-3 font-mono">{inr(branchRows.reduce((s, r) => s + r.allocatedExpenses, 0))}</td>
-                      <td className="text-right px-3 py-3 font-mono">{inr(branchRows.reduce((s, r) => s + r.netProfit, 0))}</td>
                       <td className="text-right px-3 py-3 font-mono">{inr(branchRows.reduce((s, r) => s + r.npaValue, 0))}</td>
-                      <td className="text-right px-3 py-3 font-mono">—</td>
+                      <td className="text-right px-3 py-3 font-mono">{inr(branchRows.reduce((s, r) => s + r.par30, 0))}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -956,13 +929,13 @@ export default function FinancialsPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
                 {branchRows.map(r => (
                   <div key={r.branch} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                    <div className={`px-5 py-3 flex items-center justify-between ${r.netProfit >= 0 ? 'bg-emerald-50 border-b border-emerald-100' : 'bg-red-50 border-b border-red-100'}`}>
+                    <div className="px-5 py-3 flex items-center justify-between bg-emerald-50 border-b border-emerald-100">
                       <div>
                         <h3 className="font-extrabold text-slate-800 text-sm">{r.branch}</h3>
                         <span className="text-[10px] text-slate-500">{r.totalLoans} loans · {r.activeLoans} active</span>
                       </div>
-                      <span className={`text-xs font-black px-2.5 py-1 rounded-lg ${r.netProfit >= 0 ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
-                        {r.netProfit >= 0 ? '▲ PROFIT' : '▼ LOSS'}
+                      <span className="text-xs font-black px-2.5 py-1 rounded-lg bg-emerald-600 text-white">
+                        ACTIVE BRANCH
                       </span>
                     </div>
                     <div className="p-5 space-y-2 text-xs">
@@ -991,23 +964,11 @@ export default function FinancialsPage() {
                         <span className="text-slate-500">Processing Fees</span>
                         <span className="font-mono font-bold text-indigo-700">{inr(r.processingFees)}</span>
                       </div>
-                      <div className="flex justify-between border-b pb-2 font-bold">
-                        <span className="text-slate-700">Gross Income</span>
-                        <span className="font-mono text-emerald-800">{inr(r.grossIncome)}</span>
+                      <div className="flex justify-between pt-2 font-bold text-sm border-t-2 border-emerald-200">
+                        <span className="text-emerald-800">Gross Revenue</span>
+                        <span className="font-mono text-emerald-700">{inr(r.grossIncome)}</span>
                       </div>
-                      <div className="flex justify-between border-b pb-1.5">
-                        <span className="text-slate-500">Allocated Expenses</span>
-                        <span className="font-mono text-red-600">{inr(r.allocatedExpenses)}</span>
-                      </div>
-                      <div className={`flex justify-between pt-2 font-bold text-sm border-t-2 ${r.netProfit >= 0 ? 'border-emerald-200' : 'border-red-200'}`}>
-                        <span className={r.netProfit >= 0 ? 'text-emerald-800' : 'text-red-700'}>Net {r.netProfit >= 0 ? 'Profit' : 'Loss'}</span>
-                        <span className={`font-mono ${r.netProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{inr(r.netProfit)}</span>
-                      </div>
-                      <div className="flex justify-between pt-1">
-                        <span className="text-slate-500">Profit Margin</span>
-                        <span className={`font-mono font-bold ${r.profitMargin >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{r.profitMargin.toFixed(1)}%</span>
-                      </div>
-                      <div className="flex justify-between pt-1">
+                      <div className="flex justify-between pt-2">
                         <span className="text-orange-500 font-semibold">NPA Value (90+ DPD)</span>
                         <span className="font-mono text-orange-600 font-bold">{inr(r.npaValue)}</span>
                       </div>
@@ -1027,9 +988,8 @@ export default function FinancialsPage() {
               <ul className="space-y-1 list-disc ml-4 text-blue-700">
                 <li><strong>GLP:</strong> Sum of <code>ledger_balance</code> for all ACTIVE / SANCTIONED loans in the branch.</li>
                 <li><strong>Interest Earned:</strong> Per loan: <code>total_interest × (total_collected ÷ total_loan)</code>, capped at 100% collection ratio.</li>
-                <li><strong>Processing Fees:</strong> Actual <code>file_charge</code> on each loan (falls back to <code>file_charge_pct % × loan_amount</code> only if file_charge = 0).</li>
-                <li><strong>Allocated Expenses:</strong> Total operating expenses × (Branch GLP ÷ Total GLP). Proportional to portfolio size.</li>
-                <li><strong>Net Profit/Loss:</strong> Gross Income (Interest + Fees) − Allocated Expenses.</li>
+                <li><strong>Processing Fees:</strong> Actual <code>file_charge</code> recorded on each loan (falls back to <code>file_charge_pct % × loan_amount</code> only if file_charge = 0).</li>
+                <li><strong>Gross Revenue:</strong> Interest Earned + Processing Fees.</li>
               </ul>
             </div>
           </div>
