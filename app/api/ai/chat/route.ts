@@ -54,29 +54,36 @@ GUIDELINES:
         parts: [{ text: m.content }],
       }))
 
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents,
-            systemInstruction: {
-              parts: [{ text: systemInstruction }],
-            },
-            generationConfig: {
-              temperature: 0.4,
-              maxOutputTokens: 1000,
-            },
-          }),
-        }
-      )
+      const candidateModels = ['gemini-3.6-flash', 'gemini-flash-latest', 'gemini-2.5-flash']
+      for (const model of candidateModels) {
+        try {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents,
+                systemInstruction: {
+                  parts: [{ text: systemInstruction }],
+                },
+                generationConfig: {
+                  temperature: 0.6,
+                  maxOutputTokens: 1200,
+                },
+              }),
+            }
+          )
 
-      if (response.ok) {
-        const data = await response.json()
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text
-        if (text) {
-          return NextResponse.json({ reply: text, source: 'gemini' })
+          if (response.ok) {
+            const data = await response.json()
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+            if (text) {
+              return NextResponse.json({ reply: text, source: 'gemini' })
+            }
+          }
+        } catch (err) {
+          console.warn(`Gemini model ${model} failed, trying next:`, err)
         }
       }
     }
