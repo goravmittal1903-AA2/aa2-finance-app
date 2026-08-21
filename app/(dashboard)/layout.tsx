@@ -7,6 +7,7 @@ import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { InactivityGuard } from '@/components/auth/InactivityGuard'
 import { CommandPalette } from '@/components/CommandPalette'
+import { AICopilot } from '@/components/ai/AICopilot'
 import { cn } from '@/lib/utils'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -57,6 +58,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {children}
           </div>
         </main>
+        <AICopilot />
       </div>
     </InactivityGuard>
   )
