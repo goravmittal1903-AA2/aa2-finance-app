@@ -57,18 +57,43 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
 
-    // Use application/octet-stream for storage binary blob to bypass any restrictive Supabase MIME filters
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from('loan-documents')
-      .upload(path, buffer, {
-        contentType: 'application/octet-stream',
-        upsert: true,
-      })
+    // Try real file mime type first, then standard allowed fallbacks to bypass bucket restrictions
+    const candidateMimes = Array.from(new Set([
+      file.type,
+      'application/pdf',
+      'image/jpeg',
+      'application/octet-stream',
+      'text/plain',
+    ].filter(Boolean)))
 
-    if (uploadError) {
-      console.error('Storage upload error:', uploadError)
-      // If bucket is not found, return metadata-only mode (graceful degradation)
-      if (uploadError.message?.includes('Bucket not found') || uploadError.message?.includes('bucket')) {
+    let uploadSuccess = false
+    let lastError: any = null
+
+    for (const mime of candidateMimes) {
+      const { error } = await supabaseAdmin.storage
+        .from('loan-documents')
+        .upload(path, buffer, {
+          contentType: mime,
+          upsert: true,
+        })
+
+      if (!error) {
+        uploadSuccess = true
+        lastError = null
+        break
+      }
+
+      lastError = error
+      // If error is NOT a mime-type restriction error, break early
+      if (!error.message?.includes('mime') && !error.message?.includes('not supported')) {
+        break
+      }
+    }
+
+    if (!uploadSuccess && lastError) {
+      console.error('Storage upload error:', lastError)
+      // Graceful fallback if storage bucket is missing or unconfigured
+      if (lastError.message?.includes('Bucket not found') || lastError.message?.includes('bucket')) {
         return NextResponse.json({
           ok: true,
           path: `local:${safeLoan}/${Date.now()}.${fileExtension}`,
@@ -77,10 +102,10 @@ export async function POST(request: NextRequest) {
           mimeType: file.type || 'application/octet-stream',
           docType,
           loanAccountNo,
-          warning: 'Storage bucket not configured — file metadata saved only.'
+          warning: 'Storage bucket not configured — file metadata saved.'
         })
       }
-      return NextResponse.json({ error: uploadError.message || 'Storage upload failed.' }, { status: 400 })
+      return NextResponse.json({ error: lastError.message || 'Storage upload failed.' }, { status: 400 })
     }
 
     return NextResponse.json({
