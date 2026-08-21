@@ -5,10 +5,10 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { getOne, getFiltered } from '@/lib/supabase'
 import type { Customer, Loan } from '@/lib/types'
-import { inr, fdate, statusColor } from '@/lib/utils'
+import { inr, fdate, statusColor, maskPAN, maskAadhaar } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
 import { confirmAction } from '@/lib/confirm'
-import { ArrowLeft, Phone, MapPin, User, Landmark, Shield, FileText, Plus } from 'lucide-react'
+import { ArrowLeft, Phone, MapPin, User, Landmark, Shield, FileText, Plus, Eye, EyeOff } from 'lucide-react'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -21,6 +21,8 @@ export default function MemberDetailPage({ params }: PageProps) {
   const [loans, setLoans] = useState<Loan[]>([])
   const [auditLogs, setAuditLogs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [showPAN, setShowPAN] = useState(false)
+  const [showAadhaar, setShowAadhaar] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -306,10 +308,21 @@ export default function MemberDetailPage({ params }: PageProps) {
               
               <div className="space-y-1">
                 <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Identity & KYCs</span>
-                <span className="flex items-center gap-2 text-slate-700 text-sm">
-                  <Shield className="w-4 h-4 text-slate-400" /> Aadhaar (Last 4): <span className="font-mono">{customer.aadhar_last4 || '—'}</span>
-                </span>
-                <span className="text-xs text-slate-700 block font-mono">PAN: {customer.pan_no || '—'}</span>
+                <div className="flex items-center gap-2 text-slate-700 text-sm">
+                  <Shield className="w-4 h-4 text-slate-400" />
+                  <span>Aadhaar: <span className="font-mono font-bold">{showAadhaar ? (customer.aadhar_last4 ? `**** **** ${customer.aadhar_last4}` : '—') : maskAadhaar(customer.aadhar_last4)}</span></span>
+                  <button onClick={() => setShowAadhaar(!showAadhaar)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-400" title={showAadhaar ? "Hide Aadhaar" : "Show Aadhaar"}>
+                    {showAadhaar ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate-700 font-mono">
+                  <span>PAN: <span className="font-bold">{showPAN ? (customer.pan_no || '—') : maskPAN(customer.pan_no)}</span></span>
+                  {customer.pan_no && (
+                    <button onClick={() => setShowPAN(!showPAN)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-400" title={showPAN ? "Hide PAN" : "Show PAN"}>
+                      {showPAN ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    </button>
+                  )}
+                </div>
                 <span className="text-xs text-slate-500 block">DOB: {fdate(customer.dob)} ({customer.gender || '—'})</span>
               </div>
 

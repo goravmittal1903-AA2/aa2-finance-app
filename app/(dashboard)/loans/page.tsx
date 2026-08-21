@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { getPortfolio } from '@/lib/calculations'
 import type { PortfolioRow } from '@/lib/types'
-import { inr, fdate, statusColor } from '@/lib/utils'
-import { Search, PlusCircle, TrendingDown } from 'lucide-react'
+import { inr, fdate, statusColor, exportToExcel } from '@/lib/utils'
+import { Search, PlusCircle, TrendingDown, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export default function LoansPage() {
@@ -60,11 +60,34 @@ export default function LoansPage() {
           <h1 className="text-2xl font-bold text-slate-800">Loans</h1>
           <p className="text-slate-500 text-sm mt-0.5">{portfolio.length} total loan accounts</p>
         </div>
-        <Link href="/loans/new"
-          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/20 hover:-translate-y-0.5">
-          <PlusCircle className="w-4 h-4" />
-          New Loan
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => exportToExcel(
+              portfolio.map(p => ({
+                'Loan Account No': p.loan_account_no,
+                'Customer ID': p.customer_id,
+                'Member Name': p.member_name,
+                'Branch Name': p.branch || '',
+                'Field Officer': p.fo || '',
+                'Loan Amount (₹)': p.loan_amount,
+                'Total Collected (₹)': p.total_collected,
+                'Outstanding Balance (₹)': p.outstanding,
+                'DPD Days': p.dpd,
+                'DPD Bucket': p.dpd_bucket,
+                'Status': p.status,
+              })),
+              'Loans_Portfolio_Export'
+            )}
+            className="flex items-center gap-2 px-3.5 py-2.5 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-sm font-semibold rounded-xl transition"
+          >
+            <Download className="w-4 h-4" /> Export Excel
+          </button>
+          <Link href="/loans/new"
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/20 hover:-translate-y-0.5">
+            <PlusCircle className="w-4 h-4" />
+            New Loan
+          </Link>
+        </div>
       </div>
 
       {/* Filters Row */}

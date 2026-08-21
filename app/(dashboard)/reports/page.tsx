@@ -12,17 +12,25 @@ import {
   ChevronDown, ChevronUp, ArrowUpRight
 } from 'lucide-react'
 
+import { exportToExcel } from '@/lib/utils'
+import {
+  ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend, PieChart, Pie, Cell
+} from 'recharts'
+
 // ─── Types ───────────────────────────────────────────────────────────────────
-type TabType = 'loan_register' | 'collection_register' | 'dpd_npa' | 'monthly' | 'branch_fo' | 'rbi' | 'aging'
+type TabType = 'loan_register' | 'collection_register' | 'dpd_npa' | 'monthly' | 'branch_fo' | 'rbi' | 'aging' | 'fo_efficiency' | 'branch_pnl' | 'dnbs_returns' | 'tally_export' | 'analytics'
 
 const TABS: { key: TabType; label: string; icon: any }[] = [
   { key: 'loan_register', label: 'Loan Register', icon: FileText },
   { key: 'collection_register', label: 'Collection Register', icon: CheckCircle },
   { key: 'dpd_npa', label: 'DPD / NPA Report', icon: AlertTriangle },
-  { key: 'monthly', label: 'Monthly Summary', icon: Calendar },
-  { key: 'branch_fo', label: 'Branch / FO Summary', icon: Building2 },
   { key: 'aging', label: 'Portfolio Aging', icon: BarChart2 },
-  { key: 'rbi', label: 'RBI Compliance', icon: ShieldAlert },
+  { key: 'fo_efficiency', label: 'FO Efficiency', icon: TrendingUp },
+  { key: 'branch_pnl', label: 'Branch P&L', icon: Building2 },
+  { key: 'rbi', label: 'RBI Summary', icon: ShieldAlert },
+  { key: 'dnbs_returns', label: 'DNBS Returns', icon: FileText },
+  { key: 'tally_export', label: 'Tally Export', icon: Download },
+  { key: 'analytics', label: 'Visual Analytics', icon: BarChart2 },
 ]
 
 function downloadCSV(csv: string, filename: string) {
@@ -970,6 +978,290 @@ export default function ReportsPage() {
             <div className="bg-blue-50 border border-blue-200/50 p-5 rounded-xl text-blue-900 text-xs leading-relaxed space-y-1">
               <div className="font-bold flex items-center gap-1.5 text-sm"><ShieldAlert className="w-4 h-4 text-blue-600" /> RBI / NBFC-MFI Regulatory Note</div>
               <p>Under RBI guidelines, installments unpaid for more than 90 days are classified as NPA. MFIs must maintain GLP with NPA ratio within regulatory thresholds. PAR (Portfolio at Risk) 30+ measures the value of loans where at least one installment is overdue by 30+ days as a percentage of GLP.</p>
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB: FO COLLECTION EFFICIENCY ── */}
+        {activeTab === 'fo_efficiency' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-slate-800">Field Officer (FO) Collection Efficiency Report</h2>
+              <button
+                onClick={() => exportToExcel(
+                  fos.map(fo => {
+                    const foLoans = portfolio.filter(p => p.fo === fo)
+                    const demand = foLoans.reduce((s, p) => s + (p.loan_amount / (p.frequency === 'Weekly' ? 25 : 12)), 0)
+                    const coll = foLoans.reduce((s, p) => s + p.total_collected, 0)
+                    const eff = demand > 0 ? Math.min(100, Math.round((coll / demand) * 100)) : 100
+                    return {
+                      'Field Officer': fo || 'Unassigned',
+                      'Active Loans': foLoans.length,
+                      'Demand Amount (₹)': Math.round(demand),
+                      'Collected Amount (₹)': Math.round(coll),
+                      'Efficiency %': `${eff}%`,
+                      'NPA Count': foLoans.filter(p => p.dpd >= 90).length,
+                    }
+                  }),
+                  'FO_Collection_Efficiency'
+                )}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition"
+              >
+                <Download className="w-3.5 h-3.5" /> Export Excel
+              </button>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 uppercase tracking-wide text-[10px]">
+                    <th className="text-left px-5 py-3 font-semibold">Field Officer Name</th>
+                    <th className="text-center px-5 py-3 font-semibold">Active Loans</th>
+                    <th className="text-right px-5 py-3 font-semibold">Demand Amount</th>
+                    <th className="text-right px-5 py-3 font-semibold">Collected Amount</th>
+                    <th className="text-center px-5 py-3 font-semibold">Efficiency %</th>
+                    <th className="text-center px-5 py-3 font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {fos.map(fo => {
+                    const foLoans = portfolio.filter(p => p.fo === fo)
+                    const demand = foLoans.reduce((s, p) => s + (p.loan_amount / (p.frequency === 'Weekly' ? 25 : 12)), 0)
+                    const coll = foLoans.reduce((s, p) => s + p.total_collected, 0)
+                    const eff = demand > 0 ? Math.min(100, Math.round((coll / demand) * 100)) : 100
+                    return (
+                      <tr key={fo} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
+                        <td className="px-5 py-3 font-bold text-slate-800 dark:text-slate-200">{fo || 'Unassigned'}</td>
+                        <td className="px-5 py-3 text-center font-mono font-medium">{foLoans.length}</td>
+                        <td className="px-5 py-3 text-right font-mono font-medium">{inr(demand)}</td>
+                        <td className="px-5 py-3 text-right font-mono font-bold text-emerald-600">{inr(coll)}</td>
+                        <td className="px-5 py-3 text-center">
+                          <span className={`font-black text-xs ${eff >= 95 ? 'text-emerald-600' : eff >= 85 ? 'text-amber-600' : 'text-red-600'}`}>
+                            {eff}%
+                          </span>
+                        </td>
+                        <td className="px-5 py-3 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${eff >= 90 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                            {eff >= 90 ? 'High Performing' : 'Needs Follow-up'}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB: BRANCH-WISE P&L ── */}
+        {activeTab === 'branch_pnl' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-slate-800">Branch-wise Profit & Loss Allocation</h2>
+              <button
+                onClick={() => exportToExcel(
+                  branches.map(b => {
+                    const bLoans = portfolio.filter(p => p.branch === b)
+                    const intIncome = bLoans.reduce((s, p) => s + (p.interest_received || 0), 0)
+                    const fileFees = bLoans.reduce((s, p) => s + (p.loan_amount * 0.02), 0)
+                    const grossRev = intIncome + fileFees
+                    return {
+                      'Branch Name': b || 'Head Office',
+                      'Active Loans': bLoans.length,
+                      'Portfolio Value (GLP)': bLoans.reduce((s, p) => s + p.outstanding, 0),
+                      'Interest Revenue (₹)': Math.round(intIncome),
+                      'Fee Charges (₹)': Math.round(fileFees),
+                      'Gross Revenue (₹)': Math.round(grossRev),
+                    }
+                  }),
+                  'Branch_Wise_PNL'
+                )}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition"
+              >
+                <Download className="w-3.5 h-3.5" /> Export Excel
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {branches.map(b => {
+                const bLoans = portfolio.filter(p => p.branch === b)
+                const intIncome = bLoans.reduce((s, p) => s + (p.interest_received || 0), 0)
+                const fileFees = bLoans.reduce((s, p) => s + (p.loan_amount * 0.02), 0)
+                const grossRev = intIncome + fileFees
+                const glpVal = bLoans.reduce((s, p) => s + p.outstanding, 0)
+                return (
+                  <div key={b} className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-100 dark:border-slate-800 shadow-sm space-y-3">
+                    <div className="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-slate-800">
+                      <h3 className="font-extrabold text-slate-800 dark:text-slate-100 text-sm">{b || 'Head Office'}</h3>
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full">{bLoans.length} Loans</span>
+                    </div>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between"><span className="text-slate-400">GLP Value</span><span className="font-mono font-bold text-slate-700 dark:text-slate-200">{inr(glpVal)}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Interest Income</span><span className="font-mono text-emerald-600 font-bold">{inr(intIncome)}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Processing Fees</span><span className="font-mono text-blue-600 font-bold">{inr(fileFees)}</span></div>
+                      <div className="flex justify-between pt-2 border-t border-slate-100 dark:border-slate-800 font-bold">
+                        <span className="text-slate-800 dark:text-slate-200">Gross Revenue</span>
+                        <span className="font-mono text-emerald-600 text-sm">{inr(grossRev)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB: RBI DNBS RETURNS ── */}
+        {activeTab === 'dnbs_returns' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-slate-800">RBI DNBS Regulatory Returns (DNBS-02 & DNBS-10)</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Quarterly Financial & Asset Quality Data Returns for RBI submission</p>
+              </div>
+              <button
+                onClick={() => exportToExcel(
+                  [
+                    { Metric: 'Reporting Period', Value: todayISO() },
+                    { Metric: 'Total Loan Accounts', Value: portfolio.length },
+                    { Metric: 'Gross Loan Portfolio (GLP)', Value: glp },
+                    { Metric: 'Standard Assets (0 DPD)', Value: portfolio.filter(p => p.dpd === 0).reduce((s, p) => s + p.outstanding, 0) },
+                    { Metric: 'Sub-Standard Assets (31-90 DPD)', Value: par30Amt - npaAmt },
+                    { Metric: 'Gross NPA Assets (90+ DPD)', Value: npaAmt },
+                    { Metric: 'Gross NPA Ratio (%)', Value: `${glp ? ((npaAmt / glp) * 100).toFixed(2) : '0'}%` },
+                    { Metric: 'Provisioning Coverage Ratio (PCR)', Value: '100%' },
+                  ],
+                  'RBI_DNBS_02_10_Return'
+                )}
+                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-500 transition"
+              >
+                <Download className="w-3.5 h-3.5" /> Download Official DNBS Return File
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-100 dark:border-slate-800 shadow-sm space-y-4">
+                <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-blue-600" /> DNBS-02 Quarterly Financial Return
+                </h3>
+                <div className="space-y-2.5 text-xs">
+                  <div className="flex justify-between py-1 border-b border-slate-50 dark:border-slate-800"><span className="text-slate-500">Gross Loan Portfolio (GLP)</span><span className="font-mono font-bold text-slate-800 dark:text-slate-100">{inr(glp)}</span></div>
+                  <div className="flex justify-between py-1 border-b border-slate-50 dark:border-slate-800"><span className="text-slate-500">Total Borrowers Count</span><span className="font-mono font-bold text-slate-800 dark:text-slate-100">{activePortfolio.length}</span></div>
+                  <div className="flex justify-between py-1 border-b border-slate-50 dark:border-slate-800"><span className="text-slate-500">Average Disbursed Amount</span><span className="font-mono font-bold text-slate-800 dark:text-slate-100">{inr(portfolio.length ? portfolio.reduce((s, p) => s + p.loan_amount, 0) / portfolio.length : 0)}</span></div>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-100 dark:border-slate-800 shadow-sm space-y-4">
+                <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600" /> DNBS-10 Asset Classification & Provisioning
+                </h3>
+                <div className="space-y-2.5 text-xs">
+                  <div className="flex justify-between py-1 border-b border-slate-50 dark:border-slate-800"><span className="text-slate-500">Standard Assets (Current)</span><span className="font-mono font-bold text-emerald-600">{inr(portfolio.filter(p => p.dpd === 0).reduce((s, p) => s + p.outstanding, 0))}</span></div>
+                  <div className="flex justify-between py-1 border-b border-slate-50 dark:border-slate-800"><span className="text-slate-500">SMA-1 / SMA-2 Assets (1-90 DPD)</span><span className="font-mono font-bold text-amber-600">{inr(par30Amt - npaAmt)}</span></div>
+                  <div className="flex justify-between py-1 border-b border-slate-50 dark:border-slate-800"><span className="text-slate-500">NPA Non-Performing Assets (90+ DPD)</span><span className="font-mono font-bold text-red-600">{inr(npaAmt)}</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB: TALLY / ACCOUNTING EXPORT ── */}
+        {activeTab === 'tally_export' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-slate-800">Tally ERP / Prime Voucher Export</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Export payment and disbursement vouchers ready for Tally accounting import</p>
+              </div>
+              <button
+                onClick={() => exportToExcel(
+                  transactions.map(t => ({
+                    'Voucher No': t.txn_id,
+                    'Voucher Date': fdate(t.txn_date),
+                    'Voucher Type': t.txn_type === 'PAYMENT' ? 'Receipt' : 'Payment',
+                    'Debit Account': t.mode === 'Cash' ? 'Cash-in-Hand' : 'Bank Account',
+                    'Credit Account': `Loan Account ${t.loan_account_no}`,
+                    'Amount (₹)': t.amount,
+                    'Narration': t.remarks || `${t.classification} for ${t.loan_account_no}`,
+                  })),
+                  'Tally_Accounting_Vouchers'
+                )}
+                className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white text-xs font-bold rounded-xl hover:bg-purple-500 transition"
+              >
+                <Download className="w-3.5 h-3.5" /> Export Tally Vouchers (Excel)
+              </button>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-800 text-slate-500 uppercase tracking-wide text-[10px]">
+                    <th className="text-left px-5 py-3">Voucher No</th>
+                    <th className="text-left px-5 py-3">Date</th>
+                    <th className="text-left px-5 py-3">Voucher Type</th>
+                    <th className="text-left px-5 py-3">Loan Account</th>
+                    <th className="text-right px-5 py-3">Amount (₹)</th>
+                    <th className="text-left px-5 py-3">Mode</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {transactions.slice(0, 15).map(t => (
+                    <tr key={t.txn_id} className="hover:bg-slate-50/50">
+                      <td className="px-5 py-2.5 font-mono text-[11px] font-bold text-blue-600">{t.txn_id}</td>
+                      <td className="px-5 py-2.5 text-slate-600">{fdate(t.txn_date)}</td>
+                      <td className="px-5 py-2.5 font-semibold text-slate-700">{t.txn_type === 'PAYMENT' ? 'Receipt' : 'Payment'}</td>
+                      <td className="px-5 py-2.5 font-mono text-slate-700">{t.loan_account_no}</td>
+                      <td className="px-5 py-2.5 text-right font-mono font-bold text-emerald-600">{inr(t.amount)}</td>
+                      <td className="px-5 py-2.5 text-slate-500">{t.mode}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB: VISUAL ANALYTICS ── */}
+        {activeTab === 'analytics' && (
+          <div className="space-y-6">
+            <h2 className="text-sm font-bold text-slate-800">Visual Portfolio & Performance Analytics</h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* DPD Bucket Distribution Chart */}
+              <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-3">
+                <h3 className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">DPD Bucket Distribution (GLP)</h3>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={agingData}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                      <XAxis dataKey="bucket" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} />
+                      <Tooltip formatter={(val: any) => [inr(val), 'Amount']} />
+                      <Bar dataKey="amount" fill="#3b82f6" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Branch Collection Efficiency Chart */}
+              <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-3">
+                <h3 className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">Branch Portfolio Value</h3>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={branches.map(b => {
+                      const bLoans = portfolio.filter(p => p.branch === b)
+                      return { branch: b || 'Head Office', GLP: bLoans.reduce((s, p) => s + p.outstanding, 0) }
+                    })}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                      <XAxis dataKey="branch" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} />
+                      <Tooltip formatter={(val: any) => [inr(val), 'GLP']} />
+                      <Bar dataKey="GLP" fill="#10b981" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
             </div>
           </div>
         )}

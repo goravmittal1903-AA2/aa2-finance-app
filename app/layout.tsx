@@ -7,6 +7,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 export const metadata: Metadata = {
   title: 'AA2 Finance — MFI Management System',
   description: 'Enterprise Microfinance Institution Management System',
+  manifest: '/manifest.json',
   icons: {
     icon: '/brand/aa2-microfinance.png',
     shortcut: '/brand/aa2-microfinance.png',

@@ -140,6 +140,18 @@ export async function generateUniqueLoanAccountNo(): Promise<string> {
   return String(Date.now()).slice(-10)
 }
 
+/** RBI MFI Guidelines: Check if borrower already has 2 active loans */
+export async function checkActiveLoanLimit(customer_id: string): Promise<{ allowed: boolean; activeCount: number; activeLoans: Loan[] }> {
+  if (!customer_id) return { allowed: true, activeCount: 0, activeLoans: [] }
+  const memberLoans = await getFiltered<Loan>('loans', 'customer_id', customer_id)
+  const activeLoans = memberLoans.filter(l => (l.status || '').toUpperCase() === 'ACTIVE' || (l.status || '').toUpperCase() === 'SANCTIONED')
+  return {
+    allowed: activeLoans.length < 2,
+    activeCount: activeLoans.length,
+    activeLoans,
+  }
+}
+
 export function computeOutstanding(loan: Loan, rows: ScheduleRow[]): number {
   const isClosed = (loan.status || '').toUpperCase().startsWith('CLOS')
   if (isClosed) return 0

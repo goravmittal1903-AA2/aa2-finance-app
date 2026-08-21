@@ -94,3 +94,30 @@ export function validatePAN(pan: string | null | undefined): boolean {
   return /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(clean)
 }
 
+// Mask PAN number (ABCDE****F)
+export function maskPAN(pan: string | null | undefined): string {
+  if (!pan || pan.trim().length < 10) return pan || '—'
+  const clean = pan.trim()
+  return `${clean.slice(0, 5)}****${clean.slice(-1)}`
+}
+
+// Mask Aadhaar number (**** **** 1234 or ****1234)
+export function maskAadhaar(aadhaar: string | null | undefined): string {
+  if (!aadhaar) return '—'
+  const clean = aadhaar.trim()
+  if (clean.length === 4) return `**** ${clean}`
+  if (clean.length === 12) return `**** **** ${clean.slice(-4)}`
+  return clean
+}
+
+// Export JSON/Array data to Excel file using xlsx
+export async function exportToExcel(data: any[], fileName: string, sheetName = 'Sheet1') {
+  if (!data || !data.length) return
+  const XLSX = await import('xlsx')
+  const worksheet = XLSX.utils.json_to_sheet(data)
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName)
+  XLSX.writeFile(workbook, `${fileName}_${todayISO()}.xlsx`)
+}
+
+

@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth-context'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { InactivityGuard } from '@/components/auth/InactivityGuard'
+import { CommandPalette } from '@/components/CommandPalette'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth()
@@ -34,9 +35,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <InactivityGuard>
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
         <Sidebar />
         <Header />
+        <CommandPalette />
         <main className="ml-60 pt-[60px] min-h-screen">
           <div className="p-6">
             {children}

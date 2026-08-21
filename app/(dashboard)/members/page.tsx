@@ -6,9 +6,10 @@ import { getAll } from '@/lib/supabase'
 import type { Customer } from '@/lib/types'
 import { usePaginatedResource } from '@/lib/use-paginated-resource'
 import { useRealtimeInvalidation } from '@/lib/use-realtime-invalidation'
+import { exportToExcel } from '@/lib/utils'
 import {
   Search, UserPlus, Phone, MapPin, AlertTriangle,
-  X, ShieldAlert, CheckCircle2, ScanLine
+  X, ShieldAlert, CheckCircle2, ScanLine, Download
 } from 'lucide-react'
 
 // ── Duplicate Detection Types ──────────────────────────────────────────────────
@@ -76,6 +77,30 @@ export default function MembersPage() {
           <p className="text-slate-500 text-sm mt-0.5">{total} total members</p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => exportToExcel(
+              customers.map(c => ({
+                'Member ID': c.customer_id,
+                'Full Name': c.full_name,
+                'Father/Husband Name': c.father_husband_name || '',
+                'Mobile': c.mobile || '',
+                'Aadhaar (Last 4)': c.aadhar_last4 || '',
+                'PAN Card': c.pan_no || '',
+                'DOB': c.dob || '',
+                'Village/City': c.village_city || '',
+                'Pincode': c.pincode || '',
+                'District': c.district || '',
+                'State': c.state || '',
+                'Branch Name': c.branch_code || '',
+                'BM Name': c.bm_name || '',
+                'FO Name': c.fo_name || '',
+              })),
+              'Members_List'
+            )}
+            className="flex items-center gap-2 px-3.5 py-2.5 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-sm font-semibold rounded-xl transition"
+          >
+            <Download className="w-4 h-4" /> Export Excel
+          </button>
           <button
             onClick={handleCheckDuplicates}
             className="flex items-center gap-2 px-4 py-2.5 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-700 text-sm font-semibold rounded-xl transition"

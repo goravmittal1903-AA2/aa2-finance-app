@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { getAll, putOne, putMany } from '@/lib/supabase'
-import { computeLoanEconomics, generateSchedule, generateUniqueLoanAccountNo } from '@/lib/calculations'
+import { computeLoanEconomics, generateSchedule, generateUniqueLoanAccountNo, checkActiveLoanLimit } from '@/lib/calculations'
 import type { Customer, Loan } from '@/lib/types'
 import { inr, todayISO } from '@/lib/utils'
 import { ArrowLeft, Calculator, Save, Search, CheckCircle2, UserCheck, UserPlus } from 'lucide-react'
@@ -214,6 +214,12 @@ function NewLoanForm() {
     setError('')
 
     try {
+      // RBI Compliance Check: Max 2 active loans per member
+      const activeCheck = await checkActiveLoanLimit(formData.customer_id)
+      if (!activeCheck.allowed) {
+        throw new Error(`RBI MFI Compliance Error: This member already has ${activeCheck.activeCount} active loans (Limit is max 2 active loans). Cannot sanction additional loan.`)
+      }
+
       const customer = customers.find(c => c.customer_id === formData.customer_id)
       if (!customer) throw new Error('Member not found.')
 
