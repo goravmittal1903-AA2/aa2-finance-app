@@ -40,11 +40,15 @@ const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minute TTL — longer for fewer refetche
 
 export function invalidateCache(store?: string) {
   if (store) {
-    // Targeted invalidation: only clear keys related to this store
+    // Targeted invalidation: clear keys related to this store
     const table = tbl(store)
     const keysToDelete: string[] = []
     for (const key of memoryCache.keys()) {
-      if (key.includes(store) || key.includes(table)) {
+      if (
+        key.includes(store) ||
+        key.includes(table) ||
+        ((store === 'documents' || store === 'loan_documents') && (key.includes('documents') || key.includes('loan_documents')))
+      ) {
         keysToDelete.push(key)
       }
     }
@@ -58,6 +62,10 @@ export function invalidateCache(store?: string) {
 
 function notifyDataChange(store: string) {
   invalidateCache(store)
+  if (store === 'documents' || store === 'loan_documents') {
+    invalidateCache('documents')
+    invalidateCache('loan_documents')
+  }
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('aa2_data_changed', { detail: { store } }))
   }
@@ -90,12 +98,12 @@ export async function getAll<T>(store: string, forceRefresh = false): Promise<T[
 }
 
 // ─── READ: Fetch one by primary key (with cache) ─────────────────────────────
-export async function getOne<T>(store: string, id: string | number): Promise<T | null> {
+export async function getOne<T>(store: string, id: string | number, forceRefresh = false): Promise<T | null> {
   const cacheKey = `getOne:${tbl(store)}:${id}`
   const cached = memoryCache.get(cacheKey)
   const now = Date.now()
 
-  if (cached && (now - cached.timestamp < CACHE_TTL_MS)) {
+  if (!forceRefresh && cached && (now - cached.timestamp < CACHE_TTL_MS)) {
     return cached.data
   }
 
@@ -107,12 +115,12 @@ export async function getOne<T>(store: string, id: string | number): Promise<T |
 }
 
 // ─── READ: Fetch filtered by field (with cache) ──────────────────────────────
-export async function getFiltered<T>(store: string, field: string, value: string | number): Promise<T[]> {
+export async function getFiltered<T>(store: string, field: string, value: string | number, forceRefresh = false): Promise<T[]> {
   const cacheKey = `getFiltered:${tbl(store)}:${field}:${value}`
   const cached = memoryCache.get(cacheKey)
   const now = Date.now()
 
-  if (cached && (now - cached.timestamp < CACHE_TTL_MS)) {
+  if (!forceRefresh && cached && (now - cached.timestamp < CACHE_TTL_MS)) {
     return cached.data
   }
 

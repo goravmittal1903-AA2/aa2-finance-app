@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { getAll, putOne, delOne, supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import type { Loan } from '@/lib/types'
 import { fdate } from '@/lib/utils'
-import { Search, Upload, Trash2, Eye, Download, CheckCircle, AlertCircle } from 'lucide-react'
+import { Search, Upload, Trash2, Eye, Download, CheckCircle, AlertCircle, FileText } from 'lucide-react'
 import { confirmAction } from '@/lib/confirm'
 
 interface DocumentRecord {
@@ -52,18 +53,18 @@ export default function DocumentsPage() {
   const [errorMsg, setErrorMsg] = useState('')
 
   useEffect(() => {
-    loadDocsAndLoans()
-    const handler = () => loadDocsAndLoans()
+    loadDocsAndLoans(true)
+    const handler = () => loadDocsAndLoans(true)
     window.addEventListener('aa2_data_changed', handler)
     return () => window.removeEventListener('aa2_data_changed', handler)
   }, [])
 
-  async function loadDocsAndLoans() {
+  async function loadDocsAndLoans(force = true) {
     setLoading(true)
     try {
       const [d, l] = await Promise.all([
-        getAll<DocumentRecord>('documents'),
-        getAll<Loan>('loans')
+        getAll<DocumentRecord>('documents', force),
+        getAll<Loan>('loans', force)
       ])
       setDocs(d.sort((a,b) => (b.uploaded_date || '').localeCompare(a.uploaded_date || '')))
       setLoans(l.sort((a,b) => (b.loan_account_no || '').localeCompare(a.loan_account_no || '')))
@@ -209,7 +210,8 @@ export default function DocumentsPage() {
     try {
       const { moveToTrash } = await import('@/lib/trash')
       await moveToTrash('documents', doc.doc_id, doc, doc.file_name || doc.doc_id, user?.email || 'system')
-      await loadDocsAndLoans()
+      await delOne('loan_documents', doc.doc_id)
+      await loadDocsAndLoans(true)
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Deletion failed.')
     }
@@ -228,84 +230,87 @@ export default function DocumentsPage() {
   })
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Document Vault</h1>
-        <p className="text-slate-500 text-sm mt-0.5">Scanned KYCs, Excel sheets, sanction letters, and agreements.</p>
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Top Bar */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Document Vault & Verification</h1>
+          <p className="text-slate-500 text-sm mt-0.5">Central repository for all customer KYC, agreements, and uploaded loan documentation.</p>
+        </div>
       </div>
 
+      {successMsg && (
+        <div className="bg-emerald-50 text-emerald-800 text-xs p-3 rounded-xl flex items-center gap-2 border border-emerald-200">
+          <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+          {successMsg}
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="bg-red-50 text-red-700 text-xs p-3 rounded-xl flex items-center gap-2 border border-red-200">
+          <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+          {errorMsg}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Left Column: Upload Box */}
-        <div className="lg:col-span-1 space-y-4">
-          <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 space-y-4">
-            <h2 className="text-sm font-bold text-slate-800 pb-2 border-b border-slate-100 flex items-center gap-2">
-              <Upload className="w-4 h-4 text-blue-500" /> Upload Document
-            </h2>
+        {/* Left Column: Upload New File */}
+        <div className="lg:col-span-1 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b pb-2">
+            <Upload className="w-4 h-4 text-blue-600" />
+            Upload Document to Vault
+          </h3>
 
-            {successMsg && (
-              <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 p-3 rounded-xl text-xs flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 flex-shrink-0" /> {successMsg}
-              </div>
-            )}
-            {errorMsg && (
-              <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" /> {errorMsg}
-              </div>
-            )}
-
-            <form onSubmit={handleUpload} className="space-y-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Select Loan Account *</label>
-                <select
-                  value={selectedLoanAcc}
-                  onChange={e => setSelectedLoanAcc(e.target.value)}
-                  required
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="">-- Choose Loan Account --</option>
-                  {loans.map(l => (
-                    <option key={l.loan_account_no} value={l.loan_account_no}>
-                      {l.loan_account_no} — {l.member_name_cache || l.member_name} ({l.customer_id})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Document Type</label>
-                <select
-                  value={docType}
-                  onChange={e => setDocType(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  {DOC_TYPES.map(t => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Select File (PDF, Excel, Word, Image) *</label>
-                <input
-                  type="file"
-                  name="file"
-                  required
-                  accept=".pdf,.jpg,.jpeg,.png,.webp,.xls,.xlsx,.csv,.doc,.docx,.txt,.zip"
-                  className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={uploading}
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-semibold rounded-xl text-xs transition shadow-md shadow-blue-500/10"
+          <form onSubmit={handleUpload} className="space-y-4">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Select Loan Account *</label>
+              <select
+                value={selectedLoanAcc}
+                onChange={e => setSelectedLoanAcc(e.target.value)}
+                required
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
-                {uploading ? 'Uploading…' : 'Upload File to Vault'}
-              </button>
-            </form>
-          </div>
+                <option value="">-- Choose Loan Account --</option>
+                {loans.map(l => (
+                  <option key={l.loan_account_no} value={l.loan_account_no}>
+                    {l.loan_account_no} — {l.member_name_cache || l.member_name} ({l.customer_id})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Document Type</label>
+              <select
+                value={docType}
+                onChange={e => setDocType(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                {DOC_TYPES.map(t => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Select File (PDF, Excel, Word, Image) *</label>
+              <input
+                type="file"
+                name="file"
+                required
+                accept=".pdf,.jpg,.jpeg,.png,.webp,.xls,.xlsx,.csv,.doc,.docx,.txt,.zip"
+                className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={uploading}
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-semibold rounded-xl text-xs transition shadow-md shadow-blue-500/10"
+            >
+              {uploading ? 'Uploading…' : 'Upload File to Vault'}
+            </button>
+          </form>
         </div>
 
         {/* Right Column: List of Files */}
@@ -355,7 +360,16 @@ export default function DocumentsPage() {
                 )}
                 {filtered.map(d => (
                   <tr key={d.doc_id} className="tbl-row">
-                    <td className="px-5 py-3 font-mono text-[10px] text-blue-600 font-semibold">{d.loan_account_no}</td>
+                    <td className="px-5 py-3">
+                      <Link
+                        href={`/loans/${d.loan_account_no}`}
+                        className="font-mono text-xs text-blue-600 font-bold hover:underline inline-flex items-center gap-1 bg-blue-50/80 hover:bg-blue-100 px-2 py-1 rounded-lg transition"
+                        title={`Open Loan Account ${d.loan_account_no}`}
+                      >
+                        <FileText className="w-3.5 h-3.5 text-blue-500" />
+                        {d.loan_account_no}
+                      </Link>
+                    </td>
                     <td className="px-5 py-3">
                       <div className="font-semibold text-slate-800">{d.member_name}</div>
                       <div className="text-[10px] text-slate-400 font-mono">{d.customer_id}</div>

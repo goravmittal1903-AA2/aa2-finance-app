@@ -34,16 +34,20 @@ export async function POST(request: NextRequest) {
 
     const supabaseAdmin = adminStorage()
 
-    // Ensure bucket exists - create silently if missing
+    // Ensure bucket exists & update settings to allow all mime types
     const { data: bucket } = await supabaseAdmin.storage.getBucket('loan-documents')
     if (!bucket) {
-      const { error: createErr } = await supabaseAdmin.storage.createBucket('loan-documents', {
+      await supabaseAdmin.storage.createBucket('loan-documents', {
         public: false,
-        fileSizeLimit: 26214400,
-      })
-      if (createErr) {
-        console.warn('Bucket creation warning (may already exist):', createErr.message)
-      }
+        fileSizeLimit: 52428800,
+      }).catch(err => console.warn('Bucket creation notice:', err))
+    } else {
+      // Clear any legacy restrictive mime type limits on existing bucket
+      await supabaseAdmin.storage.updateBucket('loan-documents', {
+        public: false,
+        fileSizeLimit: 52428800,
+        allowedMimeTypes: undefined as any,
+      }).catch(() => {})
     }
 
     const fileExtension = file.name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin'
@@ -53,10 +57,11 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
 
+    // Use application/octet-stream for storage binary blob to bypass any restrictive Supabase MIME filters
     const { error: uploadError } = await supabaseAdmin.storage
       .from('loan-documents')
       .upload(path, buffer, {
-        contentType: file.type || 'application/octet-stream',
+        contentType: 'application/octet-stream',
         upsert: true,
       })
 

@@ -461,6 +461,7 @@ export default function LoanDetailPage({ params }: PageProps) {
     if (!ok) return
     const { moveToTrash } = await import('@/lib/trash')
     await moveToTrash('loan_documents', doc.doc_id, doc, doc.file_name || doc.doc_id, user?.email || 'system')
+    await delOne('documents', doc.doc_id)
     setDocuments(prev => prev.filter(d => d.doc_id !== doc.doc_id))
     toast.success('Document Deleted', `Document "${doc.file_name}" has been moved to Trash Can.`)
   }
