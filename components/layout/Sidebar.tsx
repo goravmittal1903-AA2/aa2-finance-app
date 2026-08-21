@@ -58,26 +58,51 @@ export function Sidebar({ collapsed = false, onToggle }: { collapsed?: boolean; 
   return (
     <aside className={cn("fixed left-0 top-0 h-screen bg-slate-900 flex flex-col z-30 shadow-xl transition-all duration-200", collapsed ? "w-16" : "w-60")}>
       {/* Brand Header — Links directly to /dashboard */}
-      <div className="flex items-center justify-between px-3 py-3 border-b border-slate-700/50 bg-slate-950/40">
-        <Link href="/dashboard" className="flex items-center gap-2 overflow-hidden">
-          <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center flex-shrink-0 text-white font-black text-xs shadow-md">
+      {collapsed ? (
+        <div className="flex flex-col items-center justify-center py-3 border-b border-slate-700/50 bg-slate-950/40 gap-2">
+          <Link href="/dashboard" title="AA2 Finance Dashboard" className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white font-black text-xs shadow-md">
             AA2
+          </Link>
+          <button
+            onClick={onToggle}
+            className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition"
+            title="Expand Sidebar"
+          >
+            <PanelLeftOpen className="w-4 h-4" />
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2 p-3 border-b border-slate-700/50 bg-slate-950/40">
+          <div className="flex items-center justify-between">
+            <Link href="/dashboard" className="flex-1 bg-white p-1.5 rounded-xl shadow-md flex items-center justify-center gap-2 hover:ring-2 hover:ring-blue-400 transition overflow-hidden">
+              <img
+                src="/brand/aa2-microfinance.png"
+                alt="AA2 Micro Finance"
+                className="h-7 w-auto object-contain"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+              />
+              <div className="w-px h-5 bg-slate-200" />
+              <img
+                src="/brand/aa2-foundation.jpeg"
+                alt="AA2 Foundation"
+                className="h-7 w-auto object-contain rounded"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+              />
+            </Link>
+            <button
+              onClick={onToggle}
+              className="p-1.5 ml-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition flex-shrink-0"
+              title="Collapse Sidebar"
+            >
+              <PanelLeftClose className="w-4 h-4" />
+            </button>
           </div>
-          {!collapsed && (
-            <div className="flex flex-col min-w-0">
-              <span className="text-white font-bold text-xs tracking-wide truncate">AA2 FINANCE</span>
-              <span className="text-blue-400 text-[9px] font-semibold">MFI Platform</span>
-            </div>
-          )}
-        </Link>
-        <button
-          onClick={onToggle}
-          className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition"
-          title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-        >
-          {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
-        </button>
-      </div>
+          <div className="flex items-center justify-between px-1">
+            <span className="text-white font-bold text-[11px] tracking-wide">AA2 MICROFINANCE</span>
+            <span className="text-blue-400 text-[9px] font-semibold bg-blue-500/10 px-1.5 py-0.5 rounded">MFI Platform</span>
+          </div>
+        </div>
+      )}
 
       {/* User badge */}
       {!collapsed && (

@@ -95,20 +95,25 @@ export default function NewMemberPage() {
       value = value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10)
     } else if (name === 'pincode') {
       value = value.replace(/\D/g, '').slice(0, 6)
+      // 1. Update input state immediately so the 6th digit displays at 0ms
+      setFormData((prev: Record<string, string>) => {
+        const updated = { ...prev, pincode: value }
+        if (typeof window !== 'undefined') localStorage.setItem(DRAFT_KEY, JSON.stringify(updated))
+        return updated
+      })
+
+      // 2. Trigger lookup asynchronously in background if 6 digits entered
       if (value.length === 6) {
-        const res = await lookupPincode(value)
-        setFormData((prev: Record<string, string>) => {
-          const updated = {
-            ...prev,
-            pincode: value,
-            district: res.district,
-            state: res.state,
-          }
-          if (typeof window !== 'undefined') localStorage.setItem(DRAFT_KEY, JSON.stringify(updated))
-          return updated
-        })
-        return
+        lookupPincode(value).then(res => {
+          setFormData((prev: Record<string, string>) => {
+            if (prev.pincode !== value) return prev // Avoid race condition if user changed pin
+            const updated = { ...prev, district: res.district, state: res.state }
+            if (typeof window !== 'undefined') localStorage.setItem(DRAFT_KEY, JSON.stringify(updated))
+            return updated
+          })
+        }).catch(err => console.warn('Pincode lookup error:', err))
       }
+      return
     }
 
     setFormData((prev: Record<string, string>) => {

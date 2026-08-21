@@ -80,8 +80,16 @@ export function Header({ collapsed = false }: { collapsed?: boolean }) {
 
   return (
     <header className={cn("fixed top-0 right-0 h-[60px] bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 z-20 shadow-sm transition-all duration-200", collapsed ? "left-16" : "left-60")}>
-      {/* Breadcrumbs */}
-      <nav className="flex items-center gap-1.5 text-sm">
+      {/* Left Area — Logos (when collapsed) & Breadcrumbs */}
+      <div className="flex items-center gap-4">
+        {collapsed && (
+          <Link href="/dashboard" className="hidden sm:flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
+            <img src="/brand/aa2-microfinance.png" alt="AA2 Micro Finance" className="h-5 w-auto object-contain" />
+            <div className="w-px h-3.5 bg-slate-300 dark:bg-slate-600" />
+            <img src="/brand/aa2-foundation.jpeg" alt="AA2 Foundation" className="h-5 w-auto object-contain rounded" />
+          </Link>
+        )}
+        <nav className="flex items-center gap-1.5 text-sm">
         <Link href="/dashboard" className="text-slate-400 dark:text-slate-500 hover:text-blue-600 transition-colors">
           <Home className="w-4 h-4" />
         </Link>
@@ -103,6 +111,7 @@ export function Header({ collapsed = false }: { collapsed?: boolean }) {
           )
         })}
       </nav>
+      </div>
 
       {/* Right side — Search trigger, Dark Mode, Date & Profile Dropdown */}
       <div className="flex items-center gap-3">
