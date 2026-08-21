@@ -75,6 +75,13 @@ export async function restoreFromTrash(trashId: string, restoredBy = 'system'): 
   // 1. Put back into main store
   await putOne(item.store_name, item.data, idField)
 
+  // Sync documents and loan_documents stores for document recovery
+  if (item.store_name === 'documents') {
+    await putOne('loan_documents', item.data, 'doc_id')
+  } else if (item.store_name === 'loan_documents') {
+    await putOne('documents', item.data, 'doc_id')
+  }
+
   // 2. Remove from trash
   await delOne('trash', trashId)
 

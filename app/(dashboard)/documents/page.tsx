@@ -5,7 +5,7 @@ import { getAll, putOne, delOne, supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import type { Loan } from '@/lib/types'
 import { fdate } from '@/lib/utils'
-import { Search, Upload, Trash2, Eye, CheckCircle, AlertCircle } from 'lucide-react'
+import { Search, Upload, Trash2, Eye, Download, CheckCircle, AlertCircle } from 'lucide-react'
 import { confirmAction } from '@/lib/confirm'
 
 interface DocumentRecord {
@@ -31,6 +31,8 @@ const DOC_TYPES = [
   { value: 'CO_APPLICANT_KYC', label: 'Co-Applicant KYC' },
   { value: 'INCOME_PROOF', label: 'Income Proof' },
   { value: 'REVENUE_STAMP', label: 'Revenue Stamp' },
+  { value: 'EXCEL_SPREADSHEET', label: 'Excel / CSV Spreadsheet (.xlsx, .xls, .csv)' },
+  { value: 'LOAN_AGREEMENT', label: 'Loan Agreement' },
   { value: 'OTHER', label: 'Other Scanned Doc' }
 ]
 
@@ -166,23 +168,45 @@ export default function DocumentsPage() {
     }
   }
 
+  const handleDownload = async (doc: DocumentRecord) => {
+    try {
+      let downloadUrl = ''
+      if (doc.file_path) {
+        const response = await fetch(`/api/storage/signed-url?path=${encodeURIComponent(doc.file_path)}`)
+        const result = await response.json() as { url?: string; error?: string }
+        if (!response.ok || !result.url) throw new Error(result.error || 'Could not download document.')
+        downloadUrl = result.url
+      } else if (doc.file_data) {
+        downloadUrl = `data:${doc.mime_type || 'application/octet-stream'};base64,${doc.file_data}`
+      }
+
+      if (!downloadUrl) throw new Error('File location missing for this document.')
+
+      const res = await fetch(downloadUrl)
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = doc.file_name || `document_${doc.doc_id}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(blobUrl)
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Download failed.')
+    }
+  }
+
   const handleDelete = async (doc: DocumentRecord) => {
     const ok = await confirmAction({
       title: 'Confirm Delete',
-      message: `Are you sure you want to delete "${doc.file_name || 'this document'}"?`,
+      message: `Are you sure you want to delete "${doc.file_name || 'this document'}"? It will be safely moved to Trash Can where it can be restored anytime.`,
       confirmText: 'Delete Document',
       variant: 'danger',
     })
     if (!ok) return
 
     try {
-      if (doc.file_path) {
-        const response = await fetch(`/api/storage/signed-url?path=${encodeURIComponent(doc.file_path)}`, { method: 'DELETE' })
-        if (!response.ok) {
-          const result = await response.json() as { error?: string }
-          throw new Error(result.error || 'Could not remove the stored file.')
-        }
-      }
       const { moveToTrash } = await import('@/lib/trash')
       await moveToTrash('documents', doc.doc_id, doc, doc.file_name || doc.doc_id, user?.email || 'system')
       await loadDocsAndLoans()
@@ -351,6 +375,13 @@ export default function DocumentsPage() {
                           title="View Document"
                         >
                           <Eye className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDownload(d)}
+                          className="p-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg transition"
+                          title="Download Document"
+                        >
+                          <Download className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => handleDelete(d)}

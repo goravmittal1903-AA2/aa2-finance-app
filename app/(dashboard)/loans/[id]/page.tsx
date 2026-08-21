@@ -28,8 +28,13 @@ interface LoanDocument {
   loan_account_no: string
   doc_type: string
   file_name: string
-  file_url: string
+  file_url?: string
+  file_path?: string
+  file_data?: string
+  mime_type?: string
+  file_size_kb?: number
   uploaded_at: string
+  uploaded_date?: string
   uploaded_by: string
 }
 
@@ -117,19 +122,34 @@ export default function LoanDetailPage({ params }: PageProps) {
       setRstNewRate(String(l.interest_rate))
       setRstNewEmi(String(l.installment_amount))
 
-      const [m, sched, txs, docs] = await Promise.all([
+      const [m, sched, txs, lDocs, vDocs] = await Promise.all([
         getOne<Customer>('customers', l.customer_id),
         getFiltered<ScheduleRow>('schedule', 'loan_account_no', id),
         getFiltered<Transaction>('transactions', 'loan_account_no', id),
         getFiltered<LoanDocument>('loan_documents', 'loan_account_no', id),
+        getFiltered<LoanDocument>('documents', 'loan_account_no', id),
       ])
 
       const cleanTxs = txs.filter(t => !t.voided)
 
+      // Merge documents from both loan_documents & documents stores by doc_id
+      const mergedMap = new Map<string, LoanDocument>()
+      lDocs.forEach(d => mergedMap.set(d.doc_id, d))
+      vDocs.forEach(d => {
+        if (!mergedMap.has(d.doc_id)) mergedMap.set(d.doc_id, d)
+        else {
+          const existing = mergedMap.get(d.doc_id)!
+          mergedMap.set(d.doc_id, { ...d, ...existing, file_path: existing.file_path || d.file_path })
+        }
+      })
+      const mergedDocs = Array.from(mergedMap.values()).sort((a, b) =>
+        (b.uploaded_at || b.uploaded_date || '').localeCompare(a.uploaded_at || a.uploaded_date || '')
+      )
+
       setMember(m)
       setSchedule(sched.sort((a, b) => a.installment_no - b.installment_no))
       setTransactions(cleanTxs.sort((a, b) => (b.txn_date || '').localeCompare(a.txn_date || '') || Number(b.txn_id || 0) - Number(a.txn_id || 0)))
-      setDocuments(docs)
+      setDocuments(mergedDocs)
       if (l.installment_amount) setPayAmount(String(l.installment_amount))
     } catch (err) {
       console.error('Error fetching loan detail:', err)
@@ -324,6 +344,67 @@ export default function LoanDetailPage({ params }: PageProps) {
     }
   }
 
+  const handleViewDoc = async (doc: LoanDocument) => {
+    try {
+      const path = doc.file_path || (doc.file_url && !doc.file_url.startsWith('http') ? doc.file_url : null)
+      if (path) {
+        const response = await fetch(`/api/storage/signed-url?path=${encodeURIComponent(path)}`)
+        const result = await response.json() as { url?: string; error?: string }
+        if (response.ok && result.url) {
+          window.open(result.url, '_blank', 'noopener,noreferrer')
+          return
+        }
+      }
+      if (doc.file_url && doc.file_url.startsWith('http')) {
+        window.open(doc.file_url, '_blank', 'noopener,noreferrer')
+        return
+      }
+      if (doc.file_data) {
+        const dataUrl = `data:${doc.mime_type || 'application/pdf'};base64,${doc.file_data}`
+        const win = window.open('', '_blank')
+        if (win) {
+          win.document.write(`<html><body style="margin:0;background:#0f172a;display:flex;items-center;justify-content:center;height:100vh;"><iframe src="${dataUrl}" style="width:100%;height:100vh;border:none;"></iframe></body></html>`)
+        }
+        return
+      }
+      toast.error('Could Not Open', 'Document file location is not accessible.')
+    } catch (err: any) {
+      toast.error('View Error', err.message || 'Could not open document.')
+    }
+  }
+
+  const handleDownloadDoc = async (doc: LoanDocument) => {
+    try {
+      let downloadUrl = ''
+      const path = doc.file_path || (doc.file_url && !doc.file_url.startsWith('http') ? doc.file_url : null)
+      if (path) {
+        const response = await fetch(`/api/storage/signed-url?path=${encodeURIComponent(path)}`)
+        const result = await response.json() as { url?: string; error?: string }
+        if (response.ok && result.url) downloadUrl = result.url
+      } else if (doc.file_url && doc.file_url.startsWith('http')) {
+        downloadUrl = doc.file_url
+      } else if (doc.file_data) {
+        downloadUrl = `data:${doc.mime_type || 'application/octet-stream'};base64,${doc.file_data}`
+      }
+
+      if (!downloadUrl) throw new Error('File location missing for this document.')
+
+      const res = await fetch(downloadUrl)
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = doc.file_name || `document_${doc.doc_id}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(blobUrl)
+      toast.success('File Downloaded', `Successfully downloaded ${doc.file_name}`)
+    } catch (err: any) {
+      toast.error('Download Error', err.message || 'Could not download document.')
+    }
+  }
+
   const handleDocUpload = async () => {
     if (!loan || !docFile) return
     setDocUploading(true)
@@ -343,23 +424,26 @@ export default function LoanDetailPage({ params }: PageProps) {
         throw new Error(uploadData.error || 'Upload failed.')
       }
 
-      // Fetch signed URL for viewing
-      const signedRes = await fetch(`/api/storage/signed-url?path=${encodeURIComponent(uploadData.path)}`)
-      const signedData = await signedRes.json() as { url?: string }
-
       const docRecord: LoanDocument = {
         doc_id: 'DOC-' + Date.now(),
         loan_account_no: id,
         doc_type: docType,
         file_name: docFile.name,
-        file_url: signedData.url || uploadData.path,
+        file_path: uploadData.path,
+        file_url: uploadData.path,
+        file_size_kb: Math.round(docFile.size / 1024),
+        mime_type: docFile.type || 'application/octet-stream',
         uploaded_at: new Date().toISOString(),
+        uploaded_date: new Date().toISOString().slice(0, 10),
         uploaded_by: user?.email || 'system',
       }
+
       await putOne('loan_documents', docRecord, 'doc_id')
+      await putOne('documents', docRecord, 'doc_id')
+
       setDocFile(null)
-      setDocuments(prev => [...prev, docRecord])
-      toast.success('Document Uploaded', 'Document uploaded successfully!')
+      setDocuments(prev => [docRecord, ...prev])
+      toast.success('Document Uploaded', 'Document uploaded to Vault successfully!')
     } catch (err: any) {
       toast.error('Upload Error', `Upload error: ${err.message || 'Failed'}`)
     } finally {
@@ -370,7 +454,7 @@ export default function LoanDetailPage({ params }: PageProps) {
   const handleDeleteDoc = async (doc: LoanDocument) => {
     const ok = await confirmAction({
       title: 'Confirm Delete',
-      message: `Delete document "${doc.file_name}"?`,
+      message: `Delete document "${doc.file_name}"? It will be safely moved to Trash Can where it can be restored anytime.`,
       confirmText: 'Delete Document',
       variant: 'danger',
     })
@@ -1165,6 +1249,7 @@ export default function LoanDetailPage({ params }: PageProps) {
                           <option value="Photo">Photograph</option>
                           <option value="Sanction Letter">Sanction Letter</option>
                           <option value="Agreement">Loan Agreement</option>
+                          <option value="Excel Spreadsheet">Excel / CSV Spreadsheet (.xlsx, .xls, .csv)</option>
                           <option value="Insurance">Insurance</option>
                           <option value="Income Proof">Income Proof</option>
                           <option value="Address Proof">Address Proof</option>
@@ -1174,8 +1259,8 @@ export default function LoanDetailPage({ params }: PageProps) {
                         </select>
                       </div>
                       <div className="space-y-1 sm:col-span-2">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select File</label>
-                        <input type="file" accept="image/*,.pdf,.doc,.docx,.xlsx"
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select File (PDF, Excel, Word, Image)</label>
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.xls,.xlsx,.csv,.doc,.docx,.txt,.zip"
                           onChange={e => setDocFile(e.target.files?.[0] || null)}
                           className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none" />
                       </div>
@@ -1191,7 +1276,7 @@ export default function LoanDetailPage({ params }: PageProps) {
                     <div className="text-center py-8 text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
                       <Paperclip className="w-8 h-8 mx-auto mb-2 opacity-30" />
                       <p>No documents uploaded yet</p>
-                      <p className="text-xs mt-1">Upload KYC, agreements, and other documents</p>
+                      <p className="text-xs mt-1">Upload KYC, agreements, excel spreadsheets, and other documents</p>
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -1203,18 +1288,20 @@ export default function LoanDetailPage({ params }: PageProps) {
                             </div>
                             <div>
                               <p className="text-xs font-semibold text-slate-800">{doc.file_name}</p>
-                              <p className="text-[10px] text-slate-400 mt-0.5">{doc.doc_type} · {new Date(doc.uploaded_at).toLocaleDateString('en-IN')}</p>
+                              <p className="text-[10px] text-slate-400 mt-0.5">{doc.doc_type} · {new Date(doc.uploaded_at || doc.uploaded_date || Date.now()).toLocaleDateString('en-IN')}</p>
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            {doc.file_url && (
-                              <a href={doc.file_url} target="_blank" rel="noreferrer"
-                                className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded flex items-center gap-1 transition">
-                                <Eye className="w-3 h-3" /> View
-                              </a>
-                            )}
+                            <button onClick={() => handleViewDoc(doc)}
+                              className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 text-[10px] font-bold rounded-lg flex items-center gap-1 transition">
+                              <Eye className="w-3 h-3" /> View
+                            </button>
+                            <button onClick={() => handleDownloadDoc(doc)}
+                              className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-[10px] font-bold rounded-lg flex items-center gap-1 transition">
+                              <Download className="w-3 h-3" /> Download
+                            </button>
                             <button onClick={() => handleDeleteDoc(doc)}
-                              className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 text-[10px] font-bold rounded flex items-center gap-1 transition">
+                              className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 text-[10px] font-bold rounded-lg flex items-center gap-1 transition">
                               <Trash2 className="w-3 h-3" /> Delete
                             </button>
                           </div>
