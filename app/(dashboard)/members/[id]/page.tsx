@@ -90,7 +90,7 @@ export default function MemberDetailPage({ params }: PageProps) {
         updated_at: new Date().toISOString(),
         updated_by: user?.email || 'system',
       }
-      await putOne('customers', updated)
+      await putOne('customers', updated, 'customer_id')
       setCustomer(updated)
       setIsEditing(false)
       const { toast } = await import('@/lib/toast')
