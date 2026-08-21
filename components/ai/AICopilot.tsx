@@ -49,11 +49,12 @@ export function AICopilot() {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [speakingId, setSpeakingId] = useState<string | null>(null)
   const [isListening, setIsListening] = useState(false)
+  const [micLanguage, setMicLanguage] = useState<'hi-IN' | 'en-IN'>('en-IN')
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
       role: 'assistant',
-      content: `Hello! I am your portfolio and operations copilot for AA2 Microfinance.\n\nI can analyze our live loans, monitor DPD risk, compare branch collections, or draft customized payment reminders in Hindi and English.\n\nWhat would you like to explore today?`,
+      content: `Hello! I am your operations and portfolio copilot for AA2 Microfinance.\n\nI can analyze our live loans, monitor DPD risk, compare branch collections, or draft customized payment reminders in Hindi and English.\n\nWhat would you like to explore today?`,
       followups: [
         'How is our portfolio performing right now?',
         'Which borrowers are overdue (30+ DPD)?',
@@ -67,50 +68,64 @@ export function AICopilot() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<any>(null)
 
-  // Initialize Speech Recognition (Web Speech API)
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const SpeechRecognition =
-        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-      if (SpeechRecognition) {
-        const recognition = new SpeechRecognition()
-        recognition.continuous = false
-        recognition.interimResults = false
-        recognition.lang = 'hi-IN, en-IN, en-US'
-
-        recognition.onresult = (event: any) => {
-          const transcript = event.results[0][0].transcript
-          setInput(prev => (prev ? `${prev} ${transcript}` : transcript))
-          setIsListening(false)
-        }
-
-        recognition.onerror = () => setIsListening(false)
-        recognition.onend = () => setIsListening(false)
-        recognitionRef.current = recognition
-      }
-    }
-  }, [])
-
+  // Voice Input (Speech-to-Text) handler
   const toggleListening = () => {
-    if (!recognitionRef.current) {
-      alert('Voice recognition is not supported in this browser. Please use Chrome, Edge, or Safari.')
+    if (typeof window === 'undefined') return
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+
+    if (!SpeechRecognition) {
+      alert('Voice input is not supported in this browser. Please use Chrome, Edge, or Safari on desktop/Android.')
       return
     }
 
-    if (isListening) {
-      recognitionRef.current.stop()
-      setIsListening(false)
-    } else {
+    if (isListening && recognitionRef.current) {
       try {
-        recognitionRef.current.start()
-        setIsListening(true)
-      } catch (err) {
-        console.warn('Speech start error:', err)
+        recognitionRef.current.stop()
+      } catch (e) {
+        console.warn('Speech stop error:', e)
       }
+      setIsListening(false)
+      return
+    }
+
+    try {
+      const recognition = new SpeechRecognition()
+      recognition.continuous = false
+      recognition.interimResults = false
+      recognition.lang = micLanguage
+
+      recognition.onstart = () => {
+        setIsListening(true)
+      }
+
+      recognition.onresult = (event: any) => {
+        if (event.results && event.results[0] && event.results[0][0]) {
+          const transcript = event.results[0][0].transcript
+          setInput(prev => (prev ? `${prev} ${transcript}` : transcript))
+        }
+        setIsListening(false)
+      }
+
+      recognition.onerror = (event: any) => {
+        console.warn('Speech recognition error:', event?.error)
+        setIsListening(false)
+      }
+
+      recognition.onend = () => {
+        setIsListening(false)
+      }
+
+      recognitionRef.current = recognition
+      recognition.start()
+    } catch (err) {
+      console.error('Failed to start speech recognition:', err)
+      setIsListening(false)
     }
   }
 
-  // Text to Speech (Audio Readout)
+  // Voice Output (Text-to-Speech) handler
   const toggleSpeak = (text: string, id: string) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
 
@@ -307,7 +322,7 @@ export function AICopilot() {
     { label: 'WhatsApp Reminder (Hindi)', icon: MessageSquare, query: 'Draft a polite WhatsApp payment reminder in Hindi for our borrowers.' },
   ]
 
-  // Formatted Message Renderer with Interactive Buttons
+  // Formatted Message Renderer
   function FormattedMessage({ content, isUser }: { content: string; isUser: boolean }) {
     if (isUser) {
       return <div className="whitespace-pre-wrap font-sans text-xs">{content}</div>
@@ -497,19 +512,18 @@ export function AICopilot() {
       className={
         isDocked
           ? 'fixed top-[60px] right-0 bottom-0 w-[420px] z-50 shadow-2xl border-l border-slate-200 dark:border-slate-800'
-          : 'fixed bottom-6 right-6 z-50'
+          : 'fixed bottom-5 right-5 z-50'
       }
     >
-      {/* Floating Trigger Button */}
+      {/* Small, Compact Round Badge Trigger Button */}
       {!isOpen && !isDocked && (
         <button
           onClick={() => setIsOpen(true)}
-          className="group flex items-center gap-2.5 bg-gradient-to-r from-blue-700 to-indigo-800 hover:from-blue-800 hover:to-indigo-900 text-white px-4 py-3 rounded-full shadow-2xl hover:shadow-blue-600/30 transition-all duration-300 transform hover:scale-105 active:scale-95 border border-white/10"
+          className="group relative w-12 h-12 rounded-full bg-gradient-to-tr from-blue-700 via-indigo-700 to-blue-600 hover:from-blue-600 hover:to-indigo-600 text-white shadow-xl hover:shadow-2xl hover:shadow-blue-500/40 flex items-center justify-center transition-all duration-300 transform hover:scale-110 active:scale-95 border-2 border-white/20"
+          title="Open AA2 AI Copilot"
         >
-          <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
-            <Sparkles className="w-4 h-4 text-white animate-pulse" />
-          </div>
-          <span className="font-bold text-sm tracking-wide pr-1">AA2 AI Copilot</span>
+          <Sparkles className="w-5 h-5 text-white animate-pulse" />
+          <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 border-2 border-white dark:border-slate-900 rounded-full" />
         </button>
       )}
 
@@ -525,14 +539,14 @@ export function AICopilot() {
           }`}
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3.5 bg-gradient-to-r from-slate-900 via-blue-950 to-indigo-950 text-white border-b border-white/10">
+          <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-slate-900 via-blue-950 to-indigo-950 text-white border-b border-white/10">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-blue-600/40 border border-blue-400/30 flex items-center justify-center">
-                <Bot className="w-5 h-5 text-blue-300" />
+              <div className="w-7 h-7 rounded-lg bg-blue-600/40 border border-blue-400/30 flex items-center justify-center">
+                <Bot className="w-4 h-4 text-blue-300" />
               </div>
               <div>
                 <h3 className="font-bold text-sm leading-tight text-white">AA2 AI Copilot</h3>
-                <p className="text-[10px] text-slate-300">Operations & Portfolio Assistant</p>
+                <p className="text-[9.5px] text-slate-300">Operations & Portfolio Assistant</p>
               </div>
             </div>
 
@@ -683,14 +697,14 @@ export function AICopilot() {
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce" />
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.2s]" />
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.4s]" />
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 ml-1.5">Reviewing portfolio and typing...</span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 ml-1.5">Thinking & analyzing portfolio...</span>
                 </div>
               </div>
             )}
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input Box with Microphone */}
+          {/* Input Box with Microphone & Language Switcher */}
           <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
             <form
               onSubmit={e => {
@@ -704,10 +718,10 @@ export function AICopilot() {
                 onClick={toggleListening}
                 className={`p-2.5 rounded-xl transition flex items-center justify-center ${
                   isListening
-                    ? 'bg-red-500 text-white animate-pulse shadow-md'
+                    ? 'bg-red-500 text-white animate-pulse shadow-md ring-2 ring-red-400'
                     : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
                 }`}
-                title={isListening ? 'Listening... Tap to stop' : 'Tap to speak (Hindi/English)'}
+                title={isListening ? 'Listening... Tap to stop' : `Tap to speak (${micLanguage === 'hi-IN' ? 'Hindi' : 'English'})`}
               >
                 {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </button>
@@ -716,7 +730,7 @@ export function AICopilot() {
                 type="text"
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                placeholder={isListening ? 'Listening to your voice...' : 'Type or speak in Hindi, English, Hinglish...'}
+                placeholder={isListening ? 'Listening... Speak now' : 'Ask anything in English or Hindi...'}
                 className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs px-3.5 py-2.5 rounded-xl border border-transparent focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 outline-none transition"
               />
 
@@ -728,8 +742,17 @@ export function AICopilot() {
                 <Send className="w-4 h-4" />
               </button>
             </form>
+
             <div className="flex items-center justify-between px-1 mt-1.5 text-[10px] text-slate-400">
-              <span>{isListening ? '🎙️ Speak clearly into microphone...' : 'AA2 Core Banking AI Copilot'}</span>
+              <div className="flex items-center gap-2">
+                <span>{isListening ? '🎙️ Listening...' : 'AA2 Copilot'}</span>
+                <button
+                  onClick={() => setMicLanguage(prev => (prev === 'en-IN' ? 'hi-IN' : 'en-IN'))}
+                  className="text-[9.5px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                >
+                  Mic: {micLanguage === 'hi-IN' ? 'Hindi 🇮🇳' : 'English 🌐'}
+                </button>
+              </div>
               <button
                 onClick={() =>
                   setMessages([
