@@ -32,22 +32,25 @@ export async function POST(req: NextRequest) {
     const lastUserMessage = messages[messages.length - 1]?.content || ''
     const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY
 
-    // If Gemini API Key is available, use Google Gemini 1.5 Flash (Free Tier)
+    // Call Google Gemini API (tries 3.6-flash, flash-latest, 2.5-flash)
     if (apiKey) {
-      const systemInstruction = `You are the AI Operations & Portfolio Copilot for "AA2 Microfinance Private Limited", a professional Microfinance Institution (MFI) in India.
-Your role is to assist branch managers, field officers, credit underwriters, and leadership with:
-- Analyzing portfolio quality, DPD (Days Past Due), PAR (Portfolio at Risk), and NPA ratios.
-- Reviewing borrower health, loan collections, and EMI tracking.
-- Drafting bilingual (Hindi and English) WhatsApp/SMS collection reminders and notices.
-- Providing core banking and microfinance domain expertise (JLG, IL, RBI compliance).
+      const systemInstruction = `You are the Executive AI Copilot for "AA2 Microfinance Private Limited", an institutional Microfinance Institution (MFI) in India.
+Your mission is to provide accurate, institutional-grade assistance to leadership, branch managers, credit officers, and operations teams.
 
-LIVE REAL-TIME PORTFOLIO DATA:
+CORE CAPABILITIES:
+- Answer ANY natural language question, financial reasoning, or banking query freely and intelligently.
+- Deep analysis of portfolio metrics: PAR 30/60/90, DPD (Days Past Due), Gross NPA ratio, collection efficiency, and branch performance.
+- Search, filter, or evaluate borrowers, repayment schedules, and credit health.
+- Draft professional, empathetic, or legal collection notices and WhatsApp/SMS messages in fluent Hindi (हिंदी) and English.
+- Calculate loan economics, pre-closures, and interest amortizations.
+
+LIVE REAL-TIME PORTFOLIO CONTEXT:
 ${JSON.stringify(portfolioContext || {}, null, 2)}
 
-GUIDELINES:
-- Format all currency in Indian Rupees (₹) with appropriate comma separation (e.g. ₹1,50,000).
-- Be concise, professional, and actionable. Use markdown bullet points and bold text where helpful.
-- When drafting WhatsApp messages, provide ready-to-copy text in clear, polite Hindi (Devanagari script or conversational Hinglish) and English.`
+COMMUNICATION STANDARDS:
+- Always format currency in Indian Rupees (₹) with standard Indian numbering (e.g. ₹2,50,000).
+- Maintain an executive, precise, and highly professional banking tone.
+- Use clear markdown formatting, bullet points, and bold text for key figures.`
 
       const contents = messages.map(m => ({
         role: m.role === 'user' ? 'user' : 'model',
@@ -68,8 +71,8 @@ GUIDELINES:
                   parts: [{ text: systemInstruction }],
                 },
                 generationConfig: {
-                  temperature: 0.6,
-                  maxOutputTokens: 1200,
+                  temperature: 0.7,
+                  maxOutputTokens: 1500,
                 },
               }),
             }
@@ -83,12 +86,12 @@ GUIDELINES:
             }
           }
         } catch (err) {
-          console.warn(`Gemini model ${model} failed, trying next:`, err)
+          console.warn(`Gemini model ${model} attempt failed:`, err)
         }
       }
     }
 
-    // Smart Local Analytics Engine Fallback (100% Free, zero latency, no API key needed)
+    // Secondary fallback responder if network or quota is unreachable
     const reply = generateSmartFallbackReply(lastUserMessage, portfolioContext)
     return NextResponse.json({ reply, source: 'local-copilot' })
   } catch (error) {
@@ -124,40 +127,33 @@ function generateSmartFallbackReply(
 ): string {
   const q = query.toLowerCase()
 
-  // 1. WhatsApp / SMS Reminder Request
   if (q.includes('whatsapp') || q.includes('reminder') || q.includes('hindi') || q.includes('message') || q.includes('notice')) {
-    return `### 📲 Ready-to-Send WhatsApp Collection Reminders
+    return `### 📲 Repayment Reminder Templates
 
 #### 🇮🇳 Hindi (हिंदी):
-> *"नमस्ते [सदस्य का नाम] जी, AA2 माइक्रोफाइनेंस से आपकी मासिक किश्त (EMI) ₹[राशि] देय है। कृपया अपनी किश्त समय पर जमा करें ताकि आपका क्रेडिट स्कोर अच्छा रहे और आगे बड़ा लोन मिल सके। धन्यवाद - AA2 माइक्रोफाइनेंस"*
+> *"नमस्ते [सदस्य का नाम] जी, AA2 माइक्रोफाइनेंस से आपकी मासिक किश्त (EMI) ₹[राशि] देय है। कृपया अपनी किश्त समय पर जमा करें ताकि आपका क्रेडिट स्कोर अच्छा रहे और भविष्य में अधिक ऋण सुविधा मिल सके। धन्यवाद — AA2 माइक्रोफाइनेंस"*
 
 #### 🇬🇧 English:
-> *"Dear [Member Name], gentle reminder from AA2 Microfinance that your loan EMI of ₹[Amount] is due. Please clear your payment to maintain a good credit score. Thank you — AA2 Microfinance."*
-
-*(Tip: You can copy and send this directly via WhatsApp to any overdue borrower!)*`
+> *"Dear [Member Name], a gentle reminder from AA2 Microfinance that your loan EMI of ₹[Amount] is due. Kindly ensure timely payment to maintain a healthy credit profile. Thank you — AA2 Microfinance."*`
   }
 
-  // 2. Portfolio / NPA / Health Overview
   if (q.includes('summary') || q.includes('portfolio') || q.includes('npa') || q.includes('kpi') || q.includes('health') || q.includes('overview')) {
     if (!ctx) {
-      return `### 📊 AA2 Portfolio Summary\n\nNo live portfolio data available yet. Please refresh the dashboard.`
+      return `### 📊 AA2 Portfolio Summary\n\nNo live portfolio data available currently. Please refresh the dashboard.`
     }
-    return `### 📊 AA2 Microfinance Portfolio Overview
+    return `### 📊 Executive Portfolio Overview
 
 - **Gross Disbursed:** ${formatInr(ctx.totalDisbursed)}
-- **Outstanding Principal:** ${formatInr(ctx.totalOutstanding)} across **${ctx.activeLoansCount || 0} active loans**
-- **Total Collections:** ${formatInr(ctx.totalCollected)} (${ctx.collectionEfficiency || 0}% efficiency)
-- **PAR 30+ Accounts:** **${ctx.parLoansCount || 0} accounts** overdue > 30 days
+- **Outstanding Principal:** ${formatInr(ctx.totalOutstanding)} across **${ctx.activeLoansCount || 0} active accounts**
+- **Total Collections:** ${formatInr(ctx.totalCollected)} (${ctx.collectionEfficiency || 0}% collection efficiency)
+- **PAR 30+ Accounts:** **${ctx.parLoansCount || 0} accounts**
 - **Gross NPA:** **${ctx.npaLoansCount || 0} accounts** (${formatInr(ctx.npaAmount)} · ${ctx.npaRatio || '0.00'}%)
-- **Total Registered Members:** **${ctx.totalMembers || 0}**
-
-*Portfolio status is healthy with regular daily collections tracking.*`
+- **Total Active Members:** **${ctx.totalMembers || 0}**`
   }
 
-  // 3. Overdue / At-Risk / DPD Queries
   if (q.includes('overdue') || q.includes('par') || q.includes('risk') || q.includes('defaulter') || q.includes('dpd')) {
     if (!ctx?.atRiskLoans || ctx.atRiskLoans.length === 0) {
-      return `### ✅ Portfolio Quality Update\n\nGreat news! There are currently **0 high-risk accounts (30+ DPD)** in the portfolio.`
+      return `### ✅ Portfolio Quality\n\nThere are currently **0 high-risk accounts (30+ DPD)** in the portfolio.`
     }
     const list = ctx.atRiskLoans
       .map(
@@ -165,10 +161,9 @@ function generateSmartFallbackReply(
           `${i + 1}. **${l.member}** (\`${l.loan_no}\`) — **${l.dpd} DPD** | Outstanding: **${formatInr(l.outstanding)}** (${l.branch})`
       )
       .join('\n')
-    return `### ⚠️ Top Overdue & At-Risk Accounts (30+ DPD)\n\n${list}\n\n**Recommended Action:** Field officers should prioritize center visits and send WhatsApp reminders for these accounts.`
+    return `### ⚠️ Overdue Accounts (30+ DPD)\n\n${list}`
   }
 
-  // 4. Branch Specific Queries
   if (q.includes('branch') || q.includes('haridwar') || q.includes('khatauli') || q.includes('pataudi')) {
     if (!ctx?.branches || ctx.branches.length === 0) {
       return `### 🏢 Branch Summary\n\nNo branch breakdown data loaded yet.`
@@ -179,32 +174,16 @@ function generateSmartFallbackReply(
           `- **${b.name}:** ${b.loans} loans · Disbursed: ${formatInr(b.disbursed)} · Outstanding: ${formatInr(b.outstanding)} · NPA: ${b.npa}`
       )
       .join('\n')
-    return `### 🏢 Branch Performance Breakdown\n\n${branchRows}\n\n*All branches are operational and synced with HQ.*`
+    return `### 🏢 Branch Performance Breakdown\n\n${branchRows}`
   }
 
-  // 5. Foreclosure / Pre-closure calculation inquiry
-  if (q.includes('foreclosure') || q.includes('close') || q.includes('preclose') || q.includes('settlement')) {
-    return `### 📑 Foreclosure & Settlement Guidance
+  return `### 🤖 AA2 Executive Copilot
 
-To generate an accurate foreclosure quote and NOC:
-1. Navigate to the **Loans** menu and select the specific loan account.
-2. Click **"Foreclosure Quote"** in the action menu.
-3. The system automatically calculates:
-   - Remaining Principal Balance
-   - Accrued Interest till today
-   - Rebate on future interest
-   - Instant downloadable **No Objection Certificate (NOC)** PDF.`
-  }
+I can assist you with:
+- **Portfolio Analytics & NPA tracking**
+- **Overdue borrower investigations & DPD reporting**
+- **Bilingual Hindi & English collection notifications**
+- **Credit underwriting & loan policy queries**
 
-  // Default Guidance Response
-  return `### 🤖 AA2 AI Copilot at your service!
-
-I can help you with:
-1. **📊 Portfolio Health & NPA Analysis:** Type *"Show portfolio summary"* or *"What is our NPA %?"*
-2. **⚠️ Overdue Accounts:** Type *"Show top overdue borrowers"*
-3. **🏢 Branch Comparison:** Type *"Branch performance breakdown"*
-4. **💬 WhatsApp Reminders:** Type *"Draft reminder in Hindi"*
-
-> [!TIP]
-> *To enable open-ended natural conversation, you can also add your free **GEMINI_API_KEY** from [aistudio.google.com](https://aistudio.google.com) to your .env.local file!*`
+Please enter your question above.`
 }

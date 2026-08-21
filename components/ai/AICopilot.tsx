@@ -39,7 +39,7 @@ export function AICopilot() {
     {
       id: 'welcome',
       role: 'assistant',
-      content: `👋 **Hello! I am your AA2 AI Portfolio Copilot.**\n\nI can analyze your live portfolio, track DPD & NPA accounts, compare branch performance, or draft WhatsApp payment reminders in English & Hindi.\n\n*What would you like to check today?*`,
+      content: `👋 **Welcome to AA2 Executive Copilot.**\n\nI am your real-time portfolio intelligence assistant. You can ask me anything about your loans, DPD risk, branch performance, borrower summaries, or draft collection notices in English & Hindi.\n\n*How can I assist you today?*`,
       timestamp: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
     },
   ])
@@ -169,7 +169,7 @@ export function AICopilot() {
           {
             id: String(Date.now() + 1),
             role: 'assistant',
-            content: `⚠️ Error: ${data.error || 'Could not fetch response. Please try again.'}`,
+            content: `⚠️ Error: ${data.error || 'Could not process query. Please try again.'}`,
             timestamp: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
           },
         ])
@@ -196,9 +196,9 @@ export function AICopilot() {
   }
 
   const quickPrompts = [
-    { label: 'Portfolio Summary', icon: TrendingUp, query: 'Show me the latest portfolio and NPA summary.' },
-    { label: 'Top Overdue Accounts', icon: AlertTriangle, query: 'Show me the top overdue accounts (30+ DPD).' },
-    { label: 'Branch Comparison', icon: Building2, query: 'Give me a branch performance breakdown.' },
+    { label: 'Portfolio Summary', icon: TrendingUp, query: 'Provide a complete portfolio and NPA executive summary.' },
+    { label: 'Top Overdue Accounts', icon: AlertTriangle, query: 'Show all top overdue accounts (30+ DPD) with details.' },
+    { label: 'Branch Performance', icon: Building2, query: 'Compare branch performance across all active locations.' },
     { label: 'WhatsApp Reminder (Hindi)', icon: MessageSquare, query: 'Draft a polite WhatsApp payment reminder in Hindi.' },
   ]
 
@@ -208,15 +208,12 @@ export function AICopilot() {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="group flex items-center gap-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-3 rounded-full shadow-2xl hover:shadow-blue-500/25 transition-all duration-300 transform hover:scale-105 active:scale-95"
+          className="group flex items-center gap-2.5 bg-gradient-to-r from-blue-700 to-indigo-800 hover:from-blue-800 hover:to-indigo-900 text-white px-4 py-3 rounded-full shadow-2xl hover:shadow-blue-600/30 transition-all duration-300 transform hover:scale-105 active:scale-95 border border-white/10"
         >
           <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
             <Sparkles className="w-4 h-4 text-white animate-pulse" />
           </div>
-          <span className="font-bold text-sm tracking-wide pr-1">AI Copilot</span>
-          <span className="bg-emerald-400/20 text-emerald-300 text-[10px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider border border-emerald-400/30">
-            Free
-          </span>
+          <span className="font-bold text-sm tracking-wide pr-1">AA2 AI Copilot</span>
         </button>
       )}
 
@@ -228,41 +225,36 @@ export function AICopilot() {
           }`}
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-700 text-white">
+          <div className="flex items-center justify-between px-4 py-3.5 bg-gradient-to-r from-slate-900 via-blue-950 to-indigo-950 text-white border-b border-white/10">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center">
-                <Bot className="w-5 h-5 text-white" />
+              <div className="w-8 h-8 rounded-xl bg-blue-600/40 border border-blue-400/30 flex items-center justify-center">
+                <Bot className="w-5 h-5 text-blue-300" />
               </div>
               <div>
-                <div className="flex items-center gap-1.5">
-                  <h3 className="font-bold text-sm leading-tight">AA2 AI Copilot</h3>
-                  <span className="bg-emerald-400 text-slate-900 text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase">
-                    100% Free
-                  </span>
-                </div>
-                <p className="text-[10px] text-blue-100/80">Live Portfolio & Operations Assistant</p>
+                <h3 className="font-bold text-sm leading-tight text-white">AA2 AI Copilot</h3>
+                <p className="text-[10px] text-slate-300">Executive Portfolio Intelligence</p>
               </div>
             </div>
 
             <div className="flex items-center gap-1 text-white/80">
               <button
                 onClick={refreshContext}
-                title="Refresh Live Data"
-                className="p-1.5 hover:bg-white/10 rounded-lg transition"
+                title="Refresh Portfolio Context"
+                className="p-1.5 hover:bg-white/10 rounded-lg transition text-slate-300 hover:text-white"
               >
                 <RefreshCw className="w-4 h-4" />
               </button>
               <button
                 onClick={() => setIsExpanded(!isExpanded)}
                 title={isExpanded ? 'Minimize Window' : 'Expand Window'}
-                className="p-1.5 hover:bg-white/10 rounded-lg transition hidden sm:block"
+                className="p-1.5 hover:bg-white/10 rounded-lg transition hidden sm:block text-slate-300 hover:text-white"
               >
                 {isExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
               </button>
               <button
                 onClick={() => setIsOpen(false)}
                 title="Close"
-                className="p-1.5 hover:bg-white/10 rounded-lg transition"
+                className="p-1.5 hover:bg-white/10 rounded-lg transition text-slate-300 hover:text-white"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -315,7 +307,7 @@ export function AICopilot() {
                     {msg.role === 'assistant' && (
                       <button
                         onClick={() => copyToClipboard(msg.content, msg.id)}
-                        className="hover:opacity-100 flex items-center gap-1 font-medium ml-2"
+                        className="hover:opacity-100 flex items-center gap-1 font-medium ml-2 text-blue-600 dark:text-blue-400"
                         title="Copy text"
                       >
                         {copiedId === msg.id ? (
@@ -349,7 +341,7 @@ export function AICopilot() {
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce" />
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.2s]" />
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.4s]" />
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 ml-1.5">Analyzing portfolio...</span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 ml-1.5">Thinking & analyzing portfolio...</span>
                 </div>
               </div>
             )}
@@ -369,7 +361,7 @@ export function AICopilot() {
                 type="text"
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                placeholder="Ask anything about loans, overdue, Hindi reminder..."
+                placeholder="Ask anything about loans, overdue, policy, reminder drafts..."
                 className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs px-3.5 py-2.5 rounded-xl border border-transparent focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 outline-none transition"
               />
               <button
@@ -381,7 +373,7 @@ export function AICopilot() {
               </button>
             </form>
             <div className="flex items-center justify-between px-1 mt-1.5 text-[10px] text-slate-400">
-              <span>Free AI Copilot · AA2 MFI System</span>
+              <span>AA2 Core Banking AI Copilot</span>
               <button
                 onClick={() =>
                   setMessages([
