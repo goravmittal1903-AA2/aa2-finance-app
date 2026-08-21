@@ -357,9 +357,6 @@ export default function FinancialsPage() {
           <h1 className="text-2xl font-bold text-slate-800">Financial Management & Statements</h1>
           <p className="text-slate-500 text-sm mt-0.5">Capital, Institutional Debt, Operating Expenses, Fixed Assets, P&L, and Balance Sheet.</p>
         </div>
-        <button onClick={() => loadAllFinancialData(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition shadow-sm">
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh Live Data
-        </button>
       </div>
 
       {/* Top Metrics Cards */}

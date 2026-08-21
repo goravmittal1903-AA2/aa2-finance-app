@@ -98,7 +98,7 @@ export default function LoansPage() {
               <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
                 <th className="text-left px-5 py-3 font-semibold">Loan A/C</th>
                 <th className="text-left px-5 py-3 font-semibold">Member</th>
-                <th className="text-left px-5 py-3 font-semibold">Branch / FO</th>
+                <th className="text-left px-5 py-3 font-semibold">Branch Name / FO</th>
                 <th className="text-right px-5 py-3 font-semibold">Loan Amt</th>
                 <th className="text-right px-5 py-3 font-semibold">Collected</th>
                 <th className="text-right px-5 py-3 font-semibold">Outstanding</th>
@@ -116,10 +116,22 @@ export default function LoansPage() {
               )}
               {filtered.map(p => (
                 <tr key={p.loan_account_no} className="tbl-row">
-                  <td className="px-5 py-3 font-mono text-xs text-blue-600 font-semibold">{p.loan_account_no}</td>
+                  <td className="px-5 py-3 font-mono text-xs text-blue-600 font-semibold">
+                    <Link href={`/loans/${p.loan_account_no}`} className="hover:underline">
+                      {p.loan_account_no}
+                    </Link>
+                  </td>
                   <td className="px-5 py-3">
-                    <div className="font-semibold text-slate-800">{p.member_name}</div>
-                    <div className="text-xs text-slate-400 font-mono">{p.customer_id}</div>
+                    <div className="font-semibold text-slate-800">
+                      <Link href={`/members/${p.customer_id}`} className="text-blue-600 hover:underline">
+                        {p.member_name}
+                      </Link>
+                    </div>
+                    <div className="text-xs text-slate-400 font-mono">
+                      <Link href={`/members/${p.customer_id}`} className="hover:underline">
+                        {p.customer_id}
+                      </Link>
+                    </div>
                   </td>
                   <td className="px-5 py-3 text-slate-500 text-xs">{p.branch || '—'} / {p.fo || '—'}</td>
                   <td className="px-5 py-3 text-right font-medium text-slate-700">{inr(p.loan_amount)}</td>

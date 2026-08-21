@@ -86,3 +86,11 @@ export function statusColor(status: string): string {
   if (s === 'SANCTIONED') return 'bg-blue-100 text-blue-700'
   return 'bg-yellow-100 text-yellow-700'
 }
+
+// Indian PAN card format validator (5 letters, 4 digits, 1 letter)
+export function validatePAN(pan: string | null | undefined): boolean {
+  if (!pan) return true // Empty is allowed unless required
+  const clean = pan.trim().toUpperCase()
+  return /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(clean)
+}
+

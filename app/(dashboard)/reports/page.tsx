@@ -58,7 +58,12 @@ export default function ReportsPage() {
   const [sortField, setSortField] = useState('')
   const [sortAsc, setSortAsc] = useState(true)
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => {
+    loadData()
+    const handler = () => loadData()
+    window.addEventListener('aa2_data_changed', handler)
+    return () => window.removeEventListener('aa2_data_changed', handler)
+  }, [])
 
   async function loadData() {
     setLoading(true)
@@ -232,6 +237,7 @@ export default function ReportsPage() {
       return {
         sno,
         loanAcc,
+        customerId: p.customer_id || l?.customer_id || '',
         branchName,
         bmName,
         foName,
@@ -455,10 +461,6 @@ export default function ReportsPage() {
           <h1 className="text-2xl font-bold text-slate-800">MIS & Operational Reports</h1>
           <p className="text-slate-500 text-sm mt-0.5">Individual loan-level data with all filters · {filteredPortfolio.length} loans in view</p>
         </div>
-        <button onClick={loadData} disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 rounded-xl text-xs font-semibold transition">
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
-        </button>
       </div>
 
       {/* Quick KPI Strip */}
@@ -553,11 +555,19 @@ export default function ReportsPage() {
                   {loanRegisterRows.map((r) => (
                     <tr key={r.sno} className="hover:bg-blue-50/40 transition">
                       <td className="px-3 py-2 text-center text-slate-400 font-mono text-[11px] border-r border-slate-100">{r.sno}</td>
-                      <td className="px-3 py-2 font-mono text-[11px] text-blue-600 font-bold border-r border-slate-100">{r.loanAcc}</td>
+                      <td className="px-3 py-2 font-mono text-[11px] text-blue-600 font-bold border-r border-slate-100">
+                        <Link href={`/loans/${r.loanAcc}`} className="hover:underline">
+                          {r.loanAcc}
+                        </Link>
+                      </td>
                       <td className="px-3 py-2 text-slate-700 border-r border-slate-100">{r.branchName}</td>
                       <td className="px-3 py-2 text-slate-600 border-r border-slate-100">{r.bmName}</td>
                       <td className="px-3 py-2 text-slate-600 border-r border-slate-100">{r.foName}</td>
-                      <td className="px-3 py-2 font-bold text-slate-800 border-r border-slate-100">{r.memberName}</td>
+                      <td className="px-3 py-2 font-bold text-slate-800 border-r border-slate-100">
+                        <Link href={r.customerId ? `/members/${r.customerId}` : '#'} className="text-blue-600 hover:underline">
+                          {r.memberName}
+                        </Link>
+                      </td>
                       <td className="px-3 py-2 text-slate-600 border-r border-slate-100">{r.fatherHusband}</td>
                       <td className="px-3 py-2 text-slate-500 text-[11px] border-r border-slate-100">{r.address}</td>
                       <td className="px-3 py-2 text-center font-mono text-slate-600 border-r border-slate-100">{r.aadharLast4}</td>

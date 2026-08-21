@@ -403,9 +403,6 @@ export default function DataToolsPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <p className="text-sm text-slate-600">Records marked as deleted (soft-delete). Click Restore to recover them.</p>
-            <button onClick={loadDeletedItems} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">
-              <RefreshCw className={`w-3.5 h-3.5 ${trashLoading ? 'animate-spin' : ''}`} /> Refresh
-            </button>
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">

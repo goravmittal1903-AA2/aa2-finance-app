@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import Link from 'next/link'
 import { getAll } from '@/lib/supabase'
 import { applyPayment } from '@/lib/calculations'
 import { toast } from '@/lib/toast'
@@ -388,10 +389,7 @@ export default function CollectionsPage() {
               </select>
             </div>
             <div className="flex items-end gap-2">
-              <button onClick={() => loadCollectionSheet()} disabled={loading} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50">
-                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Reload
-              </button>
-              <button onClick={fillAllDue} className="flex-1 py-2 border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 text-xs font-bold rounded-xl transition">Fill All</button>
+              <button onClick={fillAllDue} className="w-full py-2 border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 text-xs font-bold rounded-xl transition">Fill All</button>
             </div>
           </div>
 
@@ -420,8 +418,16 @@ export default function CollectionsPage() {
                   {!loading && filteredEntries.length === 0 && <tr><td colSpan={8} className="py-10 text-center text-slate-400">No pending dues for selected filters.</td></tr>}
                   {!loading && filteredEntries.map(e => (
                     <tr key={e.loan.loan_account_no} className="hover:bg-slate-50/50">
-                      <td className="px-4 py-2.5 font-semibold text-slate-800">{e.loan.member_name_cache || e.loan.member_name}</td>
-                      <td className="px-4 py-2.5 font-mono text-blue-600 font-bold text-[11px]">{e.loan.loan_account_no}</td>
+                      <td className="px-4 py-2.5 font-semibold text-slate-800">
+                        <Link href={`/members/${e.loan.customer_id}`} className="text-blue-600 hover:underline">
+                          {e.loan.member_name_cache || e.loan.member_name}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-blue-600 font-bold text-[11px]">
+                        <Link href={`/loans/${e.loan.loan_account_no}`} className="hover:underline">
+                          {e.loan.loan_account_no}
+                        </Link>
+                      </td>
                       <td className="px-4 py-2.5 text-slate-500 text-[11px]">{e.loan.branch_code} / {e.loan.fo_name || '—'}</td>
                       <td className="px-4 py-2.5 text-right font-medium">{inr(e.emiAmt)}</td>
                       <td className="px-4 py-2.5 text-right font-bold text-red-600">{inr(e.totalOverdue)}</td>
@@ -469,9 +475,6 @@ export default function CollectionsPage() {
                 <h3 className="text-sm font-bold text-slate-800">Individual EMI Collection</h3>
                 <p className="text-xs text-slate-500 mt-1">Collect individual installments one by one. Each installment row can be collected separately.</p>
               </div>
-              <button onClick={loadEmiEntries} disabled={loading} className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition disabled:opacity-50">
-                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
-              </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -661,10 +664,6 @@ export default function CollectionsPage() {
               </div>
             </div>
             <div className="flex items-center gap-3 pt-2">
-              <button onClick={() => loadCollectionSheet()} disabled={loading}
-                className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition disabled:opacity-50">
-                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Reload Data
-              </button>
               <button
                 onClick={() => printFieldSheet(filteredEntries, date, branch, foName)}
                 disabled={filteredEntries.length === 0}

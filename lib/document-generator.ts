@@ -231,8 +231,23 @@ function printDocument(title: string, bodyHtml: string) {
           .clause-text { font-size: 8.5px; color: #334155; text-align: justify; text-justify: inter-word; line-height: 1.4; margin-bottom: 4px; }
           .page-num { position: absolute; bottom: 0; right: 0; font-size: 8px; font-weight: 700; color: #64748b; }
           .preview-toolbar { position: sticky; top: 0; z-index: 9999; background: #0f172a; color: #ffffff; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-family: sans-serif; border-bottom: 2px solid #2563eb; }
+          @media screen {
+            body { background: #475569; padding-bottom: 40px; }
+            .page {
+              width: 210mm;
+              min-height: 297mm;
+              margin: 25px auto;
+              padding: 12mm 15mm 18mm 15mm;
+              background: #ffffff;
+              box-shadow: 0 8px 25px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.1);
+              border-radius: 3px;
+              box-sizing: border-box;
+              position: relative;
+            }
+          }
           @media print {
-            body { padding: 0; }
+            body { padding: 0; background: transparent; }
+            .page { margin: 0; padding-bottom: 35px; width: 100%; box-shadow: none; border-radius: 0; }
             .no-print, .preview-toolbar { display: none !important; visibility: hidden !important; }
           }
         </style>

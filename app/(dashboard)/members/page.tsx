@@ -113,7 +113,7 @@ export default function MembersPage() {
                 <th className="text-left px-5 py-3 font-semibold">Mobile</th>
                 <th className="text-left px-5 py-3 font-semibold">Aadhaar (last 4)</th>
                 <th className="text-left px-5 py-3 font-semibold">Village / City</th>
-                <th className="text-left px-5 py-3 font-semibold">Branch / FO</th>
+                <th className="text-left px-5 py-3 font-semibold">Branch Name / FO</th>
                 <th className="px-5 py-3"></th>
               </tr>
             </thead>
@@ -125,8 +125,16 @@ export default function MembersPage() {
               )}
               {customers.map(c => (
                 <tr key={c.customer_id} className="tbl-row">
-                  <td className="px-5 py-3 font-mono text-xs text-blue-600 font-semibold">{c.customer_id}</td>
-                  <td className="px-5 py-3 font-semibold text-slate-800">{c.full_name}</td>
+                  <td className="px-5 py-3 font-mono text-xs text-blue-600 font-semibold">
+                    <Link href={`/members/${c.customer_id}`} className="hover:underline">
+                      {c.customer_id}
+                    </Link>
+                  </td>
+                  <td className="px-5 py-3 font-semibold text-slate-800">
+                    <Link href={`/members/${c.customer_id}`} className="hover:underline">
+                      {c.full_name}
+                    </Link>
+                  </td>
                   <td className="px-5 py-3 text-slate-600">{c.father_husband_name || '—'}</td>
                   <td className="px-5 py-3">
                     {c.mobile

@@ -92,6 +92,10 @@ export default function LoanDetailPage({ params }: PageProps) {
     import('@/lib/calculations').then(({ recalcLoanLedger }) =>
       recalcLoanLedger(id).then(() => loadLoanDetails())
     )
+
+    const handler = () => loadLoanDetails()
+    window.addEventListener('aa2_data_changed', handler)
+    return () => window.removeEventListener('aa2_data_changed', handler)
   }, [id])
 
   async function loadLoanDetails() {
@@ -546,13 +550,6 @@ export default function LoanDetailPage({ params }: PageProps) {
           <button onClick={() => router.back()} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 transition-colors">
             <ArrowLeft className="w-4 h-4" /> Back to Loans
           </button>
-          <button
-            onClick={() => loadLoanDetails()}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl text-xs font-semibold transition disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
-          </button>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -646,7 +643,7 @@ export default function LoanDetailPage({ params }: PageProps) {
               <div><span className="text-slate-400 block font-semibold uppercase tracking-wider mb-0.5">Product</span><span className="text-slate-700 font-medium">{loan.product_type || '—'}</span></div>
               <div><span className="text-slate-400 block font-semibold uppercase tracking-wider mb-0.5">Frequency</span><span className="text-slate-700 font-medium">{loan.frequency} · {loan.tenure} EMIs</span></div>
               <div><span className="text-slate-400 block font-semibold uppercase tracking-wider mb-0.5">Disbursed Date</span><span className="text-slate-700 font-medium">{fdate(loan.disbursement_date)}</span></div>
-              <div><span className="text-slate-400 block font-semibold uppercase tracking-wider mb-0.5">Branch / FO</span><span className="text-slate-700 font-medium">{loan.branch_code} / {loan.fo_name}</span></div>
+              <div><span className="text-slate-400 block font-semibold uppercase tracking-wider mb-0.5">Branch Name / FO</span><span className="text-slate-700 font-medium">{loan.branch_code} / {loan.fo_name}</span></div>
             </div>
           </div>
 

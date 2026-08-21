@@ -113,10 +113,10 @@ export default function TrashRecoveryPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-slate-800">Trash Can & Recovery</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-slate-800">Trash Can</h1>
             <span className="px-2.5 py-0.5 bg-red-100 text-red-700 text-[10px] font-extrabold uppercase rounded-full tracking-wider">
               IT Security Only
             </span>
@@ -125,13 +125,6 @@ export default function TrashRecoveryPage() {
             Soft-deleted members, loans, and documents. Restore items back to active status at any time.
           </p>
         </div>
-        <button
-          onClick={loadTrash}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 rounded-xl text-xs font-semibold transition"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh Trash
-        </button>
       </div>
 
       {actionMsg && (

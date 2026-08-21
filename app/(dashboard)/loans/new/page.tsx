@@ -391,7 +391,7 @@ function NewLoanForm() {
                 <option value="">-- Choose Member --</option>
                 {customers.map(c => (
                   <option key={c.customer_id} value={c.customer_id}>
-                    {c.full_name} ({c.customer_id}) — Branch: {c.branch_code || '—'}
+                    {c.full_name} ({c.customer_id}) — Branch Name: {c.branch_code || '—'}
                   </option>
                 ))}
               </select>

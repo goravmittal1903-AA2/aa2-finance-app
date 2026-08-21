@@ -61,6 +61,49 @@ export default function MemberDetailPage({ params }: PageProps) {
     loadData()
   }, [id])
 
+  const [isEditing, setIsEditing] = useState(false)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editFormData, setEditFormData] = useState<Partial<Customer>>({})
+
+  useEffect(() => {
+    if (customer) {
+      setEditFormData({ ...customer })
+    }
+  }, [customer])
+
+  async function handleSaveMemberEdit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!customer) return
+    const { validatePAN } = await import('@/lib/utils')
+    if (editFormData.pan_no && !validatePAN(editFormData.pan_no)) {
+      const { toast } = await import('@/lib/toast')
+      toast.error('Invalid PAN Format', 'Please enter a valid 10-character PAN (e.g. ABCDE1234F)')
+      return
+    }
+
+    setSavingEdit(true)
+    try {
+      const { putOne } = await import('@/lib/supabase')
+      const updated: Customer = {
+        ...customer,
+        ...editFormData,
+        updated_at: new Date().toISOString(),
+        updated_by: user?.email || 'system',
+      }
+      await putOne('customers', updated)
+      setCustomer(updated)
+      setIsEditing(false)
+      const { toast } = await import('@/lib/toast')
+      toast.success('Member Updated', 'Member details saved successfully.')
+      window.dispatchEvent(new Event('aa2_data_changed'))
+    } catch (err: any) {
+      const { toast } = await import('@/lib/toast')
+      toast.error('Save Failed', err.message || 'Could not save member changes.')
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -86,6 +129,8 @@ export default function MemberDetailPage({ params }: PageProps) {
     )
   }
 
+  const panInvalid = editFormData.pan_no ? !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(editFormData.pan_no.trim().toUpperCase()) : false
+
   return (
     <div className="space-y-6">
       {/* Top Bar / Navigation */}
@@ -94,6 +139,12 @@ export default function MemberDetailPage({ params }: PageProps) {
           <ArrowLeft className="w-4 h-4" /> Back to Members
         </button>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsEditing(true)}
+            className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 text-sm font-semibold rounded-xl transition shadow-sm"
+          >
+            <User className="w-4 h-4 text-blue-600" /> Edit Member
+          </button>
           <button
             onClick={async () => {
               // 1. Check for open / active / sanctioned loans
@@ -136,6 +187,102 @@ export default function MemberDetailPage({ params }: PageProps) {
         </div>
       </div>
 
+      {/* Edit Member Modal */}
+      {isEditing && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-3xl my-8 overflow-hidden">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">Edit Member Details</h3>
+                <p className="text-xs text-slate-500">Update profile for Member ID: <span className="font-mono text-blue-600 font-bold">{customer.customer_id}</span></p>
+              </div>
+              <button onClick={() => setIsEditing(false)} className="text-slate-400 hover:text-slate-600 text-sm font-bold px-2 py-1">✕</button>
+            </div>
+            <form onSubmit={handleSaveMemberEdit} className="p-6 space-y-5 max-h-[80vh] overflow-y-auto text-xs">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Full Name *</label>
+                  <input type="text" required value={editFormData.full_name || ''} onChange={e => setEditFormData({ ...editFormData, full_name: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Father / Husband Name *</label>
+                  <input type="text" required value={editFormData.father_husband_name || ''} onChange={e => setEditFormData({ ...editFormData, father_husband_name: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Mobile Number (10 digits) *</label>
+                  <input type="text" required value={editFormData.mobile || ''} onChange={e => setEditFormData({ ...editFormData, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono" />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Date of Birth *</label>
+                  <input type="date" required value={editFormData.dob || ''} onChange={e => setEditFormData({ ...editFormData, dob: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Gender *</label>
+                  <select value={editFormData.gender || 'Female'} onChange={e => setEditFormData({ ...editFormData, gender: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                    <option value="Female">Female</option>
+                    <option value="Male">Male</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">PAN Card Number</label>
+                  <input
+                    type="text"
+                    value={editFormData.pan_no || ''}
+                    onChange={e => setEditFormData({ ...editFormData, pan_no: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) })}
+                    className={`w-full px-3 py-2 border rounded-xl focus:outline-none focus:ring-2 text-sm font-mono uppercase ${panInvalid ? 'border-red-500 focus:ring-red-400 bg-red-50/50' : 'border-slate-200 focus:ring-blue-500'}`}
+                    placeholder="e.g. ABCDE1234F"
+                  />
+                  {panInvalid && <p className="text-[10px] text-red-600 mt-1">Invalid PAN format (5 letters, 4 digits, 1 letter)</p>}
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Aadhaar (Last 4 digits)</label>
+                  <input type="text" value={editFormData.aadhar_last4 || ''} onChange={e => setEditFormData({ ...editFormData, aadhar_last4: e.target.value.replace(/\D/g, '').slice(0, 4) })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono" />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Branch Name</label>
+                  <input type="text" value={editFormData.branch_code || ''} onChange={e => setEditFormData({ ...editFormData, branch_code: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" placeholder="e.g. Gagalheri" />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Village / City</label>
+                  <input type="text" value={editFormData.village_city || ''} onChange={e => setEditFormData({ ...editFormData, village_city: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Pincode</label>
+                  <input type="text" value={editFormData.pincode || ''} onChange={e => setEditFormData({ ...editFormData, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono" />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">District</label>
+                  <input type="text" value={editFormData.district || ''} onChange={e => setEditFormData({ ...editFormData, district: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">State</label>
+                  <input type="text" value={editFormData.state || ''} onChange={e => setEditFormData({ ...editFormData, state: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Branch Manager Name</label>
+                  <input type="text" value={editFormData.bm_name || ''} onChange={e => setEditFormData({ ...editFormData, bm_name: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Field Officer Name</label>
+                  <input type="text" value={editFormData.fo_name || ''} onChange={e => setEditFormData({ ...editFormData, fo_name: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Current Address</label>
+                <textarea rows={2} value={editFormData.address_current || ''} onChange={e => setEditFormData({ ...editFormData, address_current: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+              </div>
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button type="button" onClick={() => setIsEditing(false)} className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold rounded-xl">Cancel</button>
+                <button type="submit" disabled={savingEdit} className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-md disabled:opacity-50 flex items-center gap-2">
+                  {savingEdit ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Profile Summary Card */}
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
         <div className="flex flex-col md:flex-row gap-6 items-start">
@@ -171,7 +318,7 @@ export default function MemberDetailPage({ params }: PageProps) {
                 <span className="flex items-center gap-2 text-slate-700 text-sm">
                   <MapPin className="w-4 h-4 text-slate-400" /> {customer.village_city || '—'}, {customer.district || '—'}
                 </span>
-                <span className="text-xs text-slate-500 block">Branch Code: {customer.branch_code || '—'}</span>
+                <span className="text-xs text-slate-500 block">Branch Name: {customer.branch_code || '—'}</span>
               </div>
             </div>
           </div>
@@ -218,7 +365,11 @@ export default function MemberDetailPage({ params }: PageProps) {
                 <tbody className="divide-y divide-slate-100">
                   {loans.map(l => (
                     <tr key={l.loan_account_no} className="tbl-row">
-                      <td className="px-4 py-3 font-mono text-xs text-blue-600 font-semibold">{l.loan_account_no}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-blue-600 font-semibold">
+                        <Link href={`/loans/${l.loan_account_no}`} className="hover:underline">
+                          {l.loan_account_no}
+                        </Link>
+                      </td>
                       <td className="px-4 py-3 text-slate-700 font-medium">{l.product_type}</td>
                       <td className="px-4 py-3 text-right text-slate-700 font-medium">{inr(l.loan_amount)}</td>
                       <td className="px-4 py-3 text-right font-semibold text-slate-800">{inr(l.ledger_balance)}</td>

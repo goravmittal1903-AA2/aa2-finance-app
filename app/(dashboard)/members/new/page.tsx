@@ -450,21 +450,23 @@ export default function NewMemberPage() {
 
             {/* PAN Number */}
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">PAN Number</label>
-                {formData.pan_no.length === 10 && (
-                  <span className="text-[10px] text-emerald-600 font-bold">✓ Valid Format</span>
-                )}
-              </div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">PAN Number</label>
               <input
                 type="text"
                 name="pan_no"
                 value={formData.pan_no}
                 onChange={handleChange}
                 maxLength={10}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-blue-400"
+                className={`w-full px-4 py-2.5 bg-slate-50 border rounded-xl text-sm font-mono uppercase focus:outline-none focus:ring-2 ${
+                  formData.pan_no && !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(formData.pan_no.trim().toUpperCase())
+                    ? 'border-red-500 focus:ring-red-400 bg-red-50/50'
+                    : 'border-slate-200 focus:ring-blue-400'
+                }`}
                 placeholder="e.g. ABCDE1234F"
               />
+              {formData.pan_no && !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(formData.pan_no.trim().toUpperCase()) && (
+                <p className="text-[10px] text-red-600 font-semibold mt-0.5">Invalid PAN format (5 letters, 4 digits, 1 letter)</p>
+              )}
             </div>
 
             {/* Village / City */}
@@ -520,17 +522,16 @@ export default function NewMemberPage() {
               />
             </div>
 
-            {/* Branch Code */}
+            {/* Branch Name */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Branch Code (4 Digits)</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Branch Name</label>
               <input
                 type="text"
                 name="branch_code"
                 value={formData.branch_code}
                 onChange={handleChange}
-                maxLength={4}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 font-mono"
-                placeholder="1001"
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                placeholder="e.g. Gagalheri"
               />
             </div>
 
