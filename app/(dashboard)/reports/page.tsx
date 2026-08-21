@@ -18,7 +18,7 @@ import {
 } from 'recharts'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-type TabType = 'loan_register' | 'collection_register' | 'dpd_npa' | 'monthly' | 'branch_fo' | 'rbi' | 'aging' | 'fo_efficiency' | 'branch_pnl' | 'dnbs_returns' | 'tally_export' | 'analytics'
+type TabType = 'loan_register' | 'collection_register' | 'dpd_npa' | 'monthly' | 'branch_fo' | 'rbi' | 'aging' | 'fo_efficiency' | 'dnbs_returns' | 'tally_export' | 'analytics'
 
 const TABS: { key: TabType; label: string; icon: any }[] = [
   { key: 'loan_register', label: 'Loan Register', icon: FileText },
@@ -26,7 +26,6 @@ const TABS: { key: TabType; label: string; icon: any }[] = [
   { key: 'dpd_npa', label: 'DPD / NPA Report', icon: AlertTriangle },
   { key: 'aging', label: 'Portfolio Aging', icon: BarChart2 },
   { key: 'fo_efficiency', label: 'FO Efficiency', icon: TrendingUp },
-  { key: 'branch_pnl', label: 'Branch P&L', icon: Building2 },
   { key: 'rbi', label: 'RBI Summary', icon: ShieldAlert },
   { key: 'dnbs_returns', label: 'DNBS Returns', icon: FileText },
   { key: 'tally_export', label: 'Tally Export', icon: Download },
@@ -1054,63 +1053,7 @@ export default function ReportsPage() {
           </div>
         )}
 
-        {/* ── TAB: BRANCH-WISE P&L ── */}
-        {activeTab === 'branch_pnl' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-slate-800">Branch-wise Profit & Loss Allocation</h2>
-              <button
-                onClick={() => exportToExcel(
-                  branches.map(b => {
-                    const bLoans = portfolio.filter(p => p.branch === b)
-                    const intIncome = bLoans.reduce((s, p) => s + (p.interest_received || 0), 0)
-                    const fileFees = bLoans.reduce((s, p) => s + (p.loan_amount * 0.02), 0)
-                    const grossRev = intIncome + fileFees
-                    return {
-                      'Branch Name': b || 'Head Office',
-                      'Active Loans': bLoans.length,
-                      'Portfolio Value (GLP)': bLoans.reduce((s, p) => s + p.outstanding, 0),
-                      'Interest Revenue (₹)': Math.round(intIncome),
-                      'Fee Charges (₹)': Math.round(fileFees),
-                      'Gross Revenue (₹)': Math.round(grossRev),
-                    }
-                  }),
-                  'Branch_Wise_PNL'
-                )}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition"
-              >
-                <Download className="w-3.5 h-3.5" /> Export Excel
-              </button>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {branches.map(b => {
-                const bLoans = portfolio.filter(p => p.branch === b)
-                const intIncome = bLoans.reduce((s, p) => s + (p.interest_received || 0), 0)
-                const fileFees = bLoans.reduce((s, p) => s + (p.loan_amount * 0.02), 0)
-                const grossRev = intIncome + fileFees
-                const glpVal = bLoans.reduce((s, p) => s + p.outstanding, 0)
-                return (
-                  <div key={b} className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-100 dark:border-slate-800 shadow-sm space-y-3">
-                    <div className="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-slate-800">
-                      <h3 className="font-extrabold text-slate-800 dark:text-slate-100 text-sm">{b || 'Head Office'}</h3>
-                      <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full">{bLoans.length} Loans</span>
-                    </div>
-                    <div className="space-y-2 text-xs">
-                      <div className="flex justify-between"><span className="text-slate-400">GLP Value</span><span className="font-mono font-bold text-slate-700 dark:text-slate-200">{inr(glpVal)}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">Interest Income</span><span className="font-mono text-emerald-600 font-bold">{inr(intIncome)}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">Processing Fees</span><span className="font-mono text-blue-600 font-bold">{inr(fileFees)}</span></div>
-                      <div className="flex justify-between pt-2 border-t border-slate-100 dark:border-slate-800 font-bold">
-                        <span className="text-slate-800 dark:text-slate-200">Gross Revenue</span>
-                        <span className="font-mono text-emerald-600 text-sm">{inr(grossRev)}</span>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
 
         {/* ── TAB: RBI DNBS RETURNS ── */}
         {activeTab === 'dnbs_returns' && (

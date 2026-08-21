@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { getAll, putOne, invalidateCache } from '@/lib/supabase'
-import { inr, fdate, todayISO } from '@/lib/utils'
+import { inr, fdate, todayISO, exportToExcel } from '@/lib/utils'
 import { toast } from '@/lib/toast'
 import type { Loan } from '@/lib/types'
 import {
@@ -65,7 +65,7 @@ interface FixedAsset {
   current_value: number
 }
 
-type Tab = 'investors' | 'borrowings' | 'cashbank' | 'expenses' | 'assets' | 'statements'
+type Tab = 'investors' | 'borrowings' | 'cashbank' | 'expenses' | 'assets' | 'statements' | 'branch_pnl'
 
 export default function FinancialsPage() {
   const { user } = useAuth()
@@ -396,6 +396,7 @@ export default function FinancialsPage() {
           { id: 'cashbank', label: `Cash & Bank (${cashAccounts.length})`, icon: Wallet },
           { id: 'expenses', label: `Operating Expenses (${expenses.length})`, icon: Receipt },
           { id: 'assets', label: `Fixed Assets (${fixedAssets.length})`, icon: Building2 },
+          { id: 'branch_pnl', label: 'Branch P&L', icon: TrendingUp },
           { id: 'statements', label: 'P&L & Balance Sheet', icon: FileSpreadsheet },
         ] as { id: Tab; label: string; icon: any }[]).map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)}
@@ -774,6 +775,266 @@ export default function FinancialsPage() {
           </div>
         </div>
       )}
+
+      {/* ── TAB: BRANCH-WISE P&L ── */}
+      {activeTab === 'branch_pnl' && (() => {
+        // Derive unique branches from all loans
+        const branchNames = Array.from(new Set(allLoans.map(l => l.branch_code || 'Head Office'))).sort()
+
+        // Total GLP across all branches (for proportional expense allocation)
+        const totalGLP = allLoans
+          .filter(l => l.status === 'ACTIVE' || l.status === 'SANCTIONED')
+          .reduce((s, l) => s + Number(l.ledger_balance || 0), 0)
+
+        // Total operating expenses pool (to allocate proportionally)
+        const totalOpEx = expenses.reduce((s, e) => s + Number(e.amount || 0), 0)
+
+        const branchRows = branchNames.map(branch => {
+          const bLoans = allLoans.filter(l => (l.branch_code || 'Head Office') === branch)
+          const activeLoans = bLoans.filter(l => l.status === 'ACTIVE' || l.status === 'SANCTIONED')
+          const closedLoans = bLoans.filter(l => l.status === 'CLOSE' || l.status === 'CLOSED')
+
+          // 1. Gross Loan Portfolio (GLP) — sum of ledger balance of active/sanctioned loans
+          const glp = activeLoans.reduce((s, l) => s + Number(l.ledger_balance || 0), 0)
+
+          // 2. Total Sanctioned Principal — sum of loan_amount across all loans in branch
+          const totalSanctioned = bLoans.reduce((s, l) => s + Number(l.loan_amount || 0), 0)
+
+          // 3. Total Net Disbursement — actual cash disbursed after deducting file charges
+          const totalNetDisbursed = bLoans.reduce((s, l) => s + Number(l.net_disbursement || 0), 0)
+
+          // 4. Processing Fee / File Charge — actual file_charge stored on each loan (no hardcoded %)
+          const processingFees = bLoans.reduce((s, l) => {
+            const fc = Number(l.file_charge || 0)
+            // Fallback: if file_charge is 0, compute from file_charge_pct × loan_amount
+            if (fc > 0) return s + fc
+            const pct = Number(l.file_charge_pct || 0)
+            return s + (pct > 0 ? (pct / 100) * Number(l.loan_amount || 0) : 0)
+          }, 0)
+
+          // 5. Interest Revenue — proportional based on actual collections vs total loan amount
+          //    Formula: sum of (total_interest × min(1, total_collected / total_loan)) per loan
+          const interestEarned = bLoans.reduce((s, l) => {
+            const totalLoan = Number(l.total_loan || 0)
+            const totalInterest = Number(l.total_interest || 0)
+            const collected = Number(l.total_collected || 0)
+            if (totalLoan <= 0 || totalInterest <= 0) return s
+            const collectionRatio = Math.min(1, collected / totalLoan)
+            return s + (totalInterest * collectionRatio)
+          }, 0)
+
+          // 6. Total Collections Received
+          const totalCollected = bLoans.reduce((s, l) => s + Number(l.total_collected || 0), 0)
+
+          // 7. Gross Operating Income = Interest Earned + Processing Fees
+          const grossIncome = interestEarned + processingFees
+
+          // 8. Proportional Expense Allocation based on this branch's GLP share
+          const glpShare = totalGLP > 0 ? glp / totalGLP : (branchNames.length > 0 ? 1 / branchNames.length : 0)
+          const allocatedExpenses = totalOpEx * glpShare
+
+          // 9. Net Operating Profit / Loss
+          const netProfit = grossIncome - allocatedExpenses
+
+          // 10. NPA Value — outstanding balance for 90+ DPD loans in this branch
+          const npaValue = bLoans
+            .filter(l => l.npa_flag || Number(l.dpd || 0) >= 90)
+            .reduce((s, l) => s + Number(l.ledger_balance || 0), 0)
+
+          // 11. PAR 30+ (outstanding of loans with DPD >= 30)
+          const par30 = bLoans
+            .filter(l => Number(l.dpd || 0) >= 30)
+            .reduce((s, l) => s + Number(l.ledger_balance || 0), 0)
+
+          const profitMargin = grossIncome > 0 ? (netProfit / grossIncome) * 100 : 0
+
+          return {
+            branch, activeLoans: activeLoans.length, closedLoans: closedLoans.length,
+            totalLoans: bLoans.length, glp, totalSanctioned, totalNetDisbursed,
+            processingFees, interestEarned, totalCollected, grossIncome,
+            allocatedExpenses, netProfit, npaValue, par30, profitMargin,
+          }
+        })
+
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h2 className="text-sm font-bold text-slate-800">Branch-wise Profit & Loss Allocation</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Calculated from actual loan data — interest earned proportional to collections, file charges from actual loan records, expenses allocated by GLP share.</p>
+              </div>
+              <button
+                onClick={() => exportToExcel(
+                  branchRows.map(r => ({
+                    'Branch': r.branch,
+                    'Total Loans': r.totalLoans,
+                    'Active Loans': r.activeLoans,
+                    'Closed Loans': r.closedLoans,
+                    'GLP (₹)': Math.round(r.glp),
+                    'Total Sanctioned (₹)': Math.round(r.totalSanctioned),
+                    'Total Net Disbursed (₹)': Math.round(r.totalNetDisbursed),
+                    'Total Collected (₹)': Math.round(r.totalCollected),
+                    'Interest Earned (₹)': Math.round(r.interestEarned),
+                    'Processing Fees (₹)': Math.round(r.processingFees),
+                    'Gross Income (₹)': Math.round(r.grossIncome),
+                    'Allocated Expenses (₹)': Math.round(r.allocatedExpenses),
+                    'Net Profit / Loss (₹)': Math.round(r.netProfit),
+                    'NPA Value (₹)': Math.round(r.npaValue),
+                    'PAR 30+ (₹)': Math.round(r.par30),
+                    'Profit Margin (%)': r.profitMargin.toFixed(2),
+                  })),
+                  'Branch_PnL_Report'
+                )}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition"
+              >
+                <Download className="w-3.5 h-3.5" /> Export Excel
+              </button>
+            </div>
+
+            {branchRows.length === 0 && (
+              <div className="bg-slate-50 rounded-2xl p-10 text-center text-slate-400 text-sm">
+                No branch data found. Add loans with branch codes to see Branch P&L.
+              </div>
+            )}
+
+            {/* Summary Table */}
+            {branchRows.length > 0 && (
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-sm">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-slate-800 text-white">
+                      <th className="text-left px-4 py-3 font-bold">Branch</th>
+                      <th className="text-right px-3 py-3 font-bold">Loans</th>
+                      <th className="text-right px-3 py-3 font-bold">GLP</th>
+                      <th className="text-right px-3 py-3 font-bold">Total Collected</th>
+                      <th className="text-right px-3 py-3 font-bold">Interest Earned</th>
+                      <th className="text-right px-3 py-3 font-bold">Processing Fees</th>
+                      <th className="text-right px-3 py-3 font-bold">Gross Income</th>
+                      <th className="text-right px-3 py-3 font-bold">Alloc. Expenses</th>
+                      <th className="text-right px-3 py-3 font-bold">Net Profit/Loss</th>
+                      <th className="text-right px-3 py-3 font-bold">NPA Value</th>
+                      <th className="text-right px-3 py-3 font-bold">Margin%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {branchRows.map((r, i) => (
+                      <tr key={r.branch} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                        <td className="px-4 py-2.5 font-bold text-slate-800">{r.branch}</td>
+                        <td className="text-right px-3 py-2.5 font-mono text-slate-600">{r.totalLoans}<span className="text-[10px] text-slate-400 ml-1">({r.activeLoans} A)</span></td>
+                        <td className="text-right px-3 py-2.5 font-mono text-slate-700 font-semibold">{inr(r.glp)}</td>
+                        <td className="text-right px-3 py-2.5 font-mono text-blue-700 font-semibold">{inr(r.totalCollected)}</td>
+                        <td className="text-right px-3 py-2.5 font-mono text-emerald-700 font-semibold">{inr(r.interestEarned)}</td>
+                        <td className="text-right px-3 py-2.5 font-mono text-indigo-700 font-semibold">{inr(r.processingFees)}</td>
+                        <td className="text-right px-3 py-2.5 font-mono text-emerald-800 font-bold">{inr(r.grossIncome)}</td>
+                        <td className="text-right px-3 py-2.5 font-mono text-red-600">{inr(r.allocatedExpenses)}</td>
+                        <td className={`text-right px-3 py-2.5 font-mono font-bold ${r.netProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{inr(r.netProfit)}</td>
+                        <td className="text-right px-3 py-2.5 font-mono text-orange-600">{inr(r.npaValue)}</td>
+                        <td className={`text-right px-3 py-2.5 font-mono font-bold ${r.profitMargin >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{r.profitMargin.toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                    {/* Totals Row */}
+                    <tr className="bg-slate-900 text-white font-bold">
+                      <td className="px-4 py-3">TOTAL</td>
+                      <td className="text-right px-3 py-3 font-mono">{branchRows.reduce((s, r) => s + r.totalLoans, 0)}</td>
+                      <td className="text-right px-3 py-3 font-mono">{inr(branchRows.reduce((s, r) => s + r.glp, 0))}</td>
+                      <td className="text-right px-3 py-3 font-mono">{inr(branchRows.reduce((s, r) => s + r.totalCollected, 0))}</td>
+                      <td className="text-right px-3 py-3 font-mono">{inr(branchRows.reduce((s, r) => s + r.interestEarned, 0))}</td>
+                      <td className="text-right px-3 py-3 font-mono">{inr(branchRows.reduce((s, r) => s + r.processingFees, 0))}</td>
+                      <td className="text-right px-3 py-3 font-mono">{inr(branchRows.reduce((s, r) => s + r.grossIncome, 0))}</td>
+                      <td className="text-right px-3 py-3 font-mono">{inr(branchRows.reduce((s, r) => s + r.allocatedExpenses, 0))}</td>
+                      <td className="text-right px-3 py-3 font-mono">{inr(branchRows.reduce((s, r) => s + r.netProfit, 0))}</td>
+                      <td className="text-right px-3 py-3 font-mono">{inr(branchRows.reduce((s, r) => s + r.npaValue, 0))}</td>
+                      <td className="text-right px-3 py-3 font-mono">—</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Branch Detail Cards */}
+            {branchRows.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                {branchRows.map(r => (
+                  <div key={r.branch} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                    <div className={`px-5 py-3 flex items-center justify-between ${r.netProfit >= 0 ? 'bg-emerald-50 border-b border-emerald-100' : 'bg-red-50 border-b border-red-100'}`}>
+                      <div>
+                        <h3 className="font-extrabold text-slate-800 text-sm">{r.branch}</h3>
+                        <span className="text-[10px] text-slate-500">{r.totalLoans} loans · {r.activeLoans} active</span>
+                      </div>
+                      <span className={`text-xs font-black px-2.5 py-1 rounded-lg ${r.netProfit >= 0 ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
+                        {r.netProfit >= 0 ? '▲ PROFIT' : '▼ LOSS'}
+                      </span>
+                    </div>
+                    <div className="p-5 space-y-2 text-xs">
+                      <div className="flex justify-between border-b pb-1.5">
+                        <span className="text-slate-500">Gross Loan Portfolio (GLP)</span>
+                        <span className="font-mono font-bold text-slate-800">{inr(r.glp)}</span>
+                      </div>
+                      <div className="flex justify-between border-b pb-1.5">
+                        <span className="text-slate-500">Total Sanctioned</span>
+                        <span className="font-mono text-slate-700">{inr(r.totalSanctioned)}</span>
+                      </div>
+                      <div className="flex justify-between border-b pb-1.5">
+                        <span className="text-slate-500">Net Disbursed</span>
+                        <span className="font-mono text-slate-700">{inr(r.totalNetDisbursed)}</span>
+                      </div>
+                      <div className="flex justify-between border-b pb-1.5">
+                        <span className="text-slate-500">Total Collected</span>
+                        <span className="font-mono font-bold text-blue-700">{inr(r.totalCollected)}</span>
+                      </div>
+                      <div className="pt-1 pb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Revenue Breakdown</div>
+                      <div className="flex justify-between border-b pb-1.5">
+                        <span className="text-slate-500">Interest Earned</span>
+                        <span className="font-mono font-bold text-emerald-700">{inr(r.interestEarned)}</span>
+                      </div>
+                      <div className="flex justify-between border-b pb-1.5">
+                        <span className="text-slate-500">Processing Fees</span>
+                        <span className="font-mono font-bold text-indigo-700">{inr(r.processingFees)}</span>
+                      </div>
+                      <div className="flex justify-between border-b pb-2 font-bold">
+                        <span className="text-slate-700">Gross Income</span>
+                        <span className="font-mono text-emerald-800">{inr(r.grossIncome)}</span>
+                      </div>
+                      <div className="flex justify-between border-b pb-1.5">
+                        <span className="text-slate-500">Allocated Expenses</span>
+                        <span className="font-mono text-red-600">{inr(r.allocatedExpenses)}</span>
+                      </div>
+                      <div className={`flex justify-between pt-2 font-bold text-sm border-t-2 ${r.netProfit >= 0 ? 'border-emerald-200' : 'border-red-200'}`}>
+                        <span className={r.netProfit >= 0 ? 'text-emerald-800' : 'text-red-700'}>Net {r.netProfit >= 0 ? 'Profit' : 'Loss'}</span>
+                        <span className={`font-mono ${r.netProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{inr(r.netProfit)}</span>
+                      </div>
+                      <div className="flex justify-between pt-1">
+                        <span className="text-slate-500">Profit Margin</span>
+                        <span className={`font-mono font-bold ${r.profitMargin >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{r.profitMargin.toFixed(1)}%</span>
+                      </div>
+                      <div className="flex justify-between pt-1">
+                        <span className="text-orange-500 font-semibold">NPA Value (90+ DPD)</span>
+                        <span className="font-mono text-orange-600 font-bold">{inr(r.npaValue)}</span>
+                      </div>
+                      <div className="flex justify-between pt-1">
+                        <span className="text-yellow-600 font-semibold">PAR 30+ Value</span>
+                        <span className="font-mono text-yellow-600 font-bold">{inr(r.par30)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Calculation Methodology Note */}
+            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-xs text-blue-800">
+              <p className="font-bold mb-1">📐 Calculation Methodology</p>
+              <ul className="space-y-1 list-disc ml-4 text-blue-700">
+                <li><strong>GLP:</strong> Sum of <code>ledger_balance</code> for all ACTIVE / SANCTIONED loans in the branch.</li>
+                <li><strong>Interest Earned:</strong> Per loan: <code>total_interest × (total_collected ÷ total_loan)</code>, capped at 100% collection ratio.</li>
+                <li><strong>Processing Fees:</strong> Actual <code>file_charge</code> on each loan (falls back to <code>file_charge_pct % × loan_amount</code> only if file_charge = 0).</li>
+                <li><strong>Allocated Expenses:</strong> Total operating expenses × (Branch GLP ÷ Total GLP). Proportional to portfolio size.</li>
+                <li><strong>Net Profit/Loss:</strong> Gross Income (Interest + Fees) − Allocated Expenses.</li>
+              </ul>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Edit Modal */}
       {editingRecord && (
