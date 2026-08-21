@@ -7,6 +7,7 @@ import type { Customer } from '@/lib/types'
 import { usePaginatedResource } from '@/lib/use-paginated-resource'
 import { useRealtimeInvalidation } from '@/lib/use-realtime-invalidation'
 import { exportToExcel } from '@/lib/utils'
+import { TableSkeleton } from '@/components/Skeleton'
 import {
   Search, UserPlus, Phone, MapPin, AlertTriangle,
   X, ShieldAlert, CheckCircle2, ScanLine, Download
@@ -143,7 +144,13 @@ export default function MembersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {loading && <tr><td colSpan={8} className="px-5 py-10 text-center text-slate-400">Loading members…</td></tr>}
+              {loading && (
+                <tr>
+                  <td colSpan={8} className="p-4">
+                    <TableSkeleton rows={5} cols={7} />
+                  </td>
+                </tr>
+              )}
               {!loading && error && <tr><td colSpan={8} className="px-5 py-10 text-center text-red-500">{error}</td></tr>}
               {!loading && !error && customers.length === 0 && (
                 <tr><td colSpan={8} className="px-5 py-10 text-center text-slate-400">No members found</td></tr>

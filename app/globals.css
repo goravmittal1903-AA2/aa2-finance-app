@@ -54,3 +54,17 @@ body {
 .secondary { width: 100%; border: 1px solid #bfdbfe; border-radius: 0.75rem; background: #eff6ff; padding: 0.7rem 1rem; color: #1d4ed8; font-size: 0.875rem; font-weight: 600; }
 .link { display: block; width: 100%; padding: 0.25rem; color: #1d4ed8; font-size: 0.875rem; font-weight: 500; }
 .link:hover { color: #1e3a8a; text-decoration: underline; }
+
+/* Hide Netlify Badge & Feedback Drawer */
+[class*="netlify-drawer"],
+[id*="netlify-drawer"],
+iframe[src*="netlify"],
+iframe[title*="Netlify"],
+.netlify-badge,
+#netlify-modal {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+

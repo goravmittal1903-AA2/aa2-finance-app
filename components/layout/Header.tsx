@@ -29,7 +29,7 @@ const ROLE_STYLE: Record<string, string> = {
   employee: 'bg-blue-500/10 text-blue-600 border-blue-200',
 }
 
-export function Header() {
+export function Header({ collapsed = false }: { collapsed?: boolean }) {
   const pathname = usePathname()
   const segments = pathname.split('/').filter(Boolean)
   const { user, logout } = useAuth()
@@ -79,7 +79,7 @@ export function Header() {
   const displayName = user?.name || user?.email?.split('@')[0] || 'User'
 
   return (
-    <header className="fixed top-0 left-60 right-0 h-[60px] bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 z-20 shadow-sm transition-colors">
+    <header className={cn("fixed top-0 right-0 h-[60px] bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 z-20 shadow-sm transition-all duration-200", collapsed ? "left-16" : "left-60")}>
       {/* Breadcrumbs */}
       <nav className="flex items-center gap-1.5 text-sm">
         <Link href="/dashboard" className="text-slate-400 dark:text-slate-500 hover:text-blue-600 transition-colors">

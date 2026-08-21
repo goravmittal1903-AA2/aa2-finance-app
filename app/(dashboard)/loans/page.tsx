@@ -6,6 +6,7 @@ import { getPortfolio } from '@/lib/calculations'
 import type { PortfolioRow } from '@/lib/types'
 import { inr, fdate, statusColor, exportToExcel } from '@/lib/utils'
 import { Search, PlusCircle, TrendingDown, Download } from 'lucide-react'
+import { TableSkeleton } from '@/components/Skeleton'
 import { cn } from '@/lib/utils'
 
 export default function LoansPage() {
@@ -132,7 +133,11 @@ export default function LoansPage() {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading && (
-                <tr><td colSpan={9} className="px-5 py-10 text-center text-slate-400">Loading loans…</td></tr>
+                <tr>
+                  <td colSpan={9} className="p-4">
+                    <TableSkeleton rows={5} cols={8} />
+                  </td>
+                </tr>
               )}
               {!loading && filtered.length === 0 && (
                 <tr><td colSpan={9} className="px-5 py-10 text-center text-slate-400">No loans found</td></tr>
