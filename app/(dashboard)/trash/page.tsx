@@ -9,6 +9,22 @@ import {
 } from 'lucide-react'
 import { confirmAction } from '@/lib/confirm'
 
+const STORE_LABELS: Record<string, string> = {
+  customers: 'Members',
+  loans: 'Loans',
+  documents: 'Documents (Vault)',
+  loan_documents: 'Loan Documents',
+  grievances: 'Grievances',
+  transactions: 'Transactions',
+  repayment_schedule: 'Repayment Schedule',
+  products: 'Loan Products',
+  investors: 'Investors',
+  borrowings: 'Borrowings / Debt',
+  cash_accounts: 'Cash & Bank Accounts',
+  expenses: 'Operating Expenses',
+  fixed_assets: 'Fixed Assets',
+}
+
 export default function TrashRecoveryPage() {
   const { user } = useAuth()
   const [items, setItems] = useState<TrashItem[]>([])
@@ -46,7 +62,7 @@ export default function TrashRecoveryPage() {
   async function handleRestore(item: TrashItem) {
     const ok = await confirmAction({
       title: 'Confirm Restore',
-      message: `Restore "${item.title}" (${item.store_name}) back into the active database?`,
+      message: `Restore "${item.title}" (${STORE_LABELS[item.store_name] || item.store_name}) back into the active database?`,
       confirmText: 'Restore Item',
       variant: 'warning',
     })
@@ -60,7 +76,7 @@ export default function TrashRecoveryPage() {
         const { recalcLoanLedger } = await import('@/lib/calculations')
         await recalcLoanLedger(item.data.loan_account_no)
       }
-      setActionMsg(`Successfully restored "${item.title}" back into ${item.store_name}.`)
+      setActionMsg(`Successfully restored "${item.title}" back into ${STORE_LABELS[item.store_name] || item.store_name}.`)
       await loadTrash()
     } catch (err: any) {
       console.error(err)
@@ -90,6 +106,8 @@ export default function TrashRecoveryPage() {
     )
   }
 
+  const uniqueStores = Array.from(new Set(items.map(i => i.store_name))).sort()
+
   const filtered = items.filter(i => {
     const q = search.toLowerCase()
     const matchQ = !q ||
@@ -104,8 +122,10 @@ export default function TrashRecoveryPage() {
     switch (store) {
       case 'customers': return <User className="w-4 h-4 text-blue-500" />
       case 'loans': return <Landmark className="w-4 h-4 text-emerald-500" />
-      case 'documents': return <FileText className="w-4 h-4 text-purple-500" />
+      case 'documents':
+      case 'loan_documents': return <FileText className="w-4 h-4 text-purple-500" />
       case 'grievances': return <HelpCircle className="w-4 h-4 text-amber-500" />
+      case 'transactions': return <RefreshCw className="w-4 h-4 text-indigo-500" />
       default: return <Trash2 className="w-4 h-4 text-slate-400" />
     }
   }
@@ -118,30 +138,33 @@ export default function TrashRecoveryPage() {
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-slate-800">Trash Can</h1>
             <span className="px-2.5 py-0.5 bg-red-100 text-red-700 text-[10px] font-extrabold uppercase rounded-full tracking-wider">
-              IT Security Only
+              IT Security Portal
             </span>
           </div>
           <p className="text-slate-500 text-sm mt-0.5">
-            Soft-deleted members, loans, and documents. Restore items back to active status at any time.
+            Soft-deleted members, loans, documents, and records. Restore items back to active status at any time.
           </p>
         </div>
       </div>
 
       {actionMsg && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 p-4 rounded-2xl text-xs font-semibold flex items-center gap-2">
-          <CheckCircle className="w-4 h-4 flex-shrink-0" /> {actionMsg}
-        </div>
-      )}
-      {errorMsg && (
-        <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-2xl text-xs font-semibold flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" /> {errorMsg}
+        <div className="bg-emerald-50 text-emerald-700 text-xs p-3 rounded-xl flex items-center gap-2 border border-emerald-200 font-medium">
+          <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+          {actionMsg}
         </div>
       )}
 
-      {/* Filter Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col md:flex-row gap-3">
+      {errorMsg && (
+        <div className="bg-red-50 text-red-700 text-xs p-3 rounded-xl flex items-center gap-2 border border-red-200 font-medium">
+          <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+          {errorMsg}
+        </div>
+      )}
+
+      {/* Search & Category Filter Bar */}
+      <div className="flex flex-col sm:flex-row gap-3 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
         <div className="relative flex-1">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
             placeholder="Search by title, record ID, or user who deleted…"
@@ -156,10 +179,15 @@ export default function TrashRecoveryPage() {
           className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none"
         >
           <option value="ALL">All Categories ({items.length})</option>
-          <option value="customers">Members ({items.filter(i => i.store_name === 'customers').length})</option>
-          <option value="loans">Loans ({items.filter(i => i.store_name === 'loans').length})</option>
-          <option value="documents">Documents ({items.filter(i => i.store_name === 'documents').length})</option>
-          <option value="grievances">Grievances ({items.filter(i => i.store_name === 'grievances').length})</option>
+          {uniqueStores.map(store => {
+            const count = items.filter(i => i.store_name === store).length
+            const label = STORE_LABELS[store] || store.replace(/_/g, ' ')
+            return (
+              <option key={store} value={store}>
+                {label} ({count})
+              </option>
+            )
+          })}
         </select>
       </div>
 
@@ -197,8 +225,8 @@ export default function TrashRecoveryPage() {
               {!loading && filtered.map((item, idx) => (
                 <tr key={item.trash_id || `trash-${item.store_name}-${idx}`} className="hover:bg-slate-50/50 transition">
                   <td className="px-5 py-3">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg font-bold text-slate-700 uppercase text-[9px]">
-                      {getStoreIcon(item.store_name)} {item.store_name}
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg font-bold text-slate-700 text-[10px]">
+                      {getStoreIcon(item.store_name)} {STORE_LABELS[item.store_name] || item.store_name.replace(/_/g, ' ')}
                     </span>
                   </td>
                   <td className="px-5 py-3">
