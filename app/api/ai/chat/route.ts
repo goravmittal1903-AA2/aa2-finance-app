@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
         totalMembers?: number
         branches?: { name: string; loans: number; disbursed: number; outstanding: number; npa: number }[]
         atRiskLoans?: { loan_no: string; member: string; branch: string; outstanding: number; dpd: number }[]
+        allMembersSummary?: { id: string; name: string; phone?: string; loan_no?: string; branch?: string }[]
       }
     }
 
@@ -34,15 +35,30 @@ export async function POST(req: NextRequest) {
 
     // Call Google Gemini API (tries 3.6-flash, flash-latest, 2.5-flash)
     if (apiKey) {
-      const systemInstruction = `You are a trusted senior colleague and operations copilot for "AA2 Microfinance Private Limited", an Indian Microfinance Institution.
-You speak like an intelligent, articulate, and friendly human banking professional—not a generic robot.
+      const systemInstruction = `You are a trusted senior colleague and intelligent operations copilot for "AA2 Microfinance Private Limited", an Indian Microfinance Institution (MFI).
+You communicate like an experienced, helpful, and articulate human banking operations leader—warm, conversational, and direct.
 
-YOUR APPROACH:
-- Be warm, direct, and conversational. Speak directly to the user as a colleague.
-- Answer any question freely with clear reasoning, practical advice, and domain expertise.
-- Understand Indian microfinance deeply: JLG center meetings, field collections, DPD buckets, PAR 30/60/90, RBI guidelines, and household credit limits.
-- When asked to draft messages or notices in Hindi or English, write fluent, natural, polite, and culturally appropriate text that field officers can send right away.
-- When discussing numbers, cite the live portfolio data accurately and format all currency as Indian Rupees (e.g. ₹1,25,000).
+CORE BEHAVIOR & LANGUAGE RULES:
+1. **Language Mirroring:**
+   - If the user writes in Hindi (हिंदी), reply in natural, fluent Hindi.
+   - If the user writes in Hinglish (e.g., "Haridwar branch ka collection kitna hai?"), reply in conversational, natural Hinglish.
+   - If the user writes in English, reply in clean, professional English.
+   - If the user writes in any other regional language (Marathi, Bengali, Punjabi, Tamil, Gujarati, etc.), reply fluently in that language.
+2. **Interactive Markers:**
+   - When mentioning a loan account, format it as: [LOAN:AA2-XXXX] (e.g. [LOAN:AA2-1049]).
+   - When drafting a WhatsApp reminder message, enclose the ready-to-send message inside a blockquote like:
+     > [WHATSAPP]
+     > नमस्ते [नाम] जी...
+3. **Follow-up Suggestions:**
+   - At the very end of your response, always provide 3 relevant, logical follow-up questions formatted as:
+     <<<FOLLOWUPS>>>
+     Follow-up Question 1
+     Follow-up Question 2
+     Follow-up Question 3
+     <<<END_FOLLOWUPS>>>
+4. **Domain Intelligence:**
+   - Deep knowledge of JLG (Joint Liability Groups), Center Meetings, DPD aging, PAR 30/60/90, RBI MFI Master Directions, and Household Income Limits.
+   - Format all currency figures in Indian Rupees (₹) with standard Indian comma separation (e.g. ₹1,50,000).
 
 LIVE PORTFOLIO METRICS FOR CONTEXT:
 ${JSON.stringify(portfolioContext || {}, null, 2)}`
@@ -77,7 +93,8 @@ ${JSON.stringify(portfolioContext || {}, null, 2)}`
             const data = await response.json()
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text
             if (text) {
-              return NextResponse.json({ reply: text, source: 'gemini' })
+              const { cleanReply, followups } = parseAIResponse(text)
+              return NextResponse.json({ reply: cleanReply, followups, source: 'gemini' })
             }
           }
         } catch (err) {
@@ -86,9 +103,9 @@ ${JSON.stringify(portfolioContext || {}, null, 2)}`
       }
     }
 
-    // Secondary fallback responder if network or quota is unreachable
-    const reply = generateSmartFallbackReply(lastUserMessage, portfolioContext)
-    return NextResponse.json({ reply, source: 'local-copilot' })
+    // Secondary fallback responder if no API key is provided
+    const { reply, followups } = generateSmartFallbackReply(lastUserMessage, portfolioContext)
+    return NextResponse.json({ reply, followups, source: 'local-copilot' })
   } catch (error) {
     console.error('AI Chat Error:', error)
     return NextResponse.json(
@@ -96,6 +113,25 @@ ${JSON.stringify(portfolioContext || {}, null, 2)}`
       { status: 500 }
     )
   }
+}
+
+function parseAIResponse(rawText: string): { cleanReply: string; followups: string[] } {
+  let cleanReply = rawText
+  const followups: string[] = []
+
+  const followupMatch = rawText.match(/<<<FOLLOWUPS>>>([\s\S]*?)<<<END_FOLLOWUPS>>>/)
+  if (followupMatch) {
+    cleanReply = rawText.replace(/<<<FOLLOWUPS>>>[\s\S]*?<<<END_FOLLOWUPS>>>/, '').trim()
+    const lines = followupMatch[1].split('\n')
+    lines.forEach(l => {
+      const clean = l.replace(/^[-*•\d.]+\s*/, '').trim()
+      if (clean.length > 2 && clean.length < 80) {
+        followups.push(clean)
+      }
+    })
+  }
+
+  return { cleanReply, followups: followups.slice(0, 3) }
 }
 
 function formatInr(val?: number) {
@@ -119,55 +155,87 @@ function generateSmartFallbackReply(
     branches?: { name: string; loans: number; disbursed: number; outstanding: number; npa: number }[]
     atRiskLoans?: { loan_no: string; member: string; branch: string; outstanding: number; dpd: number }[]
   }
-): string {
+): { reply: string; followups: string[] } {
   const q = query.toLowerCase()
 
-  if (q.includes('whatsapp') || q.includes('reminder') || q.includes('hindi') || q.includes('message') || q.includes('notice')) {
-    return `Here are two polite and effective reminder templates ready to send:
+  if (q.includes('whatsapp') || q.includes('reminder') || q.includes('hindi') || q.includes('message') || q.includes('notice') || q.includes('याद')) {
+    return {
+      reply: `Here are two personalized collection reminder drafts ready for WhatsApp:
 
-Hindi:
-> नमस्ते [सदस्य का नाम] जी, AA2 माइक्रोफाइनेंस से आपकी मासिक किश्त (EMI) ₹[राशि] देय है। कृपया अपनी किश्त समय पर जमा करें ताकि आपका क्रेडिट स्कोर अच्छा रहे और आगे बड़ा लोन मिल सके। धन्यवाद — AA2 माइक्रोफाइनेंस
+Hindi (हिंदी):
+> [WHATSAPP]
+> नमस्ते [सदस्य का नाम] जी, AA2 माइक्रोफाइनेंस से आपकी मासिक किश्त (EMI) ₹[राशि] देय है। कृपया अपनी किश्त समय पर जमा करें ताकि आपका क्रेडिट स्कोर उत्तम रहे और भविष्य में बड़ा ऋण प्राप्त हो सके। धन्यवाद — AA2 माइक्रोफाइनेंस
 
 English:
-> Dear [Member Name], gentle reminder from AA2 Microfinance that your loan EMI of ₹[Amount] is due. Kindly clear your payment to maintain a healthy credit score. Thank you — AA2 Microfinance.`
+> [WHATSAPP]
+> Dear [Member Name], gentle reminder from AA2 Microfinance that your monthly loan EMI of ₹[Amount] is due. Kindly make the payment to maintain a strong credit profile. Thank you — AA2 Microfinance.`,
+      followups: [
+        'How do I calculate foreclosure for an overdue loan?',
+        'Show all borrowers overdue by 30+ days',
+        'What is our collection efficiency this month?',
+      ],
+    }
   }
 
-  if (q.includes('summary') || q.includes('portfolio') || q.includes('npa') || q.includes('kpi') || q.includes('health') || q.includes('overview')) {
+  if (q.includes('summary') || q.includes('portfolio') || q.includes('npa') || q.includes('kpi') || q.includes('health') || q.includes('overview') || q.includes('हाल')) {
     if (!ctx) {
-      return `I don't have the live portfolio metrics in context right now. Please refresh the dashboard and ask again.`
+      return {
+        reply: `I don't have the live portfolio metrics in context right now. Please refresh the dashboard and try again.`,
+        followups: ['Show branch comparison', 'Show top overdue borrowers', 'Draft payment reminder'],
+      }
     }
-    return `Here is a summary of our current portfolio:
+    return {
+      reply: `Here is our current portfolio performance breakdown:
 
 - **Total Disbursed:** ${formatInr(ctx.totalDisbursed)}
 - **Outstanding Principal:** ${formatInr(ctx.totalOutstanding)} across **${ctx.activeLoansCount || 0} active loans**
-- **Collections Recorded:** ${formatInr(ctx.totalCollected)} (${ctx.collectionEfficiency || 0}% collection efficiency)
+- **Total Collections Recorded:** ${formatInr(ctx.totalCollected)} (${ctx.collectionEfficiency || 0}% collection efficiency)
 - **Overdue Accounts (PAR 30+):** **${ctx.parLoansCount || 0} loans**
-- **Gross NPA:** **${ctx.npaLoansCount || 0} loans** (${formatInr(ctx.npaAmount)} · ${ctx.npaRatio || '0.00'}%)
-- **Active Members:** **${ctx.totalMembers || 0} members**
+- **Gross NPA (90+ DPD):** **${ctx.npaLoansCount || 0} loans** (${formatInr(ctx.npaAmount)} · ${ctx.npaRatio || '0.00'}%)
+- **Total Registered Members:** **${ctx.totalMembers || 0} members**
 
-Overall, portfolio collection efficiency is steady. Let me know if you want a deeper dive into any specific branch or risk category!`
+Overall, collection efficiency is holding solid. Which branch would you like to review in detail?`,
+      followups: [
+        'Show branch-wise comparison',
+        'List top overdue borrowers',
+        'Draft WhatsApp reminder in Hindi',
+      ],
+    }
   }
 
-  if (q.includes('overdue') || q.includes('par') || q.includes('risk') || q.includes('defaulter') || q.includes('dpd')) {
+  if (q.includes('overdue') || q.includes('par') || q.includes('risk') || q.includes('defaulter') || q.includes('dpd') || q.includes('डिफॉल्ट')) {
     if (!ctx?.atRiskLoans || ctx.atRiskLoans.length === 0) {
-      return `Good news! We currently have zero high-risk accounts (30+ DPD) in the active portfolio.`
+      return {
+        reply: `Great news! There are currently zero high-risk accounts (30+ DPD) in the active portfolio. All collections are running on time.`,
+        followups: ['Show portfolio overview', 'Branch performance comparison', 'Calculate loan EMI'],
+      }
     }
     const list = ctx.atRiskLoans
       .map(
         (l, i) =>
-          `${i + 1}. **${l.member}** (\`${l.loan_no}\`) — **${l.dpd} DPD** | Outstanding: **${formatInr(l.outstanding)}** (${l.branch})`
+          `${i + 1}. **${l.member}** ([LOAN:${l.loan_no}]) — **${l.dpd} DPD** | Outstanding: **${formatInr(l.outstanding)}** (${l.branch})`
       )
       .join('\n')
-    return `Here are the top accounts requiring immediate follow-up (30+ DPD):
+    return {
+      reply: `Here are the top accounts requiring field follow-up (30+ DPD):
 
 ${list}
 
-I recommend having the respective field officers prioritize center visits for these accounts.`
+You can click any loan account above to open its full repayment schedule and payment history.`,
+      followups: [
+        'Draft WhatsApp reminder for these borrowers',
+        'Show Haridwar branch performance',
+        'How to record a recovery payment?',
+      ],
+    }
   }
 
-  if (q.includes('branch') || q.includes('haridwar') || q.includes('khatauli') || q.includes('pataudi')) {
+  if (q.includes('branch') || q.includes('haridwar') || q.includes('khatauli') || q.includes('pataudi') || q.includes('ब्रांच')) {
     if (!ctx?.branches || ctx.branches.length === 0) {
-      return `I don't see branch breakdown data loaded yet. Please ensure loan records are synced.`
+      return {
+        reply: `Branch breakdown data is not loaded yet. Please ensure loan records are synced.`,
+        followups: ['Show portfolio overview', 'Show top overdue borrowers', 'Calculate loan EMI'],
+      }
     }
     const branchRows = ctx.branches
       .map(
@@ -175,18 +243,34 @@ I recommend having the respective field officers prioritize center visits for th
           `- **${b.name}:** ${b.loans} loans · Disbursed: ${formatInr(b.disbursed)} · Outstanding: ${formatInr(b.outstanding)} · NPA: ${b.npa}`
       )
       .join('\n')
-    return `Here is how our active branches compare:
+    return {
+      reply: `Here is the performance comparison across our active branches:
 
-${branchRows}`
+${branchRows}
+
+Let me know if you would like specific member details for any of these branches.`,
+      followups: [
+        'Show top overdue accounts in Haridwar',
+        'Show portfolio overview',
+        'Draft WhatsApp reminder in Hindi',
+      ],
+    }
   }
 
-  return `I'm here to help you manage and analyze our microfinance operations.
+  return {
+    reply: `I am here to assist you with any aspect of our microfinance operations.
 
 You can ask me about:
-- Live portfolio performance and NPA ratios
-- Overdue borrower investigations and DPD tracking
-- Drafting WhatsApp or SMS payment reminders in Hindi or English
-- Core banking calculations, foreclosure quotes, or credit rules
+- Real-time portfolio KPIs and Gross NPA ratios
+- Overdue borrower investigations and DPD aging
+- Generating WhatsApp payment reminders in Hindi or English
+- Branch comparisons and loan calculations
 
-What would you like to review?`
+Feel free to type or tap the microphone to speak!`,
+    followups: [
+      'Show portfolio summary',
+      'Show top overdue accounts',
+      'Compare branch performance',
+    ],
+  }
 }

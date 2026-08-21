@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   Sparkles,
   X,
@@ -16,6 +17,14 @@ import {
   AlertTriangle,
   Building2,
   MessageSquare,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  ExternalLink,
+  PanelRightClose,
+  PanelRightOpen,
+  ArrowUpRight,
 } from 'lucide-react'
 import { getPortfolio } from '@/lib/calculations'
 import { getAll } from '@/lib/supabase'
@@ -25,174 +34,108 @@ interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
+  followups?: string[]
   source?: string
   timestamp: string
 }
 
-// Custom Human-friendly Markdown Formatter (eliminates raw ###, ***, etc.)
-function FormattedMessage({ content, isUser }: { content: string; isUser: boolean }) {
-  if (isUser) {
-    return <div className="whitespace-pre-wrap">{content}</div>
-  }
-
-  const lines = content.split('\n')
-  const elements: React.ReactNode[] = []
-
-  let inBlockquote = false
-  let blockquoteBuffer: string[] = []
-
-  const flushBlockquote = (key: number) => {
-    if (blockquoteBuffer.length > 0) {
-      elements.push(
-        <div
-          key={`bq-${key}`}
-          className="my-2 border-l-4 border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 px-3 py-2 rounded-r-lg text-slate-700 dark:text-slate-200 text-xs italic"
-        >
-          {blockquoteBuffer.map((bLine, i) => (
-            <p key={i} className="my-0.5">{renderInline(bLine)}</p>
-          ))}
-        </div>
-      )
-      blockquoteBuffer = []
-      inBlockquote = false
-    }
-  }
-
-  lines.forEach((line, index) => {
-    const trimmed = line.trim()
-
-    // Handle blockquotes
-    if (trimmed.startsWith('>')) {
-      inBlockquote = true
-      blockquoteBuffer.push(trimmed.replace(/^>\s?/, ''))
-      return
-    } else if (inBlockquote) {
-      flushBlockquote(index)
-    }
-
-    // Handle empty lines
-    if (!trimmed) {
-      elements.push(<div key={`space-${index}`} className="h-1.5" />)
-      return
-    }
-
-    // Handle Headers (###, ##, #)
-    if (trimmed.startsWith('### ') || trimmed.startsWith('## ') || trimmed.startsWith('# ')) {
-      const headerText = trimmed.replace(/^#+\s*/, '')
-      elements.push(
-        <h4
-          key={`h-${index}`}
-          className="font-bold text-sm text-slate-800 dark:text-slate-100 mt-2.5 mb-1 flex items-center gap-1.5"
-        >
-          {renderInline(headerText)}
-        </h4>
-      )
-      return
-    }
-
-    // Handle Bullet points (- or *)
-    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-      const bulletText = trimmed.replace(/^[-*]\s+/, '')
-      elements.push(
-        <div key={`li-${index}`} className="flex items-start gap-2 my-1 text-slate-700 dark:text-slate-200">
-          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />
-          <span className="leading-relaxed">{renderInline(bulletText)}</span>
-        </div>
-      )
-      return
-    }
-
-    // Handle Numbered lists (1., 2., etc.)
-    const numMatch = trimmed.match(/^(\d+)\.\s+(.+)$/)
-    if (numMatch) {
-      elements.push(
-        <div key={`num-${index}`} className="flex items-start gap-2 my-1 text-slate-700 dark:text-slate-200">
-          <span className="font-bold text-blue-600 dark:text-blue-400 text-xs flex-shrink-0 min-w-[16px]">
-            {numMatch[1]}.
-          </span>
-          <span className="leading-relaxed">{renderInline(numMatch[2])}</span>
-        </div>
-      )
-      return
-    }
-
-    // Standard Paragraph
-    elements.push(
-      <p key={`p-${index}`} className="my-1 text-slate-700 dark:text-slate-200 leading-relaxed">
-        {renderInline(line)}
-      </p>
-    )
-  })
-
-  if (inBlockquote) {
-    flushBlockquote(lines.length)
-  }
-
-  return <div className="space-y-0.5">{elements}</div>
-}
-
-// Inline parser for bold, italics, and code tags
-function renderInline(text: string): React.ReactNode[] {
-  // Regex to match **bold**, *italic*, `code`, and [links]
-  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g
-  const parts = text.split(regex)
-
-  return parts.map((part, i) => {
-    if (!part) return null
-
-    // Bold: **text**
-    if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
-      return (
-        <strong key={i} className="font-bold text-slate-900 dark:text-white">
-          {part.slice(2, -2)}
-        </strong>
-      )
-    }
-
-    // Italic: *text*
-    if (part.startsWith('*') && part.endsWith('*') && part.length >= 2) {
-      return (
-        <em key={i} className="italic text-slate-600 dark:text-slate-300">
-          {part.slice(1, -1)}
-        </em>
-      )
-    }
-
-    // Code: `text`
-    if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
-      return (
-        <code
-          key={i}
-          className="bg-slate-200/80 dark:bg-slate-700/80 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded font-mono text-[11px]"
-        >
-          {part.slice(1, -1)}
-        </code>
-      )
-    }
-
-    return part
-  })
-}
-
 export function AICopilot() {
+  const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
+  const [isDocked, setIsDocked] = useState(false)
   const [isExpanded, setIsExpanded] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [speakingId, setSpeakingId] = useState<string | null>(null)
+  const [isListening, setIsListening] = useState(false)
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
       role: 'assistant',
       content: `Hello! I am your portfolio and operations copilot for AA2 Microfinance.\n\nI can analyze our live loans, monitor DPD risk, compare branch collections, or draft customized payment reminders in Hindi and English.\n\nWhat would you like to explore today?`,
+      followups: [
+        'How is our portfolio performing right now?',
+        'Which borrowers are overdue (30+ DPD)?',
+        'Draft a payment reminder in Hindi',
+      ],
       timestamp: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
     },
   ])
 
   const [portfolioContext, setPortfolioContext] = useState<any>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const recognitionRef = useRef<any>(null)
 
-  // Fetch live portfolio data for AI context
+  // Initialize Speech Recognition (Web Speech API)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const SpeechRecognition =
+        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition()
+        recognition.continuous = false
+        recognition.interimResults = false
+        recognition.lang = 'hi-IN, en-IN, en-US'
+
+        recognition.onresult = (event: any) => {
+          const transcript = event.results[0][0].transcript
+          setInput(prev => (prev ? `${prev} ${transcript}` : transcript))
+          setIsListening(false)
+        }
+
+        recognition.onerror = () => setIsListening(false)
+        recognition.onend = () => setIsListening(false)
+        recognitionRef.current = recognition
+      }
+    }
+  }, [])
+
+  const toggleListening = () => {
+    if (!recognitionRef.current) {
+      alert('Voice recognition is not supported in this browser. Please use Chrome, Edge, or Safari.')
+      return
+    }
+
+    if (isListening) {
+      recognitionRef.current.stop()
+      setIsListening(false)
+    } else {
+      try {
+        recognitionRef.current.start()
+        setIsListening(true)
+      } catch (err) {
+        console.warn('Speech start error:', err)
+      }
+    }
+  }
+
+  // Text to Speech (Audio Readout)
+  const toggleSpeak = (text: string, id: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+
+    if (speakingId === id) {
+      window.speechSynthesis.cancel()
+      setSpeakingId(null)
+      return
+    }
+
+    window.speechSynthesis.cancel()
+    const cleanText = text
+      .replace(/\[LOAN:[^\]]+\]/g, 'Loan Account')
+      .replace(/\[WHATSAPP\]/g, '')
+      .replace(/[#*`>]/g, '')
+
+    const utterance = new SpeechSynthesisUtterance(cleanText)
+    utterance.rate = 1.0
+    utterance.onend = () => setSpeakingId(null)
+    utterance.onerror = () => setSpeakingId(null)
+
+    setSpeakingId(id)
+    window.speechSynthesis.speak(utterance)
+  }
+
+  // Refresh live portfolio context
   const refreshContext = async () => {
     try {
       const [portfolio, customers] = await Promise.all([
@@ -304,6 +247,7 @@ export function AICopilot() {
             id: String(Date.now() + 1),
             role: 'assistant',
             content: data.reply,
+            followups: data.followups || [],
             source: data.source,
             timestamp: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
           },
@@ -335,8 +279,9 @@ export function AICopilot() {
   }
 
   const copyToClipboard = (text: string, id: string) => {
-    // Strip markdown formatting when copying plain text for WhatsApp
     const cleanText = text
+      .replace(/\[LOAN:[^\]]+\]/g, match => match.replace('[LOAN:', '').replace(']', ''))
+      .replace(/\[WHATSAPP\]/g, '')
       .replace(/^#+\s+/gm, '')
       .replace(/\*\*/g, '')
       .replace(/^>\s?/gm, '')
@@ -345,17 +290,218 @@ export function AICopilot() {
     setTimeout(() => setCopiedId(null), 2000)
   }
 
+  const openWhatsApp = (text: string) => {
+    const cleanText = text
+      .replace(/\[WHATSAPP\]/g, '')
+      .replace(/^>\s?/gm, '')
+      .replace(/\*\*/g, '*')
+      .trim()
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(cleanText)}`
+    window.open(url, '_blank')
+  }
+
   const quickPrompts = [
     { label: 'Portfolio Summary', icon: TrendingUp, query: 'How is our portfolio performing right now? Give me an executive breakdown.' },
     { label: 'Overdue Accounts', icon: AlertTriangle, query: 'Which borrower accounts are currently overdue (30+ DPD)?' },
     { label: 'Branch Comparison', icon: Building2, query: 'How do our branches compare in terms of disbursements and collections?' },
-    { label: 'WhatsApp Reminder (Hindi)', icon: MessageSquare, query: 'Can you draft a polite payment reminder message in Hindi for our borrowers?' },
+    { label: 'WhatsApp Reminder (Hindi)', icon: MessageSquare, query: 'Draft a polite WhatsApp payment reminder in Hindi for our borrowers.' },
   ]
 
+  // Formatted Message Renderer with Interactive Buttons
+  function FormattedMessage({ content, isUser }: { content: string; isUser: boolean }) {
+    if (isUser) {
+      return <div className="whitespace-pre-wrap font-sans text-xs">{content}</div>
+    }
+
+    const lines = content.split('\n')
+    const elements: React.ReactNode[] = []
+
+    let inBlockquote = false
+    let isWhatsAppBlock = false
+    let blockquoteBuffer: string[] = []
+
+    const flushBlockquote = (key: number) => {
+      if (blockquoteBuffer.length > 0) {
+        const fullBlockText = blockquoteBuffer.join('\n')
+        elements.push(
+          <div
+            key={`bq-${key}`}
+            className={`my-2.5 rounded-xl border p-3.5 transition shadow-xs ${
+              isWhatsAppBlock
+                ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-100'
+                : 'border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/30 text-slate-700 dark:text-slate-200'
+            }`}
+          >
+            {isWhatsAppBlock && (
+              <div className="flex items-center justify-between pb-2 mb-2 border-b border-emerald-200/60 dark:border-emerald-800/60">
+                <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                  <MessageSquare className="w-3.5 h-3.5 text-emerald-600" /> WhatsApp Template
+                </span>
+                <button
+                  onClick={() => openWhatsApp(fullBlockText)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-xs transition"
+                >
+                  Send via WhatsApp <ExternalLink className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+            <div className="text-xs italic leading-relaxed space-y-1">
+              {blockquoteBuffer.map((bLine, i) => (
+                <p key={i}>{renderInline(bLine)}</p>
+              ))}
+            </div>
+          </div>
+        )
+        blockquoteBuffer = []
+        inBlockquote = false
+        isWhatsAppBlock = false
+      }
+    }
+
+    lines.forEach((line, index) => {
+      const trimmed = line.trim()
+
+      if (trimmed.startsWith('> [WHATSAPP]')) {
+        inBlockquote = true
+        isWhatsAppBlock = true
+        return
+      }
+
+      if (trimmed.startsWith('>')) {
+        inBlockquote = true
+        blockquoteBuffer.push(trimmed.replace(/^>\s?/, ''))
+        return
+      } else if (inBlockquote) {
+        flushBlockquote(index)
+      }
+
+      if (!trimmed) {
+        elements.push(<div key={`space-${index}`} className="h-1.5" />)
+        return
+      }
+
+      // Headers
+      if (trimmed.startsWith('### ') || trimmed.startsWith('## ') || trimmed.startsWith('# ')) {
+        const headerText = trimmed.replace(/^#+\s*/, '')
+        elements.push(
+          <h4
+            key={`h-${index}`}
+            className="font-bold text-sm text-slate-900 dark:text-white mt-3 mb-1.5 flex items-center gap-1.5"
+          >
+            {renderInline(headerText)}
+          </h4>
+        )
+        return
+      }
+
+      // Bullet points
+      if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+        const bulletText = trimmed.replace(/^[-*]\s+/, '')
+        elements.push(
+          <div key={`li-${index}`} className="flex items-start gap-2 my-1 text-slate-700 dark:text-slate-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />
+            <span className="leading-relaxed">{renderInline(bulletText)}</span>
+          </div>
+        )
+        return
+      }
+
+      // Numbered lists
+      const numMatch = trimmed.match(/^(\d+)\.\s+(.+)$/)
+      if (numMatch) {
+        elements.push(
+          <div key={`num-${index}`} className="flex items-start gap-2 my-1 text-slate-700 dark:text-slate-200">
+            <span className="font-bold text-blue-600 dark:text-blue-400 text-xs flex-shrink-0 min-w-[16px]">
+              {numMatch[1]}.
+            </span>
+            <span className="leading-relaxed">{renderInline(numMatch[2])}</span>
+          </div>
+        )
+        return
+      }
+
+      // Paragraph
+      elements.push(
+        <p key={`p-${index}`} className="my-1 text-slate-700 dark:text-slate-200 leading-relaxed">
+          {renderInline(line)}
+        </p>
+      )
+    })
+
+    if (inBlockquote) {
+      flushBlockquote(lines.length)
+    }
+
+    return <div className="space-y-0.5">{elements}</div>
+  }
+
+  // Inline formatting with clickable Loan & Member badges
+  function renderInline(text: string): React.ReactNode[] {
+    const regex = /(\[LOAN:[^\]]+\]|\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g
+    const parts = text.split(regex)
+
+    return parts.map((part, i) => {
+      if (!part) return null
+
+      // Clickable Loan Account Pill [LOAN:AA2-1049]
+      if (part.startsWith('[LOAN:') && part.endsWith(']')) {
+        const loanNo = part.replace('[LOAN:', '').replace(']', '')
+        return (
+          <button
+            key={i}
+            onClick={() => router.push(`/loans/${loanNo}`)}
+            className="inline-flex items-center gap-1 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/50 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 font-mono font-bold px-2 py-0.5 rounded text-[11px] mx-1 border border-blue-300 dark:border-blue-700 transition"
+            title={`View Loan Account ${loanNo}`}
+          >
+            {loanNo} <ArrowUpRight className="w-2.5 h-2.5" />
+          </button>
+        )
+      }
+
+      // Bold: **text**
+      if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+        return (
+          <strong key={i} className="font-bold text-slate-900 dark:text-white">
+            {part.slice(2, -2)}
+          </strong>
+        )
+      }
+
+      // Italic: *text*
+      if (part.startsWith('*') && part.endsWith('*') && part.length >= 2) {
+        return (
+          <em key={i} className="italic text-slate-600 dark:text-slate-300">
+            {part.slice(1, -1)}
+          </em>
+        )
+      }
+
+      // Monospace: `text`
+      if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
+        return (
+          <code
+            key={i}
+            className="bg-slate-200/80 dark:bg-slate-700/80 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded font-mono text-[11px]"
+          >
+            {part.slice(1, -1)}
+          </code>
+        )
+      }
+
+      return part
+    })
+  }
+
   return (
-    <div className="fixed bottom-6 right-6 z-50">
+    <div
+      className={
+        isDocked
+          ? 'fixed top-[60px] right-0 bottom-0 w-[420px] z-50 shadow-2xl border-l border-slate-200 dark:border-slate-800'
+          : 'fixed bottom-6 right-6 z-50'
+      }
+    >
       {/* Floating Trigger Button */}
-      {!isOpen && (
+      {!isOpen && !isDocked && (
         <button
           onClick={() => setIsOpen(true)}
           className="group flex items-center gap-2.5 bg-gradient-to-r from-blue-700 to-indigo-800 hover:from-blue-800 hover:to-indigo-900 text-white px-4 py-3 rounded-full shadow-2xl hover:shadow-blue-600/30 transition-all duration-300 transform hover:scale-105 active:scale-95 border border-white/10"
@@ -367,11 +513,15 @@ export function AICopilot() {
         </button>
       )}
 
-      {/* Expanded Chat Drawer */}
-      {isOpen && (
+      {/* Main Chat Drawer */}
+      {(isOpen || isDocked) && (
         <div
-          className={`flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl transition-all duration-200 overflow-hidden ${
-            isExpanded ? 'w-[680px] h-[720px]' : 'w-[400px] sm:w-[440px] h-[580px]'
+          className={`flex flex-col bg-white dark:bg-slate-900 transition-all duration-200 overflow-hidden ${
+            isDocked
+              ? 'w-full h-full'
+              : isExpanded
+              ? 'w-[680px] h-[720px] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl'
+              : 'w-[400px] sm:w-[450px] h-[590px] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl'
           }`}
         >
           {/* Header */}
@@ -389,20 +539,32 @@ export function AICopilot() {
             <div className="flex items-center gap-1 text-white/80">
               <button
                 onClick={refreshContext}
-                title="Refresh Portfolio Context"
+                title="Refresh Live Data"
                 className="p-1.5 hover:bg-white/10 rounded-lg transition text-slate-300 hover:text-white"
               >
                 <RefreshCw className="w-4 h-4" />
               </button>
               <button
-                onClick={() => setIsExpanded(!isExpanded)}
-                title={isExpanded ? 'Minimize Window' : 'Expand Window'}
-                className="p-1.5 hover:bg-white/10 rounded-lg transition hidden sm:block text-slate-300 hover:text-white"
+                onClick={() => setIsDocked(!isDocked)}
+                title={isDocked ? 'Undock to Floating View' : 'Dock to Right Sidebar'}
+                className="p-1.5 hover:bg-white/10 rounded-lg transition text-slate-300 hover:text-white"
               >
-                {isExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                {isDocked ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
               </button>
+              {!isDocked && (
+                <button
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  title={isExpanded ? 'Minimize Window' : 'Expand Window'}
+                  className="p-1.5 hover:bg-white/10 rounded-lg transition hidden sm:block text-slate-300 hover:text-white"
+                >
+                  {isExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                </button>
+              )}
               <button
-                onClick={() => setIsOpen(false)}
+                onClick={() => {
+                  setIsOpen(false)
+                  setIsDocked(false)
+                }}
                 title="Close"
                 className="p-1.5 hover:bg-white/10 rounded-lg transition text-slate-300 hover:text-white"
               >
@@ -432,50 +594,81 @@ export function AICopilot() {
           {/* Message History */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
             {messages.map(msg => (
-              <div
-                key={msg.id}
-                className={`flex gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                {msg.role === 'assistant' && (
-                  <div className="w-7 h-7 rounded-lg bg-blue-600 flex-shrink-0 flex items-center justify-center text-white mt-0.5 shadow-sm">
-                    <Bot className="w-4 h-4" />
-                  </div>
-                )}
-                <div
-                  className={`group relative max-w-[85%] rounded-2xl px-4 py-3 shadow-xs leading-relaxed ${
-                    msg.role === 'user'
-                      ? 'bg-blue-600 text-white rounded-br-none'
-                      : 'bg-slate-100 dark:bg-slate-800/90 text-slate-800 dark:text-slate-100 rounded-bl-none border border-slate-200/60 dark:border-slate-700/60'
-                  }`}
-                >
-                  {/* Clean Human Markdown Formatted Content */}
-                  <FormattedMessage content={msg.content} isUser={msg.role === 'user'} />
+              <div key={msg.id} className="space-y-2">
+                <div className={`flex gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {msg.role === 'assistant' && (
+                    <div className="w-7 h-7 rounded-lg bg-blue-600 flex-shrink-0 flex items-center justify-center text-white mt-0.5 shadow-sm">
+                      <Bot className="w-4 h-4" />
+                    </div>
+                  )}
+                  <div
+                    className={`group relative max-w-[88%] rounded-2xl px-4 py-3 shadow-xs leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-blue-600 text-white rounded-br-none'
+                        : 'bg-slate-100 dark:bg-slate-800/90 text-slate-800 dark:text-slate-100 rounded-bl-none border border-slate-200/60 dark:border-slate-700/60'
+                    }`}
+                  >
+                    <FormattedMessage content={msg.content} isUser={msg.role === 'user'} />
 
-                  <div className="flex items-center justify-between mt-2 pt-1 border-t border-black/5 dark:border-white/5 text-[10px] opacity-60">
-                    <span>{msg.timestamp}</span>
-                    {msg.role === 'assistant' && (
-                      <button
-                        onClick={() => copyToClipboard(msg.content, msg.id)}
-                        className="hover:opacity-100 flex items-center gap-1 font-medium ml-2 text-blue-600 dark:text-blue-400"
-                        title="Copy Clean Text"
-                      >
-                        {copiedId === msg.id ? (
-                          <>
-                            <Check className="w-3 h-3 text-emerald-500" /> Copied
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" /> Copy
-                          </>
-                        )}
-                      </button>
-                    )}
+                    <div className="flex items-center justify-between mt-2.5 pt-1.5 border-t border-black/5 dark:border-white/5 text-[10px] opacity-70">
+                      <span>{msg.timestamp}</span>
+                      {msg.role === 'assistant' && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => toggleSpeak(msg.content, msg.id)}
+                            className="hover:opacity-100 flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300 hover:text-blue-600"
+                            title={speakingId === msg.id ? 'Stop audio' : 'Listen to response'}
+                          >
+                            {speakingId === msg.id ? (
+                              <>
+                                <VolumeX className="w-3.5 h-3.5 text-red-500 animate-pulse" /> Stop
+                              </>
+                            ) : (
+                              <>
+                                <Volume2 className="w-3.5 h-3.5" /> Listen
+                              </>
+                            )}
+                          </button>
+                          <button
+                            onClick={() => copyToClipboard(msg.content, msg.id)}
+                            className="hover:opacity-100 flex items-center gap-1 font-medium text-blue-600 dark:text-blue-400"
+                            title="Copy clean text"
+                          >
+                            {copiedId === msg.id ? (
+                              <>
+                                <Check className="w-3 h-3 text-emerald-500" /> Copied
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3" /> Copy
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
+
+                  {msg.role === 'user' && (
+                    <div className="w-7 h-7 rounded-lg bg-slate-700 flex-shrink-0 flex items-center justify-center text-white mt-0.5">
+                      <User className="w-4 h-4" />
+                    </div>
+                  )}
                 </div>
 
-                {msg.role === 'user' && (
-                  <div className="w-7 h-7 rounded-lg bg-slate-700 flex-shrink-0 flex items-center justify-center text-white mt-0.5">
-                    <User className="w-4 h-4" />
+                {/* Dynamic Follow-Up Suggestion Chips */}
+                {msg.role === 'assistant' && msg.followups && msg.followups.length > 0 && (
+                  <div className="pl-9 flex flex-wrap gap-1.5 pt-1">
+                    {msg.followups.map((chip, cIdx) => (
+                      <button
+                        key={cIdx}
+                        onClick={() => handleSend(chip)}
+                        disabled={loading}
+                        className="bg-blue-50 hover:bg-blue-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-slate-700 rounded-full px-3 py-1 text-[10.5px] font-medium transition shadow-2xs text-left"
+                      >
+                        💡 {chip}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
@@ -486,7 +679,7 @@ export function AICopilot() {
                 <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white">
                   <Bot className="w-4 h-4" />
                 </div>
-                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-3 py-2 rounded-2xl rounded-bl-none">
+                <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-3.5 py-2.5 rounded-2xl rounded-bl-none">
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce" />
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.2s]" />
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.4s]" />
@@ -497,7 +690,7 @@ export function AICopilot() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input Box */}
+          {/* Input Box with Microphone */}
           <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
             <form
               onSubmit={e => {
@@ -506,13 +699,27 @@ export function AICopilot() {
               }}
               className="flex items-center gap-2"
             >
+              <button
+                type="button"
+                onClick={toggleListening}
+                className={`p-2.5 rounded-xl transition flex items-center justify-center ${
+                  isListening
+                    ? 'bg-red-500 text-white animate-pulse shadow-md'
+                    : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
+                }`}
+                title={isListening ? 'Listening... Tap to stop' : 'Tap to speak (Hindi/English)'}
+              >
+                {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              </button>
+
               <input
                 type="text"
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                placeholder="Ask me anything in natural English or Hindi..."
+                placeholder={isListening ? 'Listening to your voice...' : 'Type or speak in Hindi, English, Hinglish...'}
                 className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs px-3.5 py-2.5 rounded-xl border border-transparent focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 outline-none transition"
               />
+
               <button
                 type="submit"
                 disabled={!input.trim() || loading}
@@ -522,7 +729,7 @@ export function AICopilot() {
               </button>
             </form>
             <div className="flex items-center justify-between px-1 mt-1.5 text-[10px] text-slate-400">
-              <span>AA2 Core Banking Copilot</span>
+              <span>{isListening ? '🎙️ Speak clearly into microphone...' : 'AA2 Core Banking AI Copilot'}</span>
               <button
                 onClick={() =>
                   setMessages([
@@ -530,6 +737,7 @@ export function AICopilot() {
                       id: 'welcome',
                       role: 'assistant',
                       content: `Chat history cleared. How can I help you right now?`,
+                      followups: ['Show portfolio summary', 'Which borrowers are overdue?', 'Draft payment reminder'],
                       timestamp: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
                     },
                   ])
