@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@variant dark (&:where(.dark, .dark *));
+
 :root {
   --sidebar-width: 240px;
   --header-height: 60px;
@@ -11,6 +13,12 @@ body {
   background: #f0f4f8;
   color: #1e293b;
   font-family: 'Inter', system-ui, sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.dark body {
+  background: #090d16 !important;
+  color: #f8fafc !important;
 }
 
 /* Scrollbar */

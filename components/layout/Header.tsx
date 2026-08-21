@@ -49,9 +49,16 @@ export function Header() {
   const [darkMode, setDarkMode] = useState(false)
 
   useEffect(() => {
-    const isDark = localStorage.getItem('theme') === 'dark' || document.documentElement.classList.contains('dark')
+    // Default is Day Mode (light). Only enable dark mode if explicitly set to 'dark' in localStorage.
+    const isDark = localStorage.getItem('theme') === 'dark'
     setDarkMode(isDark)
-    if (isDark) document.documentElement.classList.add('dark')
+    if (isDark) {
+      document.documentElement.classList.add('dark')
+      document.body.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+      document.body.classList.remove('dark')
+    }
   }, [])
 
   const toggleDarkMode = () => {
@@ -59,9 +66,11 @@ export function Header() {
     setDarkMode(next)
     if (next) {
       document.documentElement.classList.add('dark')
+      document.body.classList.add('dark')
       localStorage.setItem('theme', 'dark')
     } else {
       document.documentElement.classList.remove('dark')
+      document.body.classList.remove('dark')
       localStorage.setItem('theme', 'light')
     }
   }
