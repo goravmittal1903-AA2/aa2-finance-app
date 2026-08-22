@@ -308,6 +308,20 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
     loan.total_collected = isClosed ? (loan.total_loan || 0) : total_collected
     loan.ledger_balance = isClosed ? 0 : Math.max(0, (loan.total_loan || 0) - total_collected)
 
+    // Calculate total arrears (overdue installments as of today)
+    let arrearsSum = 0
+    for (const r of rows) {
+      if (r.due_date < today && r.status !== 'Paid' && r.status !== 'Waived' && r.status !== 'Restructured') {
+        arrearsSum += Math.max(0, r.emi_due - (r.paid_amount || 0))
+      }
+    }
+    loan.arrears_balance = isClosed ? 0 : Math.round(arrearsSum)
+
+    // Calculate advance balance (excess collected over total loan or future payments)
+    const totalTxnAmount = txns.reduce((s, t) => s + (t.amount || 0), 0)
+    const excessCollected = Math.max(0, totalTxnAmount - total_collected)
+    loan.advance_balance = isClosed ? 0 : Math.round(excessCollected)
+
     // DPD = max DPD across all non-paid rows
     const dpdValues = rows
       .filter(r => r.status !== 'Paid' && r.status !== 'Waived' && r.status !== 'Restructured')
@@ -331,55 +345,208 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
   }
 }
 
-export async function classifyPayment(loan_account_no: string, amount: number, txn_date: string) {
-  const rows = (await getFiltered<ScheduleRow>('schedule', 'loan_account_no', loan_account_no))
-    .filter(r => r.status !== 'Paid')
+export interface PaymentAllocationResult {
+  category: import('./types').PaymentCategory
+  label: string
+  principal_component: number
+  interest_component: number
+  penal_component: number
+  advance_component: number
+  shortage_amount: number
+  advance_balance_after: number
+  arrears_balance_after: number
+  narration: string
+  covers: {
+    installment_no: number
+    due_date: string
+    pay: number
+    principal_paid: number
+    interest_paid: number
+    full: boolean
+    overdue: boolean
+    advance: boolean
+  }[]
+  overdueCleared: number
+  advanceCount: number
+  next_due_date: string | null
+  next_due_amount: number
+}
+
+export async function classifyAndAllocatePayment(
+  loan_account_no: string,
+  amount: number,
+  txn_date: string
+): Promise<PaymentAllocationResult> {
+  const [loan, rawRows] = await Promise.all([
+    getOne<Loan>('loans', loan_account_no),
+    getFiltered<ScheduleRow>('schedule', 'loan_account_no', loan_account_no),
+  ])
+
+  const rows = rawRows
+    .filter(r => r.status !== 'Paid' && r.status !== 'Waived' && r.status !== 'Restructured')
     .sort((a, b) => a.installment_no - b.installment_no)
-  
-  const amtNum = Number(amount) || 0
+
+  const amtNum = Math.max(0, Number(amount) || 0)
+  const currentAdvance = loan?.advance_balance || 0
+
   if (!rows.length) {
     return {
-      label: 'No installments pending',
-      covers: [] as any[],
+      category: 'EXCESS',
+      label: 'Advance / Unallocated Credit',
+      principal_component: 0,
+      interest_component: 0,
+      penal_component: 0,
+      advance_component: amtNum,
+      shortage_amount: 0,
+      advance_balance_after: currentAdvance + amtNum,
+      arrears_balance_after: 0,
+      narration: `All regular installments are fully paid. Amount of ₹${amtNum.toLocaleString('en-IN')} deposited into Advance Balance Wallet.`,
+      covers: [],
       overdueCleared: 0,
       advanceCount: 0,
-      leftover: amtNum,
+      next_due_date: null,
+      next_due_amount: 0,
     }
   }
 
   let remaining = amtNum
-  const covers = []
+  let totalPrincipal = 0
+  let totalInterest = 0
+  let totalPenal = 0
+  let shortage = 0
+  const covers: PaymentAllocationResult['covers'] = []
+
+  // Check if any overdue installments exist
+  const overdueRows = rows.filter(r => r.due_date < txn_date && (r.paid_amount || 0) < r.emi_due)
+  const isOverduePresent = overdueRows.length > 0
+
   for (const r of rows) {
     if (remaining <= 0) break
-    const due = r.emi_due - (r.paid_amount || 0)
+    const due = Math.max(0, r.emi_due - (r.paid_amount || 0))
     if (due <= 0) continue
+
     const pay = Math.min(due, remaining)
     const isOverdue = r.due_date < txn_date && (r.paid_amount || 0) < r.emi_due
     const isAdvance = r.due_date > txn_date
+
+    // Proportional breakdown of principal and interest on this installment
+    const totalRowEmi = r.emi_due || 1
+    const frac = pay / totalRowEmi
+    const rowInterest = Math.min(r.interest_due, Math.round(r.interest_due * frac))
+    const rowPrincipal = pay - rowInterest
+
+    totalPrincipal += rowPrincipal
+    totalInterest += rowInterest
+
     covers.push({
       installment_no: r.installment_no,
       due_date: r.due_date,
       pay,
-      full: pay >= due - 0.5,
+      principal_paid: rowPrincipal,
+      interest_paid: rowInterest,
+      full: (r.paid_amount || 0) + pay >= r.emi_due - 0.5,
       overdue: isOverdue,
       advance: isAdvance,
     })
+
     remaining -= pay
   }
 
-  const overdueCleared = covers.filter(c => c.overdue).length
+  const overdueCleared = covers.filter(c => c.overdue && c.full).length
   const advanceCount = covers.filter(c => c.advance).length
-  const onTimeCount = covers.filter(c => !c.overdue && !c.advance).length
+  const firstCover = covers[0]
+  const isFirstPartial = firstCover && !firstCover.full
 
-  let label = 'EMI Payment'
-  if (overdueCleared && !advanceCount) label = 'Overdue / Arrears Payment'
-  else if (advanceCount && !overdueCleared) label = 'Advance Payment'
-  else if (overdueCleared && advanceCount) label = 'Overdue + Advance Payment'
-  else if (onTimeCount) label = 'On-time EMI Payment'
+  // Determine category & label
+  let category: import('./types').PaymentCategory = 'REGULAR'
+  let label = 'Regular EMI Payment'
 
-  const leftover = remaining > 0.5 ? remaining : 0
+  const firstPendingRow = rows[0]
+  const firstPendingDue = firstPendingRow ? firstPendingRow.emi_due - (firstPendingRow.paid_amount || 0) : 0
 
-  return { label, covers, overdueCleared, advanceCount, leftover }
+  if (isFirstPartial && amtNum < firstPendingDue) {
+    category = 'SHORT'
+    shortage = Math.round(firstPendingDue - amtNum)
+    label = `Short Payment (Balance ₹${shortage.toLocaleString('en-IN')})`
+  } else if (remaining > 0.5) {
+    category = 'EXCESS'
+    label = `Excess / Advance Deposit (+₹${Math.round(remaining).toLocaleString('en-IN')})`
+  } else if (advanceCount >= 2) {
+    category = 'ADVANCE'
+    label = `Multi-Month Advance (${advanceCount} Installments)`
+  } else if (isOverduePresent && overdueCleared > 0) {
+    category = 'OVERDUE_CLEARANCE'
+    label = 'Overdue / Arrears Catch-Up'
+  } else if (covers.length === 1 && firstCover?.full && !firstCover.overdue && !firstCover.advance) {
+    category = 'REGULAR'
+    label = 'On-Time Regular EMI'
+  }
+
+  const excessAdvance = remaining > 0.5 ? Math.round(remaining) : 0
+  const advanceBalanceAfter = currentAdvance + excessAdvance
+
+  // Calculate next remaining due row
+  const remainingRows = rows.filter(r => {
+    const covered = covers.find(c => c.installment_no === r.installment_no)
+    if (!covered) return true
+    return !covered.full
+  })
+
+  const nextDueRow = remainingRows[0]
+  const nextDueDate = nextDueRow ? nextDueRow.due_date : null
+  const nextDueAmount = nextDueRow ? Math.max(0, nextDueRow.emi_due - (nextDueRow.paid_amount || 0) - advanceBalanceAfter) : 0
+
+  // Calculate total arrears balance after this payment
+  let arrearsBalanceAfter = 0
+  for (const r of remainingRows) {
+    if (r.due_date < txn_date) {
+      arrearsBalanceAfter += Math.max(0, r.emi_due - (r.paid_amount || 0))
+    }
+  }
+
+  // Generate automated intelligent narration
+  let narration = ''
+  if (category === 'SHORT') {
+    narration = `Partial collection of ₹${amtNum.toLocaleString('en-IN')} received towards Installment #${firstPendingRow.installment_no} (Due ₹${firstPendingDue.toLocaleString('en-IN')}). Allocated to Interest ₹${totalInterest.toLocaleString('en-IN')} and Principal ₹${totalPrincipal.toLocaleString('en-IN')}. Shortage of ₹${shortage.toLocaleString('en-IN')} remains outstanding as overdue arrears.`
+  } else if (category === 'EXCESS') {
+    narration = `Collection of ₹${amtNum.toLocaleString('en-IN')} received. Fully cleared Installment #${firstCover.installment_no} (₹${firstCover.pay.toLocaleString('en-IN')}). Excess buffer of ₹${excessAdvance.toLocaleString('en-IN')} credited into Advance Balance Wallet (Total Advance: ₹${advanceBalanceAfter.toLocaleString('en-IN')}). Next installment net payable is ₹${nextDueAmount.toLocaleString('en-IN')}.`
+  } else if (category === 'ADVANCE') {
+    const instList = covers.map(c => `#${c.installment_no}`).join(', ')
+    narration = `Advance payment of ₹${amtNum.toLocaleString('en-IN')} received, clearing ${covers.length} future installments (${instList}). Total Principal ₹${totalPrincipal.toLocaleString('en-IN')} & Interest ₹${totalInterest.toLocaleString('en-IN')} cleared in advance. Next due date advanced to ${nextDueDate || 'Maturity'}.`
+  } else if (category === 'OVERDUE_CLEARANCE') {
+    narration = `Arrears catch-up payment of ₹${amtNum.toLocaleString('en-IN')} received. Cleared ${overdueCleared} past overdue installment(s). Principal ₹${totalPrincipal.toLocaleString('en-IN')} and Interest ₹${totalInterest.toLocaleString('en-IN')} allocated. Overdue DPD reduced/cleared.`
+  } else {
+    narration = `On-time regular EMI payment of ₹${amtNum.toLocaleString('en-IN')} received for Installment #${firstCover?.installment_no || 1}. Principal ₹${totalPrincipal.toLocaleString('en-IN')} and Interest ₹${totalInterest.toLocaleString('en-IN')} cleared in full. Account is active and up to date.`
+  }
+
+  return {
+    category,
+    label,
+    principal_component: totalPrincipal,
+    interest_component: totalInterest,
+    penal_component: totalPenal,
+    advance_component: excessAdvance,
+    shortage_amount: shortage,
+    advance_balance_after: advanceBalanceAfter,
+    arrears_balance_after: arrearsBalanceAfter,
+    narration,
+    covers,
+    overdueCleared,
+    advanceCount,
+    next_due_date: nextDueDate,
+    next_due_amount: nextDueAmount,
+  }
+}
+
+export async function classifyPayment(loan_account_no: string, amount: number, txn_date: string) {
+  const res = await classifyAndAllocatePayment(loan_account_no, amount, txn_date)
+  return {
+    label: res.label,
+    covers: res.covers,
+    overdueCleared: res.overdueCleared,
+    advanceCount: res.advanceCount,
+    leftover: res.advance_component,
+  }
 }
 
 export async function applyPayment(
@@ -395,9 +562,9 @@ export async function applyPayment(
     throw new Error('Invalid payment: loan account or amount is missing.')
   }
 
-  const cls = await classifyPayment(loan_account_no, amount, txn_date)
-  const lastInstNo = cls.covers.length ? cls.covers[cls.covers.length - 1].installment_no : null
-  
+  const alloc = await classifyAndAllocatePayment(loan_account_no, amount, txn_date)
+  const lastInstNo = alloc.covers.length ? alloc.covers[alloc.covers.length - 1].installment_no : null
+
   // Unique transaction ID using timestamp + random to avoid collisions
   const nextTxId = Date.now() + Math.floor(Math.random() * 1000)
 
@@ -408,10 +575,19 @@ export async function applyPayment(
     txn_date,
     mode,
     reference_no,
-    remarks,
+    remarks: remarks || alloc.narration,
     installment_no: lastInstNo,
     txn_type: 'PAYMENT',
-    classification: cls.label,
+    classification: alloc.label,
+    payment_category: alloc.category,
+    principal_component: alloc.principal_component,
+    interest_component: alloc.interest_component,
+    penal_component: alloc.penal_component,
+    advance_component: alloc.advance_component,
+    shortage_amount: alloc.shortage_amount,
+    advance_balance_after: alloc.advance_balance_after,
+    arrears_balance_after: alloc.arrears_balance_after,
+    narration: alloc.narration,
     created_at: new Date().toISOString(),
     entered_by: enteredBy,
     voided: false,

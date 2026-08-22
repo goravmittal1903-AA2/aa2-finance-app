@@ -8,9 +8,10 @@ import { toast } from '@/lib/toast'
 import { confirmAction } from '@/lib/confirm'
 import type { Loan, ScheduleRow } from '@/lib/types'
 import { inr, todayISO, fdate } from '@/lib/utils'
+import { generatePaymentReceipt, generateThermalPaymentReceipt } from '@/lib/document-generator'
 import {
   Calendar, Search, Save, CheckCircle, AlertCircle, Sparkles,
-  Upload, Download, Printer, FileText, Table2, RefreshCw
+  Upload, Download, Printer, FileText, Table2, RefreshCw, Smartphone
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 
@@ -36,6 +37,7 @@ interface EmiEntry {
   mode: string
   ref: string
   status: 'pending' | 'saving' | 'success' | 'error'
+  lastTxnId?: number
 }
 
 // ─── CSV Parser ───────────────────────────────────────────────────────────────
@@ -543,7 +545,49 @@ export default function CollectionsPage() {
                       </td>
                       <td className="px-4 py-2 text-center">
                         {e.status === 'success' ? (
-                          <span className="text-emerald-600 font-bold text-xs flex items-center justify-center gap-1"><CheckCircle className="w-3.5 h-3.5" /> Done</span>
+                          <div className="flex items-center justify-center gap-1">
+                            <span className="text-emerald-600 font-bold text-xs flex items-center gap-1 mr-1">
+                              <CheckCircle className="w-3.5 h-3.5" /> Done
+                            </span>
+                            <button
+                              onClick={() => generatePaymentReceipt({
+                                receipt_no: 'REC-' + (e.lastTxnId || Date.now()),
+                                txn_date: fdate(todayISO()),
+                                loan_account_no: e.loan.loan_account_no,
+                                member_name: e.loan.member_name_cache || e.loan.member_name,
+                                customer_id: e.loan.customer_id,
+                                branch_code: e.loan.branch_code,
+                                amount: Number(e.collectAmt),
+                                mode: e.mode || 'Cash',
+                                reference_no: e.ref || '',
+                                remaining_outstanding: Math.max(0, (e.loan.ledger_balance || 0) - Number(e.collectAmt)),
+                                entered_by: user?.name || user?.email || 'Field Staff',
+                              })}
+                              title="Print A4 Receipt"
+                              className="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded flex items-center gap-0.5 transition"
+                            >
+                              <Printer className="w-3 h-3" /> A4
+                            </button>
+                            <button
+                              onClick={() => generateThermalPaymentReceipt({
+                                receipt_no: 'REC-' + (e.lastTxnId || Date.now()),
+                                txn_date: fdate(todayISO()),
+                                loan_account_no: e.loan.loan_account_no,
+                                member_name: e.loan.member_name_cache || e.loan.member_name,
+                                customer_id: e.loan.customer_id,
+                                branch_code: e.loan.branch_code,
+                                amount: Number(e.collectAmt),
+                                mode: e.mode || 'Cash',
+                                reference_no: e.ref || '',
+                                remaining_outstanding: Math.max(0, (e.loan.ledger_balance || 0) - Number(e.collectAmt)),
+                                entered_by: user?.name || user?.email || 'Field Staff',
+                              })}
+                              title="Print 80mm Thermal Receipt"
+                              className="px-1.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold rounded flex items-center gap-0.5 transition border border-blue-200"
+                            >
+                              <Smartphone className="w-3 h-3" /> POS
+                            </button>
+                          </div>
                         ) : e.status === 'saving' ? (
                           <span className="text-blue-600 text-xs flex items-center justify-center gap-1">
                             <span className="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin inline-block" /> Saving…
@@ -555,13 +599,13 @@ export default function CollectionsPage() {
                               if (!amt || amt <= 0) { toast.warning('Invalid Amount', 'Enter a valid collection amount'); return }
                               setEmiEntries(prev => prev.map((x, i) => i === idx ? { ...x, status: 'saving' as const } : x))
                               try {
-                                await applyPayment(
+                                const newTxId = await applyPayment(
                                   e.loan.loan_account_no, amt, todayISO(),
                                   e.mode, e.ref || 'EMI-' + Date.now(),
                                   `${e.emiCount} EMI(s) collected — EMI #${e.rows[0].installment_no}${e.emiCount > 1 ? ` to #${e.lastEmiNo}` : ''}`,
                                   user?.email || 'system'
                                 )
-                                setEmiEntries(prev => prev.map((x, i) => i === idx ? { ...x, status: 'success' as const } : x))
+                                setEmiEntries(prev => prev.map((x, i) => i === idx ? { ...x, status: 'success' as const, lastTxnId: newTxId } : x))
                               } catch (err: any) {
                                 setEmiEntries(prev => prev.map((x, i) => i === idx ? { ...x, status: 'error' as const } : x))
                                 toast.error('Collection Failed', err.message || 'Unknown error')

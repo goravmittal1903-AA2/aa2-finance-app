@@ -4,17 +4,17 @@ import { useEffect, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getOne, getFiltered, putOne, delOne, getAll, supabase } from '@/lib/supabase'
-import { recalcLoanLedger, applyPayment, computeForeclosure, addDays, addMonthsLike, computeLoanEconomics, generateSchedule } from '@/lib/calculations'
+import { recalcLoanLedger, applyPayment, computeForeclosure, addDays, addMonthsLike, computeLoanEconomics, generateSchedule, classifyAndAllocatePayment } from '@/lib/calculations'
 import type { Loan, ScheduleRow, Transaction, Customer } from '@/lib/types'
 import { inr, fdate, fdatetime, todayISO, statusColor, username } from '@/lib/utils'
-import { generateSanctionLetter, generatePaymentReceipt, generateForeclosureNoc, generateRepaymentSchedule, generateSOA, generateTopUpLetter, generateRestructureAgreement } from '@/lib/document-generator'
+import { generateSanctionLetter, generatePaymentReceipt, generateThermalPaymentReceipt, generateForeclosureNoc, generateRepaymentSchedule, generateSOA, generateTopUpLetter, generateRestructureAgreement } from '@/lib/document-generator'
 import { useAuth } from '@/lib/auth-context'
 import { confirmAction } from '@/lib/confirm'
 import { toast } from '@/lib/toast'
 import {
   ArrowLeft, Landmark, Calendar, Clock, DollarSign, Tag, Save, AlertTriangle,
   ShieldCheck, CheckCircle, Printer, FileText, Edit2, RefreshCw, TrendingUp,
-  Upload, Paperclip, Trash2, RotateCcw, PlusCircle, Eye, Download
+  Upload, Paperclip, Trash2, RotateCcw, PlusCircle, Eye, Download, Smartphone
 } from 'lucide-react'
 
 interface PageProps {
@@ -57,6 +57,8 @@ export default function LoanDetailPage({ params }: PageProps) {
   const [payRemarks, setPayRemarks] = useState('')
   const [postLoading, setPostLoading] = useState(false)
   const [postMessage, setPostMessage] = useState('')
+  const [allocPreview, setAllocPreview] = useState<any>(null)
+  const [lastPostedTxn, setLastPostedTxn] = useState<any>(null)
 
   // Foreclosure State
   const [fcDate, setFcDate] = useState('')
@@ -180,6 +182,18 @@ export default function LoanDetailPage({ params }: PageProps) {
     }
   }, [rstNewAmount, rstNewTenure, rstNewRate, rstNewEmi, activeTab])
 
+  // Live Repayment Allocation Preview
+  useEffect(() => {
+    const amt = Number(payAmount)
+    if (loan && amt > 0 && payDate) {
+      classifyAndAllocatePayment(id, amt, payDate)
+        .then(setAllocPreview)
+        .catch(() => setAllocPreview(null))
+    } else {
+      setAllocPreview(null)
+    }
+  }, [payAmount, payDate, loan, id])
+
   const handlePostPayment = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!payAmount || Number(payAmount) <= 0 || postLoading) return
@@ -187,11 +201,18 @@ export default function LoanDetailPage({ params }: PageProps) {
     setPostMessage('')
     try {
       const refNo = payRef || 'TXN-' + Date.now()
-      await applyPayment(id, Number(payAmount), payDate, payMode, refNo, payRemarks)
+      const newTxId = await applyPayment(id, Number(payAmount), payDate, payMode, refNo, payRemarks, user?.email || 'system')
+      setLastPostedTxn({
+        receipt_no: 'REC-' + newTxId,
+        txn_date: payDate,
+        amount: Number(payAmount),
+        mode: payMode,
+        reference_no: refNo,
+        alloc: allocPreview,
+      })
       setPayRef('')
       setPayRemarks('')
-      setPostMessage('Payment applied successfully!')
-      setTimeout(() => setPostMessage(''), 4000)
+      setPostMessage('Payment applied & ledger updated successfully!')
       await loadLoanDetails()
     } catch (err: any) {
       toast.error('Payment Failed', err.message || 'Payment failed')
@@ -533,6 +554,8 @@ export default function LoanDetailPage({ params }: PageProps) {
       ledger_balance: loan.ledger_balance,
       status: loan.status,
       product_type: loan.product_type || '',
+      advance_balance: loan.advance_balance || 0,
+      arrears_balance: loan.arrears_balance || 0,
       schedule: schedule.map(r => ({
         installment_no: r.installment_no,
         due_date: r.due_date,
@@ -547,6 +570,12 @@ export default function LoanDetailPage({ params }: PageProps) {
         amount: t.amount,
         mode: t.mode || 'Cash',
         reference_no: t.reference_no || '',
+        classification: t.classification || t.payment_category || 'Payment',
+        principal_component: t.principal_component,
+        interest_component: t.interest_component,
+        advance_component: t.advance_component,
+        shortage_amount: t.shortage_amount,
+        narration: t.narration || t.remarks || '',
       })),
     })
   }
@@ -824,14 +853,111 @@ export default function LoanDetailPage({ params }: PageProps) {
                   <input type="text" placeholder="Regular payment collect" value={payRemarks} onChange={e => setPayRemarks(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
                 </div>
+
+                {allocPreview && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Accounting Allocation</span>
+                      <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${
+                        allocPreview.category === 'SHORT' ? 'bg-amber-100 text-amber-800' :
+                        allocPreview.category === 'EXCESS' || allocPreview.category === 'ADVANCE' ? 'bg-blue-100 text-blue-800' :
+                        allocPreview.category === 'OVERDUE_CLEARANCE' ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'
+                      }`}>
+                        {allocPreview.label}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[11px] bg-white p-2 rounded-lg border border-slate-100">
+                      <div>Principal: <strong className="text-slate-800">{inr(allocPreview.principal_component)}</strong></div>
+                      <div>Interest: <strong className="text-slate-800">{inr(allocPreview.interest_component)}</strong></div>
+                      {allocPreview.advance_component > 0 && (
+                        <div className="col-span-2 text-blue-600 font-semibold">Advance Wallet: +{inr(allocPreview.advance_component)}</div>
+                      )}
+                      {allocPreview.shortage_amount > 0 && (
+                        <div className="col-span-2 text-red-600 font-semibold">Shortage (Arrears): {inr(allocPreview.shortage_amount)}</div>
+                      )}
+                    </div>
+
+                    <p className="text-[10px] text-slate-500 italic leading-relaxed">{allocPreview.narration}</p>
+                  </div>
+                )}
+
                 {postMessage && (
-                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5">
-                    <CheckCircle className="w-3.5 h-3.5" /> {postMessage}
+                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-xl space-y-2">
+                    <div className="text-xs font-bold flex items-center gap-1.5 text-emerald-700">
+                      <CheckCircle className="w-4 h-4 text-emerald-600" /> {postMessage}
+                    </div>
+                    {lastPostedTxn && (
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => generatePaymentReceipt({
+                            receipt_no: lastPostedTxn.receipt_no,
+                            txn_date: fdate(lastPostedTxn.txn_date),
+                            loan_account_no: loan.loan_account_no,
+                            member_name: loan.member_name_cache || loan.member_name,
+                            customer_id: loan.customer_id,
+                            branch_code: loan.branch_code,
+                            amount: lastPostedTxn.amount,
+                            mode: lastPostedTxn.mode || 'Cash',
+                            reference_no: lastPostedTxn.reference_no || '',
+                            remaining_outstanding: loan.ledger_balance,
+                            entered_by: user?.name || user?.email || 'Staff',
+                            payment_category: lastPostedTxn.alloc?.category,
+                            classification: lastPostedTxn.alloc?.label,
+                            principal_paid: lastPostedTxn.alloc?.principal_component,
+                            interest_paid: lastPostedTxn.alloc?.interest_component,
+                            penal_paid: lastPostedTxn.alloc?.penal_component,
+                            advance_paid: lastPostedTxn.alloc?.advance_component,
+                            shortage_amount: lastPostedTxn.alloc?.shortage_amount,
+                            advance_wallet_balance: loan.advance_balance,
+                            arrears_balance: loan.arrears_balance,
+                            next_due_date: lastPostedTxn.alloc?.next_due_date,
+                            next_due_amount: lastPostedTxn.alloc?.next_due_amount,
+                            narration: lastPostedTxn.alloc?.narration,
+                          })}
+                          className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg transition flex items-center justify-center gap-1 shadow-sm"
+                        >
+                          <Printer className="w-3.5 h-3.5" /> A4 Receipt
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => generateThermalPaymentReceipt({
+                            receipt_no: lastPostedTxn.receipt_no,
+                            txn_date: fdate(lastPostedTxn.txn_date),
+                            loan_account_no: loan.loan_account_no,
+                            member_name: loan.member_name_cache || loan.member_name,
+                            customer_id: loan.customer_id,
+                            branch_code: loan.branch_code,
+                            amount: lastPostedTxn.amount,
+                            mode: lastPostedTxn.mode || 'Cash',
+                            reference_no: lastPostedTxn.reference_no || '',
+                            remaining_outstanding: loan.ledger_balance,
+                            entered_by: user?.name || user?.email || 'Staff',
+                            payment_category: lastPostedTxn.alloc?.category,
+                            classification: lastPostedTxn.alloc?.label,
+                            principal_paid: lastPostedTxn.alloc?.principal_component,
+                            interest_paid: lastPostedTxn.alloc?.interest_component,
+                            penal_paid: lastPostedTxn.alloc?.penal_component,
+                            advance_paid: lastPostedTxn.alloc?.advance_component,
+                            shortage_amount: lastPostedTxn.alloc?.shortage_amount,
+                            advance_wallet_balance: loan.advance_balance,
+                            arrears_balance: loan.arrears_balance,
+                            next_due_date: lastPostedTxn.alloc?.next_due_date,
+                            next_due_amount: lastPostedTxn.alloc?.next_due_amount,
+                            narration: lastPostedTxn.alloc?.narration,
+                          })}
+                          className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-[11px] font-bold rounded-lg transition flex items-center justify-center gap-1 shadow-sm"
+                        >
+                          <Smartphone className="w-3.5 h-3.5" /> Thermal POS
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
                 <button type="submit" disabled={postLoading}
                   className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white font-semibold rounded-xl text-xs transition shadow-md shadow-emerald-500/10">
-                  {postLoading ? 'Processing…' : 'Confirm Repayment Payment'}
+                  {postLoading ? 'Processing…' : 'Confirm Repayment Collection'}
                 </button>
               </form>
             </div>
@@ -866,6 +992,7 @@ export default function LoanDetailPage({ params }: PageProps) {
                     onClick={() => setActiveTab(tab.key)}
                     className={`px-3 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${activeTab === tab.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
                   >
+                    <Icon className="w-3.5 h-3.5" />
                     {tab.label}
                   </button>
                 )
@@ -926,53 +1053,129 @@ export default function LoanDetailPage({ params }: PageProps) {
                     <thead>
                       <tr className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wide">
                         <th className="text-left px-3 py-2 font-semibold">Date</th>
-                        <th className="text-left px-3 py-2 font-semibold">Type</th>
-                        <th className="text-left px-3 py-2 font-semibold">Classification</th>
+                        <th className="text-left px-3 py-2 font-semibold">Category</th>
                         <th className="text-right px-3 py-2 font-semibold">Amount</th>
-                        <th className="text-left px-3 py-2 font-semibold">Mode</th>
-                        <th className="text-left px-3 py-2 font-semibold">Ref No</th>
-                        <th className="text-left px-3 py-2 font-semibold">Remarks</th>
-                        <th className="text-center px-3 py-2 font-semibold">Receipt</th>
+                        <th className="text-left px-3 py-2 font-semibold">Breakdown (P/I)</th>
+                        <th className="text-left px-3 py-2 font-semibold">Mode / Ref</th>
+                        <th className="text-left px-3 py-2 font-semibold">Narration</th>
+                        <th className="text-center px-3 py-2 font-semibold">Receipts</th>
                         <th className="text-center px-3 py-2 font-semibold">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {transactions.map(t => (
-                        <tr key={t.txn_id} className={`hover:bg-slate-50/50 ${t.voided ? 'line-through opacity-50' : ''}`}>
-                          <td className="px-3 py-2.5 text-slate-700 font-semibold">{fdate(t.txn_date)}</td>
-                          <td className="px-3 py-2.5 text-slate-600">{t.txn_type}</td>
-                          <td className="px-3 py-2.5 text-slate-600 font-medium">{t.classification || '—'}</td>
-                          <td className="px-3 py-2.5 text-right font-bold text-slate-800">{inr(t.amount)}</td>
-                          <td className="px-3 py-2.5 text-slate-500">{t.mode || '—'}</td>
-                          <td className="px-3 py-2.5 text-slate-500 font-mono text-[10px]">{t.reference_no || '—'}</td>
-                          <td className="px-3 py-2.5 text-slate-400">{t.remarks || '—'}</td>
-                          <td className="px-3 py-2.5 text-center">
-                            <button
-                              onClick={() => generatePaymentReceipt({
-                                receipt_no: 'REC-' + t.txn_id, txn_date: fdate(t.txn_date),
-                                loan_account_no: loan.loan_account_no, member_name: loan.member_name_cache || loan.member_name,
-                                customer_id: loan.customer_id, branch_code: loan.branch_code,
-                                amount: t.amount, mode: t.mode || 'Cash', reference_no: t.reference_no || '',
-                                remaining_outstanding: loan.ledger_balance, entered_by: t.entered_by || 'Staff'
-                              })}
-                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded flex items-center gap-1 transition mx-auto"
-                            >
-                              <Printer className="w-3 h-3" /> Print
-                            </button>
-                          </td>
-                          <td className="px-3 py-2.5 text-center">
-                            <button
-                              onClick={() => handleDeleteTxn(t)}
-                              title="Delete Transaction"
-                              className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {transactions.map(t => {
+                        const isShort = t.payment_category === 'SHORT' || (t.shortage_amount || 0) > 0
+                        const isAdvance = t.payment_category === 'ADVANCE' || t.payment_category === 'EXCESS' || (t.advance_component || 0) > 0
+                        const isOverdue = t.payment_category === 'OVERDUE_CLEARANCE'
+                        
+                        return (
+                          <tr key={t.txn_id} className={`hover:bg-slate-50/50 ${t.voided ? 'line-through opacity-50' : ''}`}>
+                            <td className="px-3 py-2.5 text-slate-700 font-semibold whitespace-nowrap">{fdate(t.txn_date)}</td>
+                            <td className="px-3 py-2.5">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                isShort ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                isAdvance ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                                isOverdue ? 'bg-purple-50 text-purple-700 border border-purple-200' :
+                                'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              }`}>
+                                {t.classification || t.payment_category || 'Payment'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-bold text-slate-800 whitespace-nowrap">{inr(t.amount)}</td>
+                            <td className="px-3 py-2.5 text-slate-600 text-[11px]">
+                              {t.principal_component !== undefined ? (
+                                <div>
+                                  <span>P: {inr(t.principal_component)} | I: {inr(t.interest_component || 0)}</span>
+                                  {t.advance_component ? <div className="text-blue-600 font-semibold text-[10px]">Adv: +{inr(t.advance_component)}</div> : null}
+                                  {t.shortage_amount ? <div className="text-red-600 font-semibold text-[10px]">Short: {inr(t.shortage_amount)}</div> : null}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-slate-600 text-[11px]">
+                              <div>{t.mode || 'Cash'}</div>
+                              {t.reference_no && <div className="text-[10px] text-slate-400 font-mono">{t.reference_no}</div>}
+                            </td>
+                            <td className="px-3 py-2.5 text-slate-600 text-[11px] max-w-[220px]">
+                              <p className="line-clamp-2" title={t.narration || t.remarks}>{t.narration || t.remarks || '—'}</p>
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  onClick={() => generatePaymentReceipt({
+                                    receipt_no: 'REC-' + t.txn_id,
+                                    txn_date: fdate(t.txn_date),
+                                    loan_account_no: loan.loan_account_no,
+                                    member_name: loan.member_name_cache || loan.member_name,
+                                    customer_id: loan.customer_id,
+                                    branch_code: loan.branch_code,
+                                    amount: t.amount,
+                                    mode: t.mode || 'Cash',
+                                    reference_no: t.reference_no || '',
+                                    remaining_outstanding: loan.ledger_balance,
+                                    entered_by: t.entered_by || 'Staff',
+                                    payment_category: t.payment_category,
+                                    classification: t.classification,
+                                    principal_paid: t.principal_component,
+                                    interest_paid: t.interest_component,
+                                    penal_paid: t.penal_component,
+                                    advance_paid: t.advance_component,
+                                    shortage_amount: t.shortage_amount,
+                                    advance_wallet_balance: loan.advance_balance,
+                                    arrears_balance: loan.arrears_balance,
+                                    narration: t.narration || t.remarks,
+                                  })}
+                                  title="Print Standard A4 Receipt"
+                                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded flex items-center gap-1 transition"
+                                >
+                                  <Printer className="w-3 h-3" /> A4
+                                </button>
+                                <button
+                                  onClick={() => generateThermalPaymentReceipt({
+                                    receipt_no: 'REC-' + t.txn_id,
+                                    txn_date: fdate(t.txn_date),
+                                    loan_account_no: loan.loan_account_no,
+                                    member_name: loan.member_name_cache || loan.member_name,
+                                    customer_id: loan.customer_id,
+                                    branch_code: loan.branch_code,
+                                    amount: t.amount,
+                                    mode: t.mode || 'Cash',
+                                    reference_no: t.reference_no || '',
+                                    remaining_outstanding: loan.ledger_balance,
+                                    entered_by: t.entered_by || 'Staff',
+                                    payment_category: t.payment_category,
+                                    classification: t.classification,
+                                    principal_paid: t.principal_component,
+                                    interest_paid: t.interest_component,
+                                    penal_paid: t.penal_component,
+                                    advance_paid: t.advance_component,
+                                    shortage_amount: t.shortage_amount,
+                                    advance_wallet_balance: loan.advance_balance,
+                                    arrears_balance: loan.arrears_balance,
+                                    narration: t.narration || t.remarks,
+                                  })}
+                                  title="Print 80mm Bluetooth Thermal Slip"
+                                  className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold rounded flex items-center gap-1 transition border border-blue-200"
+                                >
+                                  <Smartphone className="w-3 h-3" /> POS
+                                </button>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              <button
+                                onClick={() => handleDeleteTxn(t)}
+                                title="Delete Transaction"
+                                className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
                       {transactions.length === 0 && (
-                        <tr><td colSpan={9} className="text-center py-8 text-slate-400">No transactions recorded yet</td></tr>
+                        <tr><td colSpan={8} className="text-center py-8 text-slate-400">No transactions recorded yet</td></tr>
                       )}
                     </tbody>
                   </table>

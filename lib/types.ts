@@ -61,6 +61,8 @@ export interface Loan {
   disbursed: boolean
   imported: boolean
   interest_received?: number
+  advance_balance?: number
+  arrears_balance?: number
   dpd_bucket?: string
   mobile?: string
   aadhar_last4?: string
@@ -88,6 +90,17 @@ export interface ScheduleRow {
   dpd: number
 }
 
+export type PaymentCategory =
+  | 'REGULAR'
+  | 'SHORT'
+  | 'EXCESS'
+  | 'ADVANCE'
+  | 'OVERDUE_CLEARANCE'
+  | 'PART_PREPAYMENT'
+  | 'FORECLOSURE'
+  | 'ZERO_MISSED'
+  | 'REVERSAL'
+
 export interface Transaction {
   txn_id: number
   loan_account_no: string
@@ -102,6 +115,15 @@ export interface Transaction {
   entered_by: string
   created_at: string
   voided: boolean
+  payment_category?: PaymentCategory
+  principal_component?: number
+  interest_component?: number
+  penal_component?: number
+  advance_component?: number
+  shortage_amount?: number
+  advance_balance_after?: number
+  arrears_balance_after?: number
+  narration?: string
 }
 
 export interface AppUser {

@@ -51,6 +51,20 @@ export interface PaymentReceiptData {
   remarks?: string
   remaining_outstanding: number
   entered_by: string
+  payment_category?: string
+  classification?: string
+  principal_paid?: number
+  interest_paid?: number
+  penal_paid?: number
+  advance_paid?: number
+  shortage_amount?: number
+  advance_wallet_balance?: number
+  arrears_balance?: number
+  current_installment_status?: string
+  next_due_date?: string | null
+  next_due_amount?: number
+  narration?: string
+  dpd_status?: string | number
 }
 
 export interface ForeclosureNocData {
@@ -123,12 +137,20 @@ export interface SOAData {
     status: string
     dpd: number
   }[]
+  advance_balance?: number
+  arrears_balance?: number
   transactions: {
     txn_id: string | number
     txn_date: string
     amount: number
     mode: string
     reference_no: string
+    classification?: string
+    principal_component?: number
+    interest_component?: number
+    advance_component?: number
+    shortage_amount?: number
+    narration?: string
   }[]
 }
 
@@ -537,45 +559,187 @@ export function generateSanctionLetter(data: SanctionLetterData) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 2. OFFICIAL REPAYMENT RECEIPT
+// 2. OFFICIAL REPAYMENT RECEIPT (STANDARD A4 / A5)
 // ═══════════════════════════════════════════════════════════════════════════════
 export function generatePaymentReceipt(data: PaymentReceiptData) {
+  const categoryBadgeClass =
+    data.payment_category === 'SHORT'
+      ? 'badge-amber'
+      : data.payment_category === 'EXCESS' || data.payment_category === 'ADVANCE'
+      ? 'badge-blue'
+      : data.payment_category === 'OVERDUE_CLEARANCE'
+      ? 'badge-purple'
+      : 'badge-green'
+
   const body = `
     <div class="doc-title">OFFICIAL REPAYMENT RECEIPT</div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">
+      <div>
+        <span style="font-size: 11px; color: #64748b;">Receipt No:</span>
+        <strong style="font-size: 13px; font-family: monospace; color: #0f172a; margin-left: 4px;">${data.receipt_no}</strong>
+      </div>
+      <div>
+        <span class="badge ${categoryBadgeClass}" style="font-size: 11px; padding: 4px 10px;">
+          ${data.classification || 'Repayment Collection'}
+        </span>
+      </div>
+    </div>
 
     <div class="grid">
       <div class="box">
         <div class="box-title">Receipt Information</div>
-        <div class="row"><span class="label">Receipt No:</span> <span class="value">${data.receipt_no}</span></div>
         <div class="row"><span class="label">Payment Date:</span> <span class="value">${FDATE(data.txn_date)}</span></div>
         <div class="row"><span class="label">Payment Mode:</span> <span class="value">${data.mode}</span></div>
-        <div class="row"><span class="label">Reference No:</span> <span class="value">${data.reference_no || '-'}</span></div>
+        <div class="row"><span class="label">Reference No:</span> <span class="value font-mono">${data.reference_no || '-'}</span></div>
         ${data.installment_no ? `<div class="row"><span class="label">Installment No:</span> <span class="value">#${data.installment_no}</span></div>` : ''}
-        <div class="row"><span class="label">Entered By:</span> <span class="value">${data.entered_by}</span></div>
+        <div class="row"><span class="label">Collected By:</span> <span class="value">${data.entered_by}</span></div>
       </div>
       <div class="box">
-        <div class="box-title">Borrower Details</div>
-        <div class="row"><span class="label">Member Name:</span> <span class="value">${data.member_name}</span></div>
-        <div class="row"><span class="label">Customer ID:</span> <span class="value">${data.customer_id}</span></div>
-        <div class="row"><span class="label">Loan Account No:</span> <span class="value">${data.loan_account_no}</span></div>
-        <div class="row"><span class="label">Branch:</span> <span class="value">${data.branch_code}</span></div>
+        <div class="box-title">Borrower & Account Details</div>
+        <div class="row"><span class="label">Member Name:</span> <span class="value"><strong>${data.member_name}</strong></span></div>
+        <div class="row"><span class="label">Customer ID:</span> <span class="value font-mono">${data.customer_id}</span></div>
+        <div class="row"><span class="label">Loan Account No:</span> <span class="value font-mono"><strong>${data.loan_account_no}</strong></span></div>
+        <div class="row"><span class="label">Branch Code:</span> <span class="value">${data.branch_code}</span></div>
       </div>
     </div>
 
-    <div class="box" style="background: #f0fdf4; border-color: #bbf7d0; text-align: center; padding: 16px; margin-bottom: 16px;">
-      <div style="font-size: 10px; text-transform: uppercase; color: #166534; font-weight: 800; letter-spacing: 1px;">Amount Received</div>
-      <div class="amount-big" style="margin: 4px 0;">${INR(data.amount)}</div>
-      <div style="font-size: 11px; color: #166534;">Remaining Outstanding: <strong>${INR(data.remaining_outstanding)}</strong></div>
+    <div class="box" style="background: #f8fafc; border-color: #cbd5e1; padding: 14px; margin-bottom: 14px;">
+      <div class="box-title" style="margin-bottom: 8px;">Payment & Fund Appropriation Breakdown</div>
+      <table style="margin-bottom: 0; font-size: 11px;">
+        <thead>
+          <tr style="background: #f1f5f9;">
+            <th>Total Paid</th>
+            <th>Principal Credited</th>
+            <th>Interest Credited</th>
+            <th>Penal / Fees</th>
+            <th>Advance Wallet</th>
+            ${(data.shortage_amount || 0) > 0 ? `<th style="color: #b91c1c;">Shortage (Arrears)</th>` : ''}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-weight: 800; font-size: 13px; color: #15803d;">${INR(data.amount)}</td>
+            <td>${INR(data.principal_paid !== undefined ? data.principal_paid : Math.round(data.amount * 0.8))}</td>
+            <td>${INR(data.interest_paid !== undefined ? data.interest_paid : Math.round(data.amount * 0.2))}</td>
+            <td>${INR(data.penal_paid || 0)}</td>
+            <td>${INR(data.advance_paid || 0)}</td>
+            ${(data.shortage_amount || 0) > 0 ? `<td style="font-weight: 800; color: #b91c1c;">${INR(data.shortage_amount || 0)}</td>` : ''}
+          </tr>
+        </tbody>
+      </table>
     </div>
 
-    ${data.remarks ? `<p style="font-size: 11px; color: #475569;"><strong>Remarks:</strong> ${data.remarks}</p>` : ''}
+    <div class="grid" style="margin-bottom: 14px;">
+      <div class="box" style="background: #eff6ff; border-color: #bfdbfe;">
+        <div class="box-title" style="color: #1e40af;">Loan Outstanding & Advance Status</div>
+        <div class="row"><span class="label">Remaining Principal Balance:</span> <span class="value" style="font-weight: 800; color: #b91c1c;">${INR(data.remaining_outstanding)}</span></div>
+        <div class="row"><span class="label">Advance Wallet Balance:</span> <span class="value" style="font-weight: 700; color: #1e40af;">${INR(data.advance_wallet_balance || 0)}</span></div>
+        ${(data.arrears_balance || 0) > 0 ? `<div class="row"><span class="label" style="color: #b91c1c;">Total Overdue Arrears:</span> <span class="value" style="font-weight: 800; color: #b91c1c;">${INR(data.arrears_balance || 0)}</span></div>` : ''}
+      </div>
+      <div class="box" style="background: #f0fdf4; border-color: #bbf7d0;">
+        <div class="box-title" style="color: #166534;">Next Due Schedule</div>
+        <div class="row"><span class="label">Next Due Date:</span> <span class="value"><strong>${data.next_due_date ? FDATE(data.next_due_date) : 'Fully Up To Date'}</strong></span></div>
+        <div class="row"><span class="label">Net Payable Amount:</span> <span class="value" style="font-weight: 800; color: #166534;">${data.next_due_amount !== undefined ? INR(data.next_due_amount) : 'As per schedule'}</span></div>
+        <div class="row"><span class="label">Account Health:</span> <span class="value">${data.dpd_status ? `${data.dpd_status} DPD` : 'Regular (0 DPD)'}</span></div>
+      </div>
+    </div>
+
+    ${data.narration || data.remarks ? `
+      <div class="box" style="background: #fafafa; border-color: #e5e7eb; padding: 10px 14px; margin-bottom: 16px;">
+        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #6b7280; margin-bottom: 4px;">Transaction Audit Narration</div>
+        <p style="font-size: 11px; color: #374151; margin: 0; line-height: 1.5;">${data.narration || data.remarks}</p>
+      </div>
+    ` : ''}
 
     <div class="signatures">
       <div class="sig-box">Borrower's Signature</div>
-      <div class="sig-box">Authorized Cashier / Officer</div>
+      <div class="sig-box">Authorized Cashier / Field Officer</div>
     </div>
   `
   printDocument(`Receipt_${data.receipt_no}`, body)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 2B. THERMAL POS RECEIPT (58mm / 80mm Bluetooth Field Printer)
+// ═══════════════════════════════════════════════════════════════════════════════
+export function generateThermalPaymentReceipt(data: PaymentReceiptData) {
+  const thermalBody = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Receipt_${data.receipt_no}</title>
+        <style>
+          @page { size: 80mm auto; margin: 2mm; }
+          body {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 11px;
+            color: #000;
+            width: 72mm;
+            margin: 0 auto;
+            padding: 4px;
+            line-height: 1.3;
+          }
+          .center { text-align: center; }
+          .bold { font-weight: bold; }
+          .line { border-top: 1px dashed #000; margin: 6px 0; }
+          .dline { border-top: 1px double #000; margin: 6px 0; }
+          .row { display: flex; justify-content: space-between; margin: 2px 0; }
+          .big { font-size: 14px; }
+        </style>
+      </head>
+      <body>
+        <div class="center bold big">AA2 MICROFINANCE</div>
+        <div class="center" style="font-size: 9px;">Private Limited Core Banking</div>
+        <div class="center" style="font-size: 9px;">Branch: ${data.branch_code}</div>
+        <div class="dline"></div>
+
+        <div class="center bold">REPAYMENT RECEIPT</div>
+        <div class="row"><span>Receipt No:</span><span class="bold">${data.receipt_no}</span></div>
+        <div class="row"><span>Date & Time:</span><span>${data.txn_date}</span></div>
+        <div class="row"><span>Mode:</span><span>${data.mode}</span></div>
+        ${data.reference_no ? `<div class="row"><span>Ref:</span><span>${data.reference_no}</span></div>` : ''}
+        <div class="line"></div>
+
+        <div class="row"><span>Member:</span><span class="bold">${data.member_name}</span></div>
+        <div class="row"><span>Customer ID:</span><span>${data.customer_id}</span></div>
+        <div class="row"><span>Loan A/C:</span><span class="bold">${data.loan_account_no}</span></div>
+        ${data.installment_no ? `<div class="row"><span>Inst. No:</span><span>#${data.installment_no}</span></div>` : ''}
+        <div class="line"></div>
+
+        <div class="row big bold"><span>AMOUNT PAID:</span><span>${INR(data.amount)}</span></div>
+        <div class="row"><span>Category:</span><span>${data.classification || 'Repayment'}</span></div>
+        <div class="line"></div>
+
+        ${data.principal_paid !== undefined ? `<div class="row"><span>Principal:</span><span>${INR(data.principal_paid)}</span></div>` : ''}
+        ${data.interest_paid !== undefined ? `<div class="row"><span>Interest:</span><span>${INR(data.interest_paid)}</span></div>` : ''}
+        ${(data.advance_paid || 0) > 0 ? `<div class="row"><span>Adv. Credited:</span><span>${INR(data.advance_paid || 0)}</span></div>` : ''}
+        ${(data.shortage_amount || 0) > 0 ? `<div class="row bold"><span>Shortage:</span><span>${INR(data.shortage_amount || 0)}</span></div>` : ''}
+        <div class="line"></div>
+
+        <div class="row bold"><span>Outstanding:</span><span>${INR(data.remaining_outstanding)}</span></div>
+        ${(data.advance_wallet_balance || 0) > 0 ? `<div class="row"><span>Adv. Balance:</span><span>${INR(data.advance_wallet_balance || 0)}</span></div>` : ''}
+        ${data.next_due_date ? `<div class="row"><span>Next Due:</span><span>${FDATE(data.next_due_date)}</span></div>` : ''}
+        ${data.next_due_amount !== undefined ? `<div class="row"><span>Next Payable:</span><span>${INR(data.next_due_amount)}</span></div>` : ''}
+
+        <div class="dline"></div>
+        <div class="center" style="font-size: 9px;">Collected by: ${data.entered_by}</div>
+        <div class="center" style="font-size: 8.5px; margin-top: 4px;">Thank you for banking with AA2!</div>
+        <div class="center" style="font-size: 8px;">Keep this receipt for your records.</div>
+      </body>
+    </html>
+  `
+
+  const pw = window.open('', '_blank', 'width=380,height=600')
+  if (pw) {
+    pw.document.write(thermalBody)
+    pw.document.close()
+    setTimeout(() => {
+      pw.focus()
+      pw.print()
+    }, 300)
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -725,20 +889,31 @@ export function generateSOA(data: SOAData) {
     `
   }).join('')
 
-  const txnRows = data.transactions.map(t => `
-    <tr>
-      <td>${FDATE(t.txn_date)}</td>
-      <td class="left">${t.txn_id}</td>
-      <td>${INR(t.amount)}</td>
-      <td>${t.mode}</td>
-      <td class="left">${t.reference_no || '-'}</td>
-    </tr>
-  `).join('')
+  const txnRows = data.transactions.map(t => {
+    const pBreakdown = t.principal_component !== undefined
+      ? `P: ${INR(t.principal_component)} | I: ${INR(t.interest_component || 0)}`
+      : '—'
+    const advTag = (t.advance_component || 0) > 0 ? `<br><span style="color: #1e40af; font-size: 9px;">Adv: +${INR(t.advance_component || 0)}</span>` : ''
+    const shortTag = (t.shortage_amount || 0) > 0 ? `<br><span style="color: #b91c1c; font-size: 9px;">Short: ${INR(t.shortage_amount || 0)}</span>` : ''
+
+    return `
+      <tr>
+        <td>${FDATE(t.txn_date)}</td>
+        <td class="left font-mono text-[10px]">${t.txn_id}</td>
+        <td class="left font-semibold">${t.classification || 'Payment'}</td>
+        <td style="font-weight: 800; color: #15803d;">${INR(t.amount)}</td>
+        <td style="font-size: 10px; color: #475569;">${pBreakdown}${advTag}${shortTag}</td>
+        <td>${t.mode}</td>
+        <td class="left font-mono text-[10px]">${t.reference_no || '-'}</td>
+        <td class="left" style="font-size: 10px; color: #334155; max-width: 200px;">${t.narration || '-'}</td>
+      </tr>
+    `
+  }).join('')
 
   const statusClass = data.status === 'ACTIVE' ? 'badge-green' : data.status?.startsWith('CLOS') ? 'badge-blue' : 'badge-amber'
 
   const body = `
-    <div class="doc-title">STATEMENT OF ACCOUNT</div>
+    <div class="doc-title">STATEMENT OF ACCOUNT (SOA)</div>
     <p style="text-align: right; font-size: 10px; color: #64748b;">
       Generated: <strong>${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</strong>
     </p>
@@ -746,20 +921,20 @@ export function generateSOA(data: SOAData) {
     <div class="grid">
       <div class="box">
         <div class="box-title">Borrower Profile</div>
-        <div class="row"><span class="label">Name:</span> <span class="value">${data.member_name}</span></div>
-        <div class="row"><span class="label">Customer ID:</span> <span class="value">${data.customer_id}</span></div>
+        <div class="row"><span class="label">Name:</span> <span class="value"><strong>${data.member_name}</strong></span></div>
+        <div class="row"><span class="label">Customer ID:</span> <span class="value font-mono">${data.customer_id}</span></div>
         <div class="row"><span class="label">Father/Husband:</span> <span class="value">${data.father_husband_name || '-'}</span></div>
-        <div class="row"><span class="label">Mobile:</span> <span class="value">${data.mobile || '-'}</span></div>
+        <div class="row"><span class="label">Mobile:</span> <span class="value font-mono">${data.mobile || '-'}</span></div>
         <div class="row"><span class="label">Address:</span> <span class="value">${data.address || '-'}</span></div>
         <div class="row"><span class="label">Branch:</span> <span class="value">${data.branch_code}</span></div>
       </div>
       <div class="box">
         <div class="box-title">Loan Account Summary</div>
-        <div class="row"><span class="label">Loan A/C No:</span> <span class="value">${data.loan_account_no}</span></div>
+        <div class="row"><span class="label">Loan A/C No:</span> <span class="value font-mono"><strong>${data.loan_account_no}</strong></span></div>
         <div class="row"><span class="label">Product:</span> <span class="value">${data.product_type}</span></div>
         <div class="row"><span class="label">Sanctioned:</span> <span class="value">${INR(data.loan_amount)}</span></div>
         <div class="row"><span class="label">Rate:</span> <span class="value">${data.interest_rate}% p.a.</span></div>
-        <div class="row"><span class="label">EMI:</span> <span class="value">${INR(data.installment_amount)} × ${data.tenure}</span></div>
+        <div class="row"><span class="label">EMI Amount:</span> <span class="value">${INR(data.installment_amount)} × ${data.tenure}</span></div>
         <div class="row"><span class="label">Disbursement:</span> <span class="value">${FDATE(data.disbursement_date)}</span></div>
         <div class="row"><span class="label">Status:</span> <span class="badge ${statusClass}">${data.status}</span></div>
       </div>
@@ -770,15 +945,17 @@ export function generateSOA(data: SOAData) {
         <div>
           <div class="row"><span class="label">Total Loan (P+I):</span> <span class="value">${INR(data.total_loan)}</span></div>
           <div class="row"><span class="label">File Charge:</span> <span class="value">${INR(data.file_charge)}</span></div>
+          <div class="row"><span class="label">Advance Wallet Balance:</span> <span class="value" style="color: #1e40af; font-weight: 700;">${INR(data.advance_balance || 0)}</span></div>
         </div>
         <div>
-          <div class="row"><span class="label">Total Collected:</span> <span class="value" style="color: #15803d;">${INR(data.total_collected)}</span></div>
-          <div class="row"><span class="label">Outstanding Balance:</span> <span class="value" style="color: #b91c1c;">${INR(data.ledger_balance)}</span></div>
+          <div class="row"><span class="label">Total Collected:</span> <span class="value" style="color: #15803d; font-weight: 800;">${INR(data.total_collected)}</span></div>
+          <div class="row"><span class="label">Outstanding Principal:</span> <span class="value" style="color: #b91c1c; font-weight: 800;">${INR(data.ledger_balance)}</span></div>
+          <div class="row"><span class="label">Overdue Arrears:</span> <span class="value" style="color: ${(data.arrears_balance || 0) > 0 ? '#b91c1c' : '#15803d'}; font-weight: 700;">${INR(data.arrears_balance || 0)}</span></div>
         </div>
       </div>
     </div>
 
-    <div class="section-title">Repayment Schedule</div>
+    <div class="section-title">Repayment Schedule Ledger</div>
     <table>
       <thead>
         <tr><th>#</th><th>Due Date</th><th>EMI Due</th><th>Paid</th><th>Status</th><th>DPD</th></tr>
@@ -787,10 +964,19 @@ export function generateSOA(data: SOAData) {
     </table>
 
     ${data.transactions.length > 0 ? `
-      <div class="section-title">Transaction History</div>
+      <div class="section-title">Transaction & Collection Log</div>
       <table>
         <thead>
-          <tr><th>Date</th><th>Transaction ID</th><th>Amount</th><th>Mode</th><th>Reference</th></tr>
+          <tr style="font-size: 10px;">
+            <th>Date</th>
+            <th>Txn ID</th>
+            <th>Category</th>
+            <th>Amount</th>
+            <th>Breakdown</th>
+            <th>Mode</th>
+            <th>Reference</th>
+            <th>Transaction Narration</th>
+          </tr>
         </thead>
         <tbody>${txnRows}</tbody>
       </table>
@@ -798,7 +984,7 @@ export function generateSOA(data: SOAData) {
 
     <div class="signatures">
       <div class="sig-box">Borrower's Acknowledgement</div>
-      <div class="sig-box">Branch Manager</div>
+      <div class="sig-box">Branch Manager / Authorized Signatory</div>
     </div>
   `
   printDocument(`SOA_${data.loan_account_no}`, body)
