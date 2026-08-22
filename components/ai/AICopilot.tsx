@@ -680,7 +680,7 @@ export function AICopilot() {
                         disabled={loading}
                         className="bg-blue-50 hover:bg-blue-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-slate-700 rounded-full px-3 py-1 text-[10.5px] font-medium transition shadow-2xs text-left"
                       >
-                        💡 {chip}
+                        {chip}
                       </button>
                     ))}
                   </div>
@@ -745,12 +745,12 @@ export function AICopilot() {
 
             <div className="flex items-center justify-between px-1 mt-1.5 text-[10px] text-slate-400">
               <div className="flex items-center gap-2">
-                <span>{isListening ? '🎙️ Listening...' : 'AA2 Copilot'}</span>
+                <span>{isListening ? 'Listening...' : 'AA2 Copilot'}</span>
                 <button
                   onClick={() => setMicLanguage(prev => (prev === 'en-IN' ? 'hi-IN' : 'en-IN'))}
                   className="text-[9.5px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
                 >
-                  Mic: {micLanguage === 'hi-IN' ? 'Hindi 🇮🇳' : 'English 🌐'}
+                  Mic: {micLanguage === 'hi-IN' ? 'Hindi' : 'English'}
                 </button>
               </div>
               <button

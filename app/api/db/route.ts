@@ -17,7 +17,7 @@ function adminClient() {
 const ALLOWED_TABLES = new Set([
   'customers', 'loans', 'repayment_schedule', 'transactions',
   'documents', 'grievances', 'investors', 'investor_txns',
-  'loan_documents', 'products', 'audit_events', 'trash', 'audit_log',
+  'loan_documents', 'products', 'audit_events', 'trash', 'audit_log', 'audit_logs',
   'borrowings', 'borrowing_txns', 'cash_accounts', 'cash_txns', 'expenses', 'fixed_assets'
 ])
 

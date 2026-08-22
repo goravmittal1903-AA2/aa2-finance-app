@@ -984,7 +984,7 @@ export default function FinancialsPage() {
 
             {/* Calculation Methodology Note */}
             <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-xs text-blue-800">
-              <p className="font-bold mb-1">📐 Calculation Methodology</p>
+              <p className="font-bold mb-1">Calculation Methodology</p>
               <ul className="space-y-1 list-disc ml-4 text-blue-700">
                 <li><strong>GLP:</strong> Sum of <code>ledger_balance</code> for all ACTIVE / SANCTIONED loans in the branch.</li>
                 <li><strong>Interest Earned:</strong> Per loan: <code>total_interest × (total_collected ÷ total_loan)</code>, capped at 100% collection ratio.</li>

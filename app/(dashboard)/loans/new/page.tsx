@@ -552,7 +552,7 @@ function NewLoanForm() {
                 {Number(formData.emi_amount) > 0 &&
                   (Number(formData.emi_amount) * Number(formData.tenure) < Number(formData.loan_amount)) && (
                     <p className="text-[10px] text-amber-700 font-medium bg-amber-50 px-2 py-1 rounded border border-amber-200 mt-1">
-                      ⚠️ Installment of ₹{formData.emi_amount} is less than principal recovery (min ₹{Math.ceil((Number(formData.loan_amount) || 0) / (Number(formData.tenure) || 1))}/installment). Interest rate is 0.00%.
+                      Note: Installment of ₹{formData.emi_amount} is less than principal recovery (min ₹{Math.ceil((Number(formData.loan_amount) || 0) / (Number(formData.tenure) || 1))}/installment). Interest rate is 0.00%.
                     </p>
                   )}
               </div>

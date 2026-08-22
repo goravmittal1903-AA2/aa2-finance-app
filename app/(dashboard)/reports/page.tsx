@@ -25,8 +25,8 @@ const TABS: { key: TabType; label: string; icon: any }[] = [
   { key: 'loan_register', label: 'Loan Register', icon: FileText },
   { key: 'collection_register', label: 'Collection Register', icon: CheckCircle },
   { key: 'dpd_npa', label: 'DPD / NPA Report', icon: AlertTriangle },
-  { key: 'ecl_provisioning', label: '🏦 ECL NPA Provisioning', icon: ShieldAlert },
-  { key: 'cic_export', label: '📁 CIC Bureau Export (CRIF/CIBIL)', icon: Download },
+  { key: 'ecl_provisioning', label: 'ECL NPA Provisioning', icon: ShieldAlert },
+  { key: 'cic_export', label: 'CIC Bureau Export (CRIF/CIBIL)', icon: Download },
   { key: 'aging', label: 'Portfolio Aging', icon: BarChart2 },
   { key: 'fo_efficiency', label: 'FO Efficiency', icon: TrendingUp },
   { key: 'rbi', label: 'RBI Summary', icon: ShieldAlert },
@@ -750,7 +750,7 @@ export default function ReportsPage() {
                       </td>
                     </tr>
                   ))}
-                  {dpdRows.length === 0 && <tr><td colSpan={10} className="py-10 text-center text-emerald-500 font-medium">🎉 No overdue accounts found!</td></tr>}
+                  {dpdRows.length === 0 && <tr><td colSpan={10} className="py-10 text-center text-emerald-500 font-medium">No overdue accounts found.</td></tr>}
                 </tbody>
               </table>
             </div>

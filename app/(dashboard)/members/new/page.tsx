@@ -399,7 +399,7 @@ export default function NewMemberPage() {
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Date of Birth</label>
                 {ageInfo && (
                   <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
-                    🎂 Age: {ageInfo.label} ({ageInfo.years} Yrs)
+                    Age: {ageInfo.label} ({ageInfo.years} Yrs)
                   </span>
                 )}
               </div>
@@ -582,7 +582,7 @@ export default function NewMemberPage() {
 
           {draftSavedMsg && (
             <div className="bg-purple-50 border border-purple-200 text-purple-700 px-4 py-2.5 rounded-xl text-xs font-semibold">
-              ✨ {draftSavedMsg}
+              {draftSavedMsg}
             </div>
           )}
 
@@ -601,7 +601,7 @@ export default function NewMemberPage() {
                 onClick={handleSaveDraft}
                 className="px-4 py-2.5 border border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 font-semibold rounded-xl text-xs transition"
               >
-                💾 Save Draft
+                Save Draft
               </button>
               <button
                 type="submit"

@@ -512,7 +512,7 @@ export default function CollectionsPage() {
                 <tbody className="divide-y divide-slate-100">
                   {emiLoading && <tr><td colSpan={12} className="py-10 text-center text-slate-400">Loading due installments…</td></tr>}
                   {!emiLoading && emiEntries.length === 0 && (
-                    <tr><td colSpan={12} className="py-10 text-center text-emerald-500 font-semibold">🎉 No pending dues as of today!</td></tr>
+                    <tr><td colSpan={12} className="py-10 text-center text-emerald-500 font-semibold">No pending dues as of today.</td></tr>
                   )}
                   {!emiLoading && emiEntries.map((e, idx) => (
                     <tr key={idx} className={`hover:bg-slate-50/50 transition ${e.status === 'success' ? 'bg-emerald-50/50' : e.status === 'error' ? 'bg-red-50/30' : ''}`}>

@@ -153,7 +153,7 @@ export default function MemberDetailPage({ params }: PageProps) {
               const activeLoans = loans.filter(l => l.status === 'ACTIVE' || l.status === 'SANCTIONED')
               if (activeLoans.length > 0) {
                 alert(
-                  `🚫 Cannot Delete Member\n\nMember "${customer.full_name}" (${customer.customer_id}) cannot be deleted because they have ${activeLoans.length} active/sanctioned loan account(s):\n\n` +
+                  `Cannot Delete Member\n\nMember "${customer.full_name}" (${customer.customer_id}) cannot be deleted because they have ${activeLoans.length} active/sanctioned loan account(s):\n\n` +
                   activeLoans.map(l => `• ${l.loan_account_no} (${l.status} — ${l.product_type})`).join('\n') +
                   `\n\nPlease close or delete the associated loan accounts first before deleting this member.`
                 )

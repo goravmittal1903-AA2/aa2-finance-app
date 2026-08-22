@@ -101,7 +101,7 @@ export default function DataToolsPage() {
     if (!restoreFile) return
     const ok = await confirmAction({
       title: 'Confirm Database Restore',
-      message: '⚠️ This will OVERWRITE existing data in the database with the backup file contents. Are you sure?',
+      message: 'This will OVERWRITE existing data in the database with the backup file contents. Are you sure?',
       confirmText: 'Overwrite & Restore',
       variant: 'danger',
     })
@@ -117,7 +117,7 @@ export default function DataToolsPage() {
 
       for (const store of STORES) {
         if (!backup[store] || !Array.isArray(backup[store])) {
-          log.push(`⚠️  ${store}: no data found in backup, skipped.`)
+          log.push(`[SKIPPED] ${store}: no data found in backup.`)
           setRestoreLog([...log])
           continue
         }
@@ -370,7 +370,7 @@ export default function DataToolsPage() {
                 </div>
               ))}
               {migrationResult.totalMigrated === 0 && (
-                <p className="text-emerald-600 font-semibold">🎉 All member IDs are already in standard MEM12345 format!</p>
+                <p className="text-emerald-600 font-semibold">All member IDs are already in standard MEM12345 format.</p>
               )}
             </div>
           )}

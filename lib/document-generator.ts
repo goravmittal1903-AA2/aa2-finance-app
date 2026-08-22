@@ -295,15 +295,15 @@ function printDocument(title: string, bodyHtml: string) {
       <body>
         <div class="no-print preview-toolbar">
           <div style="font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 10px;">
-            <span>📄 Document Preview Mode</span>
+            <span>Document Preview Mode</span>
             <span style="font-size: 10px; background: #2563eb; color: #ffffff; padding: 3px 10px; border-radius: 12px; font-weight: 600;">${title}</span>
           </div>
           <div style="display: flex; gap: 10px;">
             <button onclick="window.print()" style="background: #2563eb; color: #ffffff; border: none; padding: 8px 18px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.2);">
-              🖨️ Print Document
+              Print Document
             </button>
             <button onclick="window.close()" style="background: #475569; color: #ffffff; border: none; padding: 8px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
-              ❌ Close Preview
+              Close Preview
             </button>
           </div>
         </div>
