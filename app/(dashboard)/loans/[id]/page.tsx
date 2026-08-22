@@ -3,8 +3,8 @@
 import { useEffect, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { getOne, getFiltered, putOne, delOne, getAll, supabase } from '@/lib/supabase'
-import { recalcLoanLedger, applyPayment, computeForeclosure, addDays, addMonthsLike, computeLoanEconomics, generateSchedule, classifyAndAllocatePayment, computeBrokenPeriodInterest, processOTSSettlement } from '@/lib/calculations'
+import { getOne, getFiltered, putOne, putMany, delOne, getAll, supabase } from '@/lib/supabase'
+import { recalcLoanLedger, applyPayment, computeForeclosure, addDays, addMonthsLike, computeLoanEconomics, generateSchedule, classifyAndAllocatePayment, computeBrokenPeriodInterest, processOTSSettlement, generateUniqueLoanAccountNo, FREQ_PER_YEAR } from '@/lib/calculations'
 import type { Loan, ScheduleRow, Transaction, Customer } from '@/lib/types'
 import { inr, fdate, fdatetime, todayISO, statusColor, username } from '@/lib/utils'
 import { generateSanctionLetter, generatePaymentReceipt, generateThermalPaymentReceipt, generateForeclosureNoc, generateRepaymentSchedule, generateSOA, generateTopUpLetter, generateRestructureAgreement, generateOTSSettlementLetter } from '@/lib/document-generator'
@@ -90,9 +90,17 @@ export default function LoanDetailPage({ params }: PageProps) {
   const [rstPreview, setRstPreview] = useState<any>(null)
 
   // TopUp State
-  const [topupAmount, setTopupAmount] = useState('')
+  const [topupAmount, setTopupAmount] = useState('30000')
+  const [topupRate, setTopupRate] = useState('24')
+  const [topupTenure, setTopupTenure] = useState('12')
+  const [topupEmi, setTopupEmi] = useState('3100')
+  const [topupFee, setTopupFee] = useState('600')
+  const [topupFeePct, setTopupFeePct] = useState('2')
   const [topupDate, setTopupDate] = useState('')
+  const [topupStartDate, setTopupStartDate] = useState('')
+  const [topupMethod, setTopupMethod] = useState<'IN_PLACE' | 'REFINANCE_NEW_LOAN'>('REFINANCE_NEW_LOAN')
   const [topupLoading, setTopupLoading] = useState(false)
+  const [topupPreview, setTopupPreview] = useState<any>(null)
 
   // Document Upload State
   const [docType, setDocType] = useState('KYC')
@@ -106,6 +114,7 @@ export default function LoanDetailPage({ params }: PageProps) {
     setFcDate(todayISO())
     setRstStartDate(todayISO())
     setTopupDate(todayISO())
+    setTopupStartDate(todayISO())
     // Run full ledger recalc on first load only (cleans duplicates, syncs schedule)
     import('@/lib/calculations').then(({ recalcLoanLedger }) =>
       recalcLoanLedger(id).then(() => loadLoanDetails())
@@ -398,7 +407,7 @@ export default function LoanDetailPage({ params }: PageProps) {
       }))
       for (const r of newRows) await putOne('schedule', r, 'id')
       // Update loan record
-      const updatedLoan = {
+      const updatedLoan: Loan = {
         ...loan,
         loan_amount: Number(rstNewAmount),
         interest_rate: Number(rstNewRate),
@@ -409,9 +418,41 @@ export default function LoanDetailPage({ params }: PageProps) {
       }
       await putOne('loans', updatedLoan, 'loan_account_no')
       await recalcLoanLedger(id)
-      toast.success('Loan Restructured', 'Loan restructured successfully! New schedule generated.')
+
+      await logAuditEvent({
+        event_type: 'LOAN_RESTRUCTURED',
+        entity_type: 'LOAN',
+        entity_id: loan.loan_account_no,
+        actor_email: user?.email || 'system',
+        actor_name: user?.name || 'Staff',
+        actor_role: user?.role || 'staff',
+        branch_code: loan.branch_code,
+        narration: `Restructured loan ${loan.loan_account_no}: New Principal ${inr(Number(rstNewAmount))}, New EMI ${inr(rstPreview.installment_amount)} for ${rstNewTenure} terms at ${rstNewRate}% p.a.`,
+      })
+
+      // Generate Restructure Agreement Document
+      generateRestructureAgreement({
+        loan_account_no: loan.loan_account_no,
+        member_name: loan.member_name_cache || loan.member_name,
+        customer_id: loan.customer_id,
+        father_husband_name: member?.father_husband_name || '',
+        address: member ? `${member.address_current || ''}, ${member.village_city || ''}` : '',
+        branch_code: loan.branch_code,
+        original_loan_amount: loan.loan_amount,
+        outstanding_at_restructure: Number(rstNewAmount),
+        old_tenure: schedule.length,
+        new_tenure: Number(rstNewTenure),
+        old_installment: loan.installment_amount,
+        new_installment: rstPreview.installment_amount,
+        frequency: loan.frequency,
+        restructure_date: rstStartDate,
+        first_emi_date: rstStartDate,
+        reason: 'Restructuring and rescheduling of repayment terms upon borrower request',
+      })
+
+      toast.success('Loan Restructured', 'Loan restructured successfully and Restructure Agreement generated!')
       setActiveTab('schedule')
-      await loadLoanDetails()
+      await loadLoanDetails(true)
     } catch (err: any) {
       toast.error('Restructure Failed', err.message || 'Restructure failed')
     } finally {
@@ -420,34 +461,211 @@ export default function LoanDetailPage({ params }: PageProps) {
   }
 
   const handleTopUp = async () => {
-    if (!loan || !topupAmount || Number(topupAmount) <= 0) return
-    const ok = await confirmAction({
-      title: 'Confirm Top-Up Loan',
-      message: `Issue Top-Up loan of ${inr(Number(topupAmount))} to this borrower?`,
-      confirmText: 'Issue Top-Up',
-      variant: 'warning',
-    })
-    if (!ok) return
-    setTopupLoading(true)
-    try {
-      // Record top-up as a disbursement transaction on this loan
-      const topupTxn: Transaction = {
-        txn_id: Date.now(), loan_account_no: id,
-        amount: Number(topupAmount), txn_date: topupDate,
-        mode: 'Cash', reference_no: 'TOP-' + Date.now(),
-        remarks: 'Top-Up Disbursement',
-        installment_no: null, txn_type: 'DISBURSEMENT',
-        classification: 'Top-Up Disbursement',
-        created_at: new Date().toISOString(), entered_by: user?.email || 'system', voided: false,
+    if (!loan || !topupAmount || Number(topupAmount) <= 0 || topupLoading) return
+    const topupAmt = Number(topupAmount)
+    const currentOutstanding = loan.ledger_balance || 0
+    const fee = Number(topupFee) || 0
+
+    if (topupMethod === 'REFINANCE_NEW_LOAN') {
+      const netDisbursed = Math.max(0, topupAmt - currentOutstanding - fee)
+      const ok = await confirmAction({
+        title: 'Confirm Refinance Top-Up (New Loan)',
+        message: `Issue Refinance Top-Up of ${inr(topupAmt)} for ${member?.full_name || loan.member_name}? Existing Loan ${loan.loan_account_no} (${inr(currentOutstanding)}) will be closed and settled. Net cash disbursed to borrower: ${inr(netDisbursed)}.`,
+        confirmText: 'Issue Top-Up & New Loan',
+        variant: 'warning',
+      })
+      if (!ok) return
+      setTopupLoading(true)
+      try {
+        // 1. Close Existing Loan
+        loan.status = 'CLOSED'
+        loan.close_date = topupDate
+        loan.closure_type = 'TOPUP_REFINANCED'
+        loan.closure_amount = currentOutstanding
+        loan.ledger_balance = 0
+        loan.updated_at = new Date().toISOString()
+        await putOne('loans', loan, 'loan_account_no')
+
+        // 2. Generate New Loan Account
+        const newLoanAccountNo = await generateUniqueLoanAccountNo()
+        const newTotalLoan = topupPreview ? topupPreview.total_loan : (Number(topupEmi) * Number(topupTenure))
+        const newTotalInterest = topupPreview ? topupPreview.total_interest : Math.max(0, newTotalLoan - topupAmt)
+        const newPerInstallmentInterest = Math.max(0, newTotalInterest / Number(topupTenure))
+
+        const newLoan: Loan = {
+          loan_account_no: newLoanAccountNo,
+          customer_id: loan.customer_id,
+          member_name_cache: loan.member_name_cache || loan.member_name,
+          member_name: loan.member_name_cache || loan.member_name,
+          branch_code: loan.branch_code,
+          fo_name: loan.fo_name,
+          bm_name: loan.bm_name,
+          state: loan.state || '',
+          district: loan.district || '',
+          case_id: loan.case_id || '',
+          product_type: loan.product_type || 'Individual Loan (IL)',
+          frequency: loan.frequency,
+          loan_amount: topupAmt,
+          file_charge_pct: Number(topupFeePct) || 2,
+          file_charge: fee,
+          net_disbursement: netDisbursed,
+          interest_rate: Number(topupRate),
+          tenure: Number(topupTenure),
+          installment_amount: Number(topupEmi),
+          total_interest: newTotalInterest,
+          total_loan: newTotalLoan,
+          per_installment_interest: newPerInstallmentInterest,
+          disbursement_date: topupDate,
+          installment_start_date: topupStartDate || topupDate,
+          penalty_per_day: loan.penalty_per_day || 0,
+          repayment_mode: loan.repayment_mode || 'Cash Collection',
+          status: 'ACTIVE',
+          disbursed: true,
+          close_date: null,
+          closure_amount: null,
+          closure_type: null,
+          imported: false,
+          total_collected: 0,
+          ledger_balance: newTotalLoan,
+          npa_flag: false,
+          dpd: 0,
+          created_at: new Date().toISOString(),
+          created_by: user?.email || 'system',
+          updated_at: new Date().toISOString(),
+          updated_by: user?.email || 'system',
+        }
+
+        const newSchedule = generateSchedule(newLoan)
+        await putOne('loans', newLoan, 'loan_account_no')
+        await putMany('schedule', newSchedule, 'id')
+
+        await logAuditEvent({
+          event_type: 'LOAN_SANCTIONED',
+          entity_type: 'LOAN',
+          entity_id: newLoanAccountNo,
+          actor_email: user?.email || 'system',
+          actor_name: user?.name || 'Staff',
+          actor_role: user?.role || 'staff',
+          branch_code: loan.branch_code,
+          narration: `Refinance Top-Up Sanctioned: New Loan ${newLoanAccountNo} issued for ${inr(topupAmt)} (Old Loan ${loan.loan_account_no} settled for ${inr(currentOutstanding)}, Net payout: ${inr(netDisbursed)})`,
+        })
+
+        // Generate NOC for old loan and Sanction letter for new loan
+        generateForeclosureNoc({
+          certificate_no: 'NOC-REF-' + loan.loan_account_no,
+          issue_date: topupDate,
+          loan_account_no: loan.loan_account_no,
+          member_name: loan.member_name_cache || loan.member_name,
+          customer_id: loan.customer_id,
+          father_husband_name: member?.father_husband_name || '',
+          address: member?.village_city || '',
+          branch_code: loan.branch_code,
+          loan_amount: loan.loan_amount,
+          disbursement_date: loan.disbursement_date,
+          close_date: topupDate,
+          total_paid: loan.total_collected || loan.total_loan,
+          status: 'CLOSED (REFINANCED)',
+        })
+
+        generateSanctionLetter({
+          loan_account_no: newLoan.loan_account_no,
+          member_name: newLoan.member_name,
+          customer_id: newLoan.customer_id,
+          mobile: member?.mobile || '',
+          father_husband_name: member?.father_husband_name || '',
+          address: member ? `${member.address_current || ''}, ${member.village_city || ''}` : '',
+          branch_code: newLoan.branch_code,
+          loan_amount: newLoan.loan_amount,
+          net_disbursement: newLoan.net_disbursement,
+          file_charge: newLoan.file_charge,
+          interest_rate: newLoan.interest_rate,
+          tenure: newLoan.tenure,
+          frequency: newLoan.frequency,
+          installment_amount: newLoan.installment_amount,
+          disbursement_date: newLoan.disbursement_date,
+          installment_start_date: newLoan.installment_start_date,
+          product_type: newLoan.product_type,
+        })
+
+        toast.success('Top-Up & New Loan Created', `New loan ${newLoanAccountNo} created. Navigating to new loan account…`)
+        router.push(`/loans/${newLoanAccountNo}`)
+      } catch (err: any) {
+        toast.error('Top-Up Failed', err.message || 'Could not process topup')
+      } finally {
+        setTopupLoading(false)
       }
-      await putOne('transactions', topupTxn, 'txn_id')
-      toast.success('Top-Up Recorded', 'Top-Up disbursement recorded. Please create a new loan account for the new top-up amount or restructure this one.')
-      setTopupAmount('')
-      await loadLoanDetails()
-    } catch (err: any) {
-      toast.error('Top-Up Failed', err.message || 'Top-Up failed')
-    } finally {
-      setTopupLoading(false)
+    } else {
+      // In-Place Top-Up
+      const ok = await confirmAction({
+        title: 'Confirm In-Place Top-Up',
+        message: `Issue In-Place Top-Up of ${inr(topupAmt)} to Loan ${loan.loan_account_no}? Total principal balance will increase to ${inr(currentOutstanding + topupAmt)}.`,
+        confirmText: 'Confirm Top-Up',
+        variant: 'warning',
+      })
+      if (!ok) return
+      setTopupLoading(true)
+      try {
+        const topupTxn: Transaction = {
+          txn_id: Date.now(),
+          loan_account_no: id,
+          amount: topupAmt,
+          txn_date: topupDate,
+          mode: 'Cash / Bank Transfer',
+          reference_no: 'TOP-' + Date.now(),
+          remarks: 'Incremental Top-Up Disbursement',
+          installment_no: null,
+          txn_type: 'DISBURSEMENT',
+          classification: 'Top-Up Disbursement',
+          created_at: new Date().toISOString(),
+          entered_by: user?.email || 'system',
+          voided: false,
+        }
+        await putOne('transactions', topupTxn, 'txn_id')
+
+        loan.loan_amount = (loan.loan_amount || 0) + topupAmt
+        loan.updated_at = new Date().toISOString()
+        await putOne('loans', loan, 'loan_account_no')
+        await recalcLoanLedger(id)
+
+        await logAuditEvent({
+          event_type: 'LOAN_SANCTIONED',
+          entity_type: 'LOAN',
+          entity_id: loan.loan_account_no,
+          actor_email: user?.email || 'system',
+          actor_name: user?.name || 'Staff',
+          actor_role: user?.role || 'staff',
+          branch_code: loan.branch_code,
+          narration: `In-Place Top-Up of ${inr(topupAmt)} disbursed on Loan ${loan.loan_account_no}`,
+        })
+
+        generateTopUpLetter({
+          loan_account_no: loan.loan_account_no,
+          member_name: loan.member_name_cache || loan.member_name,
+          customer_id: loan.customer_id,
+          father_husband_name: member?.father_husband_name || '',
+          mobile: member?.mobile || '',
+          address: member ? `${member.address_current || ''}, ${member.village_city || ''}` : '',
+          branch_code: loan.branch_code,
+          original_loan_amount: loan.loan_amount - topupAmt,
+          outstanding_before_topup: currentOutstanding,
+          topup_amount: topupAmt,
+          new_total_outstanding: currentOutstanding + topupAmt,
+          interest_rate: Number(topupRate),
+          new_tenure: Number(topupTenure),
+          frequency: loan.frequency,
+          new_installment_amount: Number(topupEmi),
+          topup_date: topupDate,
+          first_emi_date: topupStartDate || topupDate,
+          product_type: loan.product_type || 'Individual Loan',
+        })
+
+        toast.success('Top-Up Disbursed', `In-Place Top-Up of ${inr(topupAmt)} disbursed and Top-Up sanction letter generated!`)
+        await loadLoanDetails(true)
+      } catch (err: any) {
+        toast.error('Top-Up Failed', err.message || 'Could not process topup')
+      } finally {
+        setTopupLoading(false)
+      }
     }
   }
 
@@ -745,8 +963,8 @@ export default function LoanDetailPage({ params }: PageProps) {
     ...(!isClosed ? [
       { key: 'restructure' as TabType, label: 'Restructure', icon: RefreshCw },
       { key: 'topup' as TabType, label: 'Top-Up', icon: TrendingUp },
-      { key: 'foreclose' as TabType, label: '🔒 Foreclose', icon: ShieldCheck },
-      { key: 'ots' as TabType, label: '🤝 OTS Settlement', icon: Handshake },
+      { key: 'foreclose' as TabType, label: 'Foreclose', icon: ShieldCheck },
+      { key: 'ots' as TabType, label: 'OTS Settlement', icon: Handshake },
     ] : []),
     { key: 'documents', label: `Docs (${documents.length})`, icon: Paperclip },
   ]
@@ -1435,49 +1653,123 @@ export default function LoanDetailPage({ params }: PageProps) {
                     <h3 className="text-sm font-bold text-slate-800">Loan Restructuring</h3>
                   </div>
                   <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-xs text-amber-800 space-y-1">
-                    <p><strong>⚠️ How Restructuring Works:</strong></p>
-                    <p>All pending/overdue schedule rows will be marked as <em>Restructured</em>. New installment rows will be generated from the restructure date, effectively creating a fresh repayment plan on the outstanding balance.</p>
+                    <p><strong>How Restructuring Works:</strong></p>
+                    <p>All pending/overdue schedule rows are marked as <em>Restructured</em>. A new repayment schedule is generated starting from the restructure date. A legal Restructure Addendum & Agreement is automatically generated.</p>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Outstanding / New Principal (₹)</label>
-                      <input type="number" value={rstNewAmount} onChange={e => setRstNewAmount(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Outstanding / New Principal (₹) *</label>
+                      <input
+                        type="number"
+                        value={rstNewAmount}
+                        onChange={e => {
+                          const val = e.target.value
+                          setRstNewAmount(val)
+                          const amt = Number(val) || 0
+                          const rate = Number(rstNewRate) || 0
+                          const term = Number(rstNewTenure) || 1
+                          const freq = loan?.frequency || 'Monthly'
+                          const periodsPerYear = FREQ_PER_YEAR[freq] || 12
+                          const tenureYears = term / periodsPerYear
+                          const totalInterest = amt * (rate / 100) * tenureYears
+                          const emi = term > 0 ? Math.round((amt + totalInterest) / term) : 0
+                          if (emi > 0) setRstNewEmi(String(emi))
+                        }}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 font-mono"
+                      />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">New Tenure (Installments)</label>
-                      <input type="number" value={rstNewTenure} onChange={e => setRstNewTenure(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">New Tenure ({loan?.frequency || 'Monthly'} Installments) *</label>
+                      <input
+                        type="number"
+                        value={rstNewTenure}
+                        onChange={e => {
+                          const val = e.target.value
+                          setRstNewTenure(val)
+                          const term = Number(val) || 1
+                          const amt = Number(rstNewAmount) || 0
+                          const rate = Number(rstNewRate) || 0
+                          const freq = loan?.frequency || 'Monthly'
+                          const periodsPerYear = FREQ_PER_YEAR[freq] || 12
+                          const tenureYears = term / periodsPerYear
+                          const totalInterest = amt * (rate / 100) * tenureYears
+                          const emi = term > 0 ? Math.round((amt + totalInterest) / term) : 0
+                          if (emi > 0) setRstNewEmi(String(emi))
+                        }}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 font-mono"
+                      />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">New Interest Rate (% p.a.)</label>
-                      <input type="number" step="0.01" value={rstNewRate} onChange={e => setRstNewRate(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Flat Interest Rate (% p.a.)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={rstNewRate}
+                        onChange={e => {
+                          const val = e.target.value
+                          setRstNewRate(val)
+                          const rate = Number(val) || 0
+                          const amt = Number(rstNewAmount) || 0
+                          const term = Number(rstNewTenure) || 1
+                          const freq = loan?.frequency || 'Monthly'
+                          const periodsPerYear = FREQ_PER_YEAR[freq] || 12
+                          const tenureYears = term / periodsPerYear
+                          const totalInterest = amt * (rate / 100) * tenureYears
+                          const emi = term > 0 ? Math.round((amt + totalInterest) / term) : 0
+                          setRstNewEmi(emi > 0 ? String(emi) : '')
+                        }}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 font-mono"
+                      />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Fixed EMI (₹) — leave blank to auto-calculate</label>
-                      <input type="number" value={rstNewEmi} onChange={e => setRstNewEmi(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Installment / EMI (₹) — 2-way live sync</label>
+                      <input
+                        type="number"
+                        value={rstNewEmi}
+                        onChange={e => {
+                          const val = e.target.value
+                          setRstNewEmi(val)
+                          const emi = Number(val) || 0
+                          const amt = Number(rstNewAmount) || 0
+                          const term = Number(rstNewTenure) || 1
+                          const freq = loan?.frequency || 'Monthly'
+                          const periodsPerYear = FREQ_PER_YEAR[freq] || 12
+                          const tenureYears = term / periodsPerYear
+                          const totalLoan = emi * term
+                          const totalInterest = Math.max(0, totalLoan - amt)
+                          const rate = tenureYears > 0 && amt > 0 ? ((totalInterest / amt) / tenureYears) * 100 : 0
+                          setRstNewRate(rate > 0 ? rate.toFixed(2) : '0')
+                        }}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 font-mono"
+                      />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">New Start Date</label>
-                      <input type="date" value={rstStartDate} onChange={e => setRstStartDate(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Restructure / 1st EMI Date *</label>
+                      <input
+                        type="date"
+                        value={rstStartDate}
+                        onChange={e => setRstStartDate(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                      />
                     </div>
                   </div>
                   {rstPreview && (
-                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2 text-xs">
-                      <p className="font-bold text-slate-700">Restructure Preview:</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="flex justify-between"><span className="text-slate-500">New EMI</span><span className="font-bold text-blue-600">{inr(rstPreview.installment_amount)}</span></div>
-                        <div className="flex justify-between"><span className="text-slate-500">Total Repayable</span><span className="font-bold">{inr(rstPreview.total_loan)}</span></div>
-                        <div className="flex justify-between"><span className="text-slate-500">Total Interest</span><span className="font-bold">{inr(rstPreview.total_interest)}</span></div>
+                    <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 space-y-2 text-xs text-purple-900">
+                      <p className="font-bold">Restructure Preview:</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="bg-white p-2.5 rounded-lg border border-purple-100"><span className="text-[10px] text-slate-400 block font-bold uppercase">New EMI</span><span className="font-bold text-sm text-purple-700">{inr(rstPreview.installment_amount)}</span></div>
+                        <div className="bg-white p-2.5 rounded-lg border border-purple-100"><span className="text-[10px] text-slate-400 block font-bold uppercase">Total Repayable</span><span className="font-bold text-sm text-slate-800">{inr(rstPreview.total_loan)}</span></div>
+                        <div className="bg-white p-2.5 rounded-lg border border-purple-100"><span className="text-[10px] text-slate-400 block font-bold uppercase">Total Interest</span><span className="font-bold text-sm text-slate-800">{inr(rstPreview.total_interest)}</span></div>
+                        <div className="bg-white p-2.5 rounded-lg border border-purple-100"><span className="text-[10px] text-slate-400 block font-bold uppercase">Interest Rate</span><span className="font-bold text-sm text-purple-700">{rstNewRate}% p.a.</span></div>
                       </div>
                     </div>
                   )}
-                  <button onClick={handleRestructure} disabled={rstLoading || !rstPreview}
-                    className="flex items-center gap-2 px-6 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-white font-bold rounded-xl text-xs transition">
-                    <RefreshCw className="w-4 h-4" /> {rstLoading ? 'Processing…' : 'Confirm Restructure'}
+                  <button
+                    onClick={handleRestructure}
+                    disabled={rstLoading || !rstPreview}
+                    className="flex items-center gap-2 px-6 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-white font-bold rounded-xl text-xs transition"
+                  >
+                    <RefreshCw className="w-4 h-4" /> {rstLoading ? 'Processing…' : 'Confirm Restructure & Generate Addendum'}
                   </button>
                 </div>
               )}
@@ -1487,32 +1779,243 @@ export default function LoanDetailPage({ params }: PageProps) {
                 <div className="space-y-5">
                   <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
                     <TrendingUp className="w-4 h-4 text-emerald-500" />
-                    <h3 className="text-sm font-bold text-slate-800">Top-Up Loan</h3>
+                    <h3 className="text-sm font-bold text-slate-800">Top-Up Loan Facility</h3>
                   </div>
-                  <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl text-xs text-blue-800 space-y-1">
-                    <p><strong>ℹ️ How Top-Up Works:</strong></p>
-                    <p>A top-up records an additional disbursement against this loan. For full top-up with a fresh schedule, please create a new loan account for the top-up amount and reference this account number.</p>
+
+                  {/* Top-up Method Switcher */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setTopupMethod('REFINANCE_NEW_LOAN')}
+                      className={`p-3.5 rounded-xl border text-left transition ${
+                        topupMethod === 'REFINANCE_NEW_LOAN'
+                          ? 'border-emerald-500 bg-emerald-50 text-emerald-900'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="font-bold text-xs">Refinance & New Loan (Recommended)</div>
+                      <div className="text-[11px] text-slate-500 mt-1">Closes current loan (deducts old balance) and creates a fresh Top-Up loan account with Sanction Letter & NOC.</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setTopupMethod('IN_PLACE')}
+                      className={`p-3.5 rounded-xl border text-left transition ${
+                        topupMethod === 'IN_PLACE'
+                          ? 'border-emerald-500 bg-emerald-50 text-emerald-900'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="font-bold text-xs">In-Place Supplemental Top-Up</div>
+                      <div className="text-[11px] text-slate-500 mt-1">Keeps the same loan account number and disburses incremental capital directly into the active ledger.</div>
+                    </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+                  {/* Top-up 2-way Form */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Top-Up Amount (₹) *</label>
-                      <input type="number" placeholder="Enter top-up amount" value={topupAmount} onChange={e => setTopupAmount(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        {topupMethod === 'REFINANCE_NEW_LOAN' ? 'New Total Sanction (₹) *' : 'Incremental Top-Up Amount (₹) *'}
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="e.g. 40000"
+                        value={topupAmount}
+                        onChange={e => {
+                          const val = e.target.value
+                          setTopupAmount(val)
+                          const amt = Number(val) || 0
+                          const pct = Number(topupFeePct) || 0
+                          setTopupFee(String(Math.round(amt * (pct / 100))))
+                          const rate = Number(topupRate) || 0
+                          const term = Number(topupTenure) || 1
+                          const freq = loan?.frequency || 'Monthly'
+                          const periodsPerYear = FREQ_PER_YEAR[freq] || 12
+                          const tenureYears = term / periodsPerYear
+                          const totalInterest = amt * (rate / 100) * tenureYears
+                          const emi = term > 0 ? Math.round((amt + totalInterest) / term) : 0
+                          if (emi > 0) setTopupEmi(String(emi))
+                        }}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                      />
                     </div>
+
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Disbursement Date *</label>
-                      <input type="date" value={topupDate} onChange={e => setTopupDate(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tenure ({loan?.frequency || 'Monthly'} Installments) *</label>
+                      <input
+                        type="number"
+                        value={topupTenure}
+                        onChange={e => {
+                          const val = e.target.value
+                          setTopupTenure(val)
+                          const term = Number(val) || 1
+                          const amt = Number(topupAmount) || 0
+                          const rate = Number(topupRate) || 0
+                          const freq = loan?.frequency || 'Monthly'
+                          const periodsPerYear = FREQ_PER_YEAR[freq] || 12
+                          const tenureYears = term / periodsPerYear
+                          const totalInterest = amt * (rate / 100) * tenureYears
+                          const emi = term > 0 ? Math.round((amt + totalInterest) / term) : 0
+                          if (emi > 0) setTopupEmi(String(emi))
+                        }}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Flat Interest Rate (% p.a.)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={topupRate}
+                        onChange={e => {
+                          const val = e.target.value
+                          setTopupRate(val)
+                          const rate = Number(val) || 0
+                          const amt = Number(topupAmount) || 0
+                          const term = Number(topupTenure) || 1
+                          const freq = loan?.frequency || 'Monthly'
+                          const periodsPerYear = FREQ_PER_YEAR[freq] || 12
+                          const tenureYears = term / periodsPerYear
+                          const totalInterest = amt * (rate / 100) * tenureYears
+                          const emi = term > 0 ? Math.round((amt + totalInterest) / term) : 0
+                          setTopupEmi(emi > 0 ? String(emi) : '')
+                        }}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Installment / EMI (₹) — 2-way sync</label>
+                      <input
+                        type="number"
+                        value={topupEmi}
+                        onChange={e => {
+                          const val = e.target.value
+                          setTopupEmi(val)
+                          const emi = Number(val) || 0
+                          const amt = Number(topupAmount) || 0
+                          const term = Number(topupTenure) || 1
+                          const freq = loan?.frequency || 'Monthly'
+                          const periodsPerYear = FREQ_PER_YEAR[freq] || 12
+                          const tenureYears = term / periodsPerYear
+                          const totalLoan = emi * term
+                          const totalInterest = Math.max(0, totalLoan - amt)
+                          const rate = tenureYears > 0 && amt > 0 ? ((totalInterest / amt) / tenureYears) * 100 : 0
+                          setTopupRate(rate > 0 ? rate.toFixed(2) : '0')
+                        }}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Processing Fee (%)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={topupFeePct}
+                        onChange={e => {
+                          const val = e.target.value
+                          setTopupFeePct(val)
+                          const pct = Number(val) || 0
+                          const amt = Number(topupAmount) || 0
+                          setTopupFee(String(Math.round(amt * (pct / 100))))
+                        }}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Processing Fee (₹) — 2-way sync</label>
+                      <input
+                        type="number"
+                        value={topupFee}
+                        onChange={e => {
+                          const val = e.target.value
+                          setTopupFee(val)
+                          const fee = Number(val) || 0
+                          const amt = Number(topupAmount) || 0
+                          const pct = amt > 0 ? ((fee / amt) * 100).toFixed(2) : '0'
+                          setTopupFeePct(pct)
+                        }}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Top-Up Disbursal Date *</label>
+                      <input
+                        type="date"
+                        value={topupDate}
+                        onChange={e => setTopupDate(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">1st Installment Date *</label>
+                      <input
+                        type="date"
+                        value={topupStartDate}
+                        onChange={e => setTopupStartDate(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      />
                     </div>
                   </div>
+
+                  {/* Top-up Financial Summary & Net Cash Breakdown */}
                   {topupAmount && Number(topupAmount) > 0 && (
-                    <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-xs text-emerald-700">
-                      Top-Up Amount: <strong>{inr(Number(topupAmount))}</strong> — will be recorded as a disbursement transaction.
+                    <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl space-y-3 text-xs text-emerald-950">
+                      <div className="font-bold flex items-center justify-between">
+                        <span>Top-Up Economics Breakdown</span>
+                        <span className="text-[11px] font-mono px-2 py-0.5 bg-emerald-200/60 rounded text-emerald-800">
+                          {topupMethod === 'REFINANCE_NEW_LOAN' ? 'Refinance Mode' : 'In-Place Mode'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono">
+                        <div className="bg-white p-2.5 rounded-lg border border-emerald-100">
+                          <span className="text-[10px] text-slate-400 block font-bold uppercase font-sans">Sanction Amount</span>
+                          <span className="font-bold text-sm text-slate-800">{inr(Number(topupAmount))}</span>
+                        </div>
+
+                        {topupMethod === 'REFINANCE_NEW_LOAN' && (
+                          <div className="bg-white p-2.5 rounded-lg border border-emerald-100">
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase font-sans">Old Loan Payoff</span>
+                            <span className="font-bold text-sm text-red-600">- {inr(loan.ledger_balance || 0)}</span>
+                          </div>
+                        )}
+
+                        <div className="bg-white p-2.5 rounded-lg border border-emerald-100">
+                          <span className="text-[10px] text-slate-400 block font-bold uppercase font-sans">Processing Fee</span>
+                          <span className="font-bold text-sm text-slate-600">- {inr(Number(topupFee))}</span>
+                        </div>
+
+                        <div className="bg-white p-2.5 rounded-lg border border-emerald-200 bg-emerald-100/50">
+                          <span className="text-[10px] text-emerald-700 block font-bold uppercase font-sans">Net Cash to Borrower</span>
+                          <span className="font-bold text-sm text-emerald-700">
+                            {inr(
+                              topupMethod === 'REFINANCE_NEW_LOAN'
+                                ? Math.max(0, Number(topupAmount) - (loan.ledger_balance || 0) - Number(topupFee))
+                                : Math.max(0, Number(topupAmount) - Number(topupFee))
+                            )}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between text-[11px] pt-1 text-emerald-800 border-t border-emerald-200/50">
+                        <span>New EMI: <strong>{inr(Number(topupEmi))}</strong> × {topupTenure} {loan?.frequency || 'Monthly'} installments</span>
+                        <span>Rate: <strong>{topupRate}% p.a.</strong></span>
+                      </div>
                     </div>
                   )}
-                  <button onClick={handleTopUp} disabled={topupLoading || !topupAmount || Number(topupAmount) <= 0}
-                    className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white font-bold rounded-xl text-xs transition">
-                    <PlusCircle className="w-4 h-4" /> {topupLoading ? 'Processing…' : 'Record Top-Up Disbursement'}
+
+                  <button
+                    onClick={handleTopUp}
+                    disabled={topupLoading || !topupAmount || Number(topupAmount) <= 0}
+                    className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white font-bold rounded-xl text-xs transition"
+                  >
+                    <TrendingUp className="w-4 h-4" /> {topupLoading ? 'Processing…' : topupMethod === 'REFINANCE_NEW_LOAN' ? 'Confirm Refinance Top-Up & Sanction New Loan' : 'Disburse In-Place Top-Up'}
                   </button>
                 </div>
               )}
