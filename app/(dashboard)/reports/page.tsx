@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
-import { getPortfolio, generateSchedule, daysBetween } from '@/lib/calculations'
+import { getPortfolio, generateSchedule, daysBetween, computeECLProvisioning } from '@/lib/calculations'
+import { generateCICBureauData, downloadCICBureauCSV } from '@/lib/cic-export'
 import { getAll } from '@/lib/supabase'
 import type { PortfolioRow, ScheduleRow, Loan, Transaction, Customer } from '@/lib/types'
 import { inr, fdate, todayISO, dpdBucket } from '@/lib/utils'
@@ -18,12 +19,14 @@ import {
 } from 'recharts'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-type TabType = 'loan_register' | 'collection_register' | 'dpd_npa' | 'monthly' | 'branch_fo' | 'rbi' | 'aging' | 'fo_efficiency' | 'dnbs_returns' | 'tally_export' | 'analytics'
+type TabType = 'loan_register' | 'collection_register' | 'dpd_npa' | 'ecl_provisioning' | 'cic_export' | 'monthly' | 'branch_fo' | 'rbi' | 'aging' | 'fo_efficiency' | 'dnbs_returns' | 'tally_export' | 'analytics'
 
 const TABS: { key: TabType; label: string; icon: any }[] = [
   { key: 'loan_register', label: 'Loan Register', icon: FileText },
   { key: 'collection_register', label: 'Collection Register', icon: CheckCircle },
   { key: 'dpd_npa', label: 'DPD / NPA Report', icon: AlertTriangle },
+  { key: 'ecl_provisioning', label: '🏦 ECL NPA Provisioning', icon: ShieldAlert },
+  { key: 'cic_export', label: '📁 CIC Bureau Export (CRIF/CIBIL)', icon: Download },
   { key: 'aging', label: 'Portfolio Aging', icon: BarChart2 },
   { key: 'fo_efficiency', label: 'FO Efficiency', icon: TrendingUp },
   { key: 'rbi', label: 'RBI Summary', icon: ShieldAlert },
@@ -978,6 +981,230 @@ export default function ReportsPage() {
               <div className="font-bold flex items-center gap-1.5 text-sm"><ShieldAlert className="w-4 h-4 text-blue-600" /> RBI / NBFC-MFI Regulatory Note</div>
               <p>Under RBI guidelines, installments unpaid for more than 90 days are classified as NPA. MFIs must maintain GLP with NPA ratio within regulatory thresholds. PAR (Portfolio at Risk) 30+ measures the value of loans where at least one installment is overdue by 30+ days as a percentage of GLP.</p>
             </div>
+          </div>
+        )}
+
+        {/* ── TAB: RBI ECL NPA PROVISIONING ── */}
+        {activeTab === 'ecl_provisioning' && (
+          <div className="space-y-6">
+            {(() => {
+              const ecl = computeECLProvisioning(portfolio)
+              return (
+                <>
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <div>
+                      <h2 className="text-sm font-bold text-slate-800">RBI Expected Credit Loss (ECL) & NPA Provisioning Report</h2>
+                      <p className="text-xs text-slate-400">Institutional bad-debt provisioning reserves calculated according to RBI Prudential Norms.</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        let csv = `RBI ECL NPA PROVISIONING REPORT,Generated ${todayISO()}\n`
+                        csv += `Stage,Bucket Classification,Account Count,Total Outstanding (INR),Provision Rate %,Provision Reserve Required (INR)\n`
+                        csv += `Stage 1,Standard Assets (0-30 DPD),${ecl.stage1_standard.count},${ecl.stage1_standard.totalOutstanding},${ecl.stage1_standard.ratePct}%,${ecl.stage1_standard.provisionAmount}\n`
+                        csv += `Stage 2,SMA-1 & SMA-2 Assets (31-89 DPD),${ecl.stage2_sma.count},${ecl.stage2_sma.totalOutstanding},${ecl.stage2_sma.ratePct}%,${ecl.stage2_sma.provisionAmount}\n`
+                        csv += `Stage 3,Sub-Standard NPA (90-179 DPD),${ecl.stage3_substandard.count},${ecl.stage3_substandard.totalOutstanding},${ecl.stage3_substandard.ratePct}%,${ecl.stage3_substandard.provisionAmount}\n`
+                        csv += `Stage 3,Doubtful NPA (180-365 DPD),${ecl.stage3_doubtful.count},${ecl.stage3_doubtful.totalOutstanding},${ecl.stage3_doubtful.ratePct}%,${ecl.stage3_doubtful.provisionAmount}\n`
+                        csv += `Stage 3,Loss Assets (>365 DPD),${ecl.stage3_loss.count},${ecl.stage3_loss.totalOutstanding},${ecl.stage3_loss.ratePct}%,${ecl.stage3_loss.provisionAmount}\n`
+                        csv += `TOTALS,,${portfolio.length},${ecl.totalPortfolioOutstanding},,${ecl.totalProvisionRequired}\n`
+                        downloadCSV(csv, `RBI_ECL_Provisioning_${todayISO()}.csv`)
+                      }}
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition shadow-sm shadow-emerald-600/10"
+                    >
+                      <Download className="w-3.5 h-3.5" /> Export Provisioning CSV
+                    </button>
+                  </div>
+
+                  {/* Summary Metric Cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/50">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Active Loan Outstanding (GLP)</span>
+                      <span className="text-xl font-bold text-slate-800 block mt-1">{inr(ecl.totalPortfolioOutstanding)}</span>
+                    </div>
+                    <div className="bg-red-50 p-4 rounded-xl border border-red-200/50">
+                      <span className="text-[10px] font-bold text-red-600 uppercase tracking-wider block">Total ECL Provision Reserve</span>
+                      <span className="text-xl font-bold text-red-700 block mt-1">{inr(ecl.totalProvisionRequired)}</span>
+                    </div>
+                    <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200/50">
+                      <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">Net Carrying Portfolio Value</span>
+                      <span className="text-xl font-bold text-emerald-800 block mt-1">{inr(ecl.netPortfolioValue)}</span>
+                    </div>
+                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-200/50">
+                      <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">Provision Coverage Ratio (PCR)</span>
+                      <span className="text-xl font-bold text-blue-700 block mt-1">{ecl.provisionCoverageRatio.toFixed(1)}%</span>
+                    </div>
+                  </div>
+
+                  {/* RBI Asset Classification & Provision Table */}
+                  <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
+                    <div className="px-5 py-3.5 bg-slate-50/50 border-b border-slate-100 font-bold text-xs text-slate-700">
+                      RBI ECL Provisioning Master Table
+                    </div>
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 uppercase tracking-wide text-[10px]">
+                          <th className="text-left px-5 py-3 font-semibold">Stage</th>
+                          <th className="text-left px-5 py-3 font-semibold">Asset Category & DPD Bucket</th>
+                          <th className="text-right px-5 py-3 font-semibold">No. of Accounts</th>
+                          <th className="text-right px-5 py-3 font-semibold">Total Outstanding (GLP)</th>
+                          <th className="text-right px-5 py-3 font-semibold">RBI Provision Rate</th>
+                          <th className="text-right px-5 py-3 font-semibold">Required Reserve (INR)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        <tr>
+                          <td className="px-5 py-3 font-bold text-emerald-600">Stage 1</td>
+                          <td className="px-5 py-3 font-medium text-slate-800">Standard Performing Assets (0–30 DPD)</td>
+                          <td className="px-5 py-3 text-right font-mono">{ecl.stage1_standard.count}</td>
+                          <td className="px-5 py-3 text-right font-mono font-semibold">{inr(ecl.stage1_standard.totalOutstanding)}</td>
+                          <td className="px-5 py-3 text-right font-semibold text-emerald-700">0.40%</td>
+                          <td className="px-5 py-3 text-right font-mono font-bold text-slate-800">{inr(ecl.stage1_standard.provisionAmount)}</td>
+                        </tr>
+                        <tr>
+                          <td className="px-5 py-3 font-bold text-amber-600">Stage 2</td>
+                          <td className="px-5 py-3 font-medium text-slate-800">Special Mention Accounts / SMA-1 & SMA-2 (31–89 DPD)</td>
+                          <td className="px-5 py-3 text-right font-mono">{ecl.stage2_sma.count}</td>
+                          <td className="px-5 py-3 text-right font-mono font-semibold">{inr(ecl.stage2_sma.totalOutstanding)}</td>
+                          <td className="px-5 py-3 text-right font-semibold text-amber-700">10.00%</td>
+                          <td className="px-5 py-3 text-right font-mono font-bold text-slate-800">{inr(ecl.stage2_sma.provisionAmount)}</td>
+                        </tr>
+                        <tr>
+                          <td className="px-5 py-3 font-bold text-orange-600">Stage 3</td>
+                          <td className="px-5 py-3 font-medium text-slate-800">Sub-Standard NPA (90–179 DPD)</td>
+                          <td className="px-5 py-3 text-right font-mono">{ecl.stage3_substandard.count}</td>
+                          <td className="px-5 py-3 text-right font-mono font-semibold">{inr(ecl.stage3_substandard.totalOutstanding)}</td>
+                          <td className="px-5 py-3 text-right font-semibold text-orange-700">25.00%</td>
+                          <td className="px-5 py-3 text-right font-mono font-bold text-red-600">{inr(ecl.stage3_substandard.provisionAmount)}</td>
+                        </tr>
+                        <tr>
+                          <td className="px-5 py-3 font-bold text-red-600">Stage 3</td>
+                          <td className="px-5 py-3 font-medium text-slate-800">Doubtful NPA Assets (180–365 DPD)</td>
+                          <td className="px-5 py-3 text-right font-mono">{ecl.stage3_doubtful.count}</td>
+                          <td className="px-5 py-3 text-right font-mono font-semibold">{inr(ecl.stage3_doubtful.totalOutstanding)}</td>
+                          <td className="px-5 py-3 text-right font-semibold text-red-700">50.00%</td>
+                          <td className="px-5 py-3 text-right font-mono font-bold text-red-600">{inr(ecl.stage3_doubtful.provisionAmount)}</td>
+                        </tr>
+                        <tr>
+                          <td className="px-5 py-3 font-bold text-purple-700">Stage 3</td>
+                          <td className="px-5 py-3 font-medium text-slate-800">Loss Assets (&gt; 365 DPD)</td>
+                          <td className="px-5 py-3 text-right font-mono">{ecl.stage3_loss.count}</td>
+                          <td className="px-5 py-3 text-right font-mono font-semibold">{inr(ecl.stage3_loss.totalOutstanding)}</td>
+                          <td className="px-5 py-3 text-right font-semibold text-purple-700">100.00%</td>
+                          <td className="px-5 py-3 text-right font-mono font-bold text-red-600">{inr(ecl.stage3_loss.provisionAmount)}</td>
+                        </tr>
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-slate-100 font-bold text-slate-900 border-t-2 border-slate-300">
+                          <td colSpan={2} className="px-5 py-3 uppercase">Total Portfolio Provisioning</td>
+                          <td className="px-5 py-3 text-right font-mono">{portfolio.length}</td>
+                          <td className="px-5 py-3 text-right font-mono">{inr(ecl.totalPortfolioOutstanding)}</td>
+                          <td className="px-5 py-3 text-right">—</td>
+                          <td className="px-5 py-3 text-right font-mono text-red-700 text-sm">{inr(ecl.totalProvisionRequired)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+        )}
+
+        {/* ── TAB: CIC CREDIT BUREAU EXPORT (CRIF / CIBIL) ── */}
+        {activeTab === 'cic_export' && (
+          <div className="space-y-6">
+            {(() => {
+              const cicRecords = generateCICBureauData(loans, customers, schedule, transactions)
+              const activeCount = cicRecords.filter(r => r.account_status === 'ACTIVE').length
+              const closedCount = cicRecords.filter(r => r.account_status === 'CLOSED').length
+              const settledCount = cicRecords.filter(r => r.account_status === 'SETTLED').length
+              const npaCount = cicRecords.filter(r => r.asset_classification !== 'STD' && r.asset_classification !== 'SMA').length
+
+              return (
+                <>
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <div>
+                      <h2 className="text-sm font-bold text-slate-800">Credit Information Company (CIC) Monthly Bureau File Generator</h2>
+                      <p className="text-xs text-slate-400">Generate and export standardized monthly credit data ready for upload to CRIF High Mark, CIBIL, or Equifax.</p>
+                    </div>
+                    <button
+                      onClick={() => downloadCICBureauCSV(cicRecords, todayISO())}
+                      className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition shadow-md shadow-blue-500/20"
+                    >
+                      <Download className="w-4 h-4" /> Download CRIF / CIBIL Monthly CSV ({cicRecords.length} Records)
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/50">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Bureau Records</span>
+                      <span className="text-xl font-bold text-slate-800 block mt-1">{cicRecords.length}</span>
+                    </div>
+                    <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200/50">
+                      <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">Active Standard Accounts</span>
+                      <span className="text-xl font-bold text-emerald-800 block mt-1">{activeCount}</span>
+                    </div>
+                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-200/50">
+                      <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">Closed & Settled Accounts</span>
+                      <span className="text-xl font-bold text-blue-700 block mt-1">{closedCount + settledCount}</span>
+                    </div>
+                    <div className="bg-red-50 p-4 rounded-xl border border-red-200/50">
+                      <span className="text-[10px] font-bold text-red-600 uppercase tracking-wider block">NPA / Defaulter Accounts</span>
+                      <span className="text-xl font-bold text-red-700 block mt-1">{npaCount}</span>
+                    </div>
+                  </div>
+
+                  {/* Preview Table */}
+                  <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
+                    <div className="px-5 py-3.5 bg-slate-50/50 border-b border-slate-100 font-bold text-xs text-slate-700 flex justify-between items-center">
+                      <span>CIC Data Preview (First 25 Accounts)</span>
+                      <span className="text-[10px] text-slate-400 font-normal">Full dataset will be exported in CSV</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="bg-slate-50 text-slate-500 uppercase tracking-wide text-[10px]">
+                            <th className="text-left px-4 py-3 font-semibold">Account No</th>
+                            <th className="text-left px-4 py-3 font-semibold">Member Name</th>
+                            <th className="text-left px-4 py-3 font-semibold">Mobile</th>
+                            <th className="text-left px-4 py-3 font-semibold">Aadhaar Last 4</th>
+                            <th className="text-right px-4 py-3 font-semibold">Sanction Amt</th>
+                            <th className="text-right px-4 py-3 font-semibold">Outstanding</th>
+                            <th className="text-right px-4 py-3 font-semibold">Overdue Amt</th>
+                            <th className="text-center px-4 py-3 font-semibold">DPD</th>
+                            <th className="text-center px-4 py-3 font-semibold">Asset Class</th>
+                            <th className="text-center px-4 py-3 font-semibold">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {cicRecords.slice(0, 25).map((r, i) => (
+                            <tr key={i} className="hover:bg-slate-50/50">
+                              <td className="px-4 py-2.5 font-mono font-bold text-blue-600">{r.loan_account_no}</td>
+                              <td className="px-4 py-2.5 font-semibold text-slate-800">{r.member_name}</td>
+                              <td className="px-4 py-2.5 text-slate-600">{r.mobile || '—'}</td>
+                              <td className="px-4 py-2.5 font-mono text-slate-600">{r.aadhar_last4 || '—'}</td>
+                              <td className="px-4 py-2.5 text-right font-mono">{inr(r.sanction_amount)}</td>
+                              <td className="px-4 py-2.5 text-right font-mono font-bold">{inr(r.current_outstanding)}</td>
+                              <td className="px-4 py-2.5 text-right font-mono text-red-600">{r.overdue_amount > 0 ? inr(r.overdue_amount) : '₹0'}</td>
+                              <td className="px-4 py-2.5 text-center font-mono">{r.dpd}</td>
+                              <td className="px-4 py-2.5 text-center">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${r.asset_classification === 'STD' ? 'bg-emerald-100 text-emerald-800' : r.asset_classification === 'SMA' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'}`}>
+                                  {r.asset_classification}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 text-center">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${r.account_status === 'ACTIVE' ? 'bg-blue-100 text-blue-800' : r.account_status === 'SETTLED' ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-700'}`}>
+                                  {r.account_status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         )}
 

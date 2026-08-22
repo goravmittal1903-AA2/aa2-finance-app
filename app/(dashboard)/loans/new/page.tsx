@@ -3,10 +3,11 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { getAll, putOne, putMany } from '@/lib/supabase'
-import { computeLoanEconomics, generateSchedule, generateUniqueLoanAccountNo, checkActiveLoanLimit } from '@/lib/calculations'
+import { computeLoanEconomics, generateSchedule, generateUniqueLoanAccountNo, checkActiveLoanLimit, computeBrokenPeriodInterest } from '@/lib/calculations'
 import type { Customer, Loan } from '@/lib/types'
 import { inr, todayISO } from '@/lib/utils'
-import { ArrowLeft, Calculator, Save, Search, CheckCircle2, UserCheck, UserPlus } from 'lucide-react'
+import { ArrowLeft, Calculator, Save, Search, CheckCircle2, UserCheck, UserPlus, Clock } from 'lucide-react'
+import { logAuditEvent } from '@/lib/audit'
 import { useAuth } from '@/lib/auth-context'
 
 export default function NewLoanPage() {
@@ -277,6 +278,17 @@ function NewLoanForm() {
       
       // Save schedule in ONE bulk request (much faster)
       await putMany('schedule', schedule, 'id')
+
+      await logAuditEvent({
+        event_type: 'LOAN_SANCTIONED',
+        entity_type: 'LOAN',
+        entity_id: loan_account_no,
+        actor_email: user?.email || 'system',
+        actor_name: user?.name || 'Staff',
+        actor_role: user?.role || 'staff',
+        branch_code: customer.branch_code || 'HO',
+        narration: `Loan ${loan_account_no} sanctioned for ${inr(Number(formData.loan_amount))} (${formData.tenure} ${formData.frequency} EMIs of ${inr(preview.installment_amount)}) for member ${customer.full_name || formData.customer_id}`,
+      })
 
       router.push(`/loans/${loan_account_no}`)
     } catch (err: any) {
@@ -628,6 +640,28 @@ function NewLoanForm() {
                 <div className="flex justify-between text-slate-400"><span>Total Repayable Amount</span><span className="font-bold text-slate-200">{inr(preview.total_loan)}</span></div>
                 <div className="flex justify-between text-slate-400 border-t border-slate-800 pt-3"><span>Installment (EMI)</span><span className="font-bold text-emerald-400 text-sm">{inr(preview.installment_amount)}</span></div>
                 <div className="flex justify-between text-slate-400"><span>Interest component / EMI</span><span className="font-semibold text-slate-200">{inr(preview.per_installment_interest)}</span></div>
+
+                {(() => {
+                  const bpi = computeBrokenPeriodInterest({
+                    loan_amount: Number(formData.loan_amount),
+                    interest_rate: Number(formData.interest_rate),
+                    disbursement_date: formData.disbursement_date,
+                    installment_start_date: formData.installment_start_date,
+                    frequency: formData.frequency,
+                  })
+                  if (bpi.broken_days <= 0) return null
+                  return (
+                    <div className="bg-amber-950/40 border border-amber-500/40 rounded-xl p-3 text-amber-200 mt-2 space-y-1">
+                      <div className="flex items-center gap-1.5 font-bold text-[11px] text-amber-300">
+                        <Clock className="w-3.5 h-3.5" /> Broken Period ({bpi.broken_days} odd days)
+                      </div>
+                      <div className="flex justify-between text-[11px]">
+                        <span>Gap: {bpi.actual_days} days</span>
+                        <span className="font-bold text-amber-300">{inr(bpi.broken_interest)}</span>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             ) : (
               <p className="text-slate-500 text-xs text-center py-6">Enter loan details to view economics.</p>

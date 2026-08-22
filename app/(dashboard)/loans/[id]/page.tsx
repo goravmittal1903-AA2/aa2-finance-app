@@ -4,24 +4,26 @@ import { useEffect, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getOne, getFiltered, putOne, delOne, getAll, supabase } from '@/lib/supabase'
-import { recalcLoanLedger, applyPayment, computeForeclosure, addDays, addMonthsLike, computeLoanEconomics, generateSchedule, classifyAndAllocatePayment } from '@/lib/calculations'
+import { recalcLoanLedger, applyPayment, computeForeclosure, addDays, addMonthsLike, computeLoanEconomics, generateSchedule, classifyAndAllocatePayment, computeBrokenPeriodInterest, processOTSSettlement } from '@/lib/calculations'
 import type { Loan, ScheduleRow, Transaction, Customer } from '@/lib/types'
 import { inr, fdate, fdatetime, todayISO, statusColor, username } from '@/lib/utils'
-import { generateSanctionLetter, generatePaymentReceipt, generateThermalPaymentReceipt, generateForeclosureNoc, generateRepaymentSchedule, generateSOA, generateTopUpLetter, generateRestructureAgreement } from '@/lib/document-generator'
+import { generateSanctionLetter, generatePaymentReceipt, generateThermalPaymentReceipt, generateForeclosureNoc, generateRepaymentSchedule, generateSOA, generateTopUpLetter, generateRestructureAgreement, generateOTSSettlementLetter } from '@/lib/document-generator'
+import { logAuditEvent } from '@/lib/audit'
 import { useAuth } from '@/lib/auth-context'
 import { confirmAction } from '@/lib/confirm'
 import { toast } from '@/lib/toast'
 import {
   ArrowLeft, Landmark, Calendar, Clock, DollarSign, Tag, Save, AlertTriangle,
   ShieldCheck, CheckCircle, Printer, FileText, Edit2, RefreshCw, TrendingUp,
-  Upload, Paperclip, Trash2, RotateCcw, PlusCircle, Eye, Download, Smartphone
+  Upload, Paperclip, Trash2, RotateCcw, PlusCircle, Eye, Download, Smartphone,
+  Handshake
 } from 'lucide-react'
 
 interface PageProps {
   params: Promise<{ id: string }>
 }
 
-type TabType = 'schedule' | 'transactions' | 'foreclose' | 'edit' | 'restructure' | 'topup' | 'documents' | 'soa'
+type TabType = 'schedule' | 'transactions' | 'foreclose' | 'ots' | 'edit' | 'restructure' | 'topup' | 'documents' | 'soa'
 
 interface LoanDocument {
   doc_id: string
@@ -65,6 +67,15 @@ export default function LoanDetailPage({ params }: PageProps) {
   const [fcCalculation, setFcCalculation] = useState<any>(null)
   const [fcLoading, setFcLoading] = useState(false)
 
+  // One-Time Settlement (OTS) State
+  const [otsPayoff, setOtsPayoff] = useState('')
+  const [otsInterestWaived, setOtsInterestWaived] = useState('0')
+  const [otsPenalWaived, setOtsPenalWaived] = useState('0')
+  const [otsDate, setOtsDate] = useState('')
+  const [otsRemarks, setOtsRemarks] = useState('Full and final OTS settlement approved by management')
+  const [otsApprovedBy, setOtsApprovedBy] = useState('Credit Committee')
+  const [otsLoading, setOtsLoading] = useState(false)
+
   // Edit Loan State
   const [editForm, setEditForm] = useState<Partial<Loan>>({})
   const [editSaving, setEditSaving] = useState(false)
@@ -100,16 +111,16 @@ export default function LoanDetailPage({ params }: PageProps) {
       recalcLoanLedger(id).then(() => loadLoanDetails())
     )
 
-    const handler = () => loadLoanDetails()
+    const handler = () => loadLoanDetails(true)
     window.addEventListener('aa2_data_changed', handler)
     return () => window.removeEventListener('aa2_data_changed', handler)
   }, [id])
 
-  async function loadLoanDetails() {
-    setLoading(true)
+  async function loadLoanDetails(silent = false) {
+    if (!silent) setLoading(true)
     try {
-      const l = await getOne<Loan>('loans', id)
-      if (!l) { setLoading(false); return }
+      const l = await getOne<Loan>('loans', id, silent)
+      if (!l) { if (!silent) setLoading(false); return }
       setLoan(l)
       setEditForm({
         fo_name: l.fo_name,
@@ -125,11 +136,11 @@ export default function LoanDetailPage({ params }: PageProps) {
       setRstNewEmi(String(l.installment_amount))
 
       const [m, sched, txs, lDocs, vDocs] = await Promise.all([
-        getOne<Customer>('customers', l.customer_id),
-        getFiltered<ScheduleRow>('schedule', 'loan_account_no', id),
-        getFiltered<Transaction>('transactions', 'loan_account_no', id),
-        getFiltered<LoanDocument>('loan_documents', 'loan_account_no', id),
-        getFiltered<LoanDocument>('documents', 'loan_account_no', id),
+        getOne<Customer>('customers', l.customer_id, silent),
+        getFiltered<ScheduleRow>('schedule', 'loan_account_no', id, silent),
+        getFiltered<Transaction>('transactions', 'loan_account_no', id, silent),
+        getFiltered<LoanDocument>('loan_documents', 'loan_account_no', id, silent),
+        getFiltered<LoanDocument>('documents', 'loan_account_no', id, silent),
       ])
 
       const cleanTxs = txs.filter(t => !t.voided)
@@ -156,7 +167,7 @@ export default function LoanDetailPage({ params }: PageProps) {
     } catch (err) {
       console.error('Error fetching loan detail:', err)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
@@ -213,7 +224,19 @@ export default function LoanDetailPage({ params }: PageProps) {
       setPayRef('')
       setPayRemarks('')
       setPostMessage('Payment applied & ledger updated successfully!')
-      await loadLoanDetails()
+
+      await logAuditEvent({
+        event_type: 'PAYMENT_COLLECTED',
+        entity_type: 'TRANSACTION',
+        entity_id: `REC-${newTxId}`,
+        actor_email: user?.email || 'system',
+        actor_name: user?.name || 'Staff',
+        actor_role: user?.role || 'staff',
+        branch_code: loan?.branch_code || '',
+        narration: allocPreview?.narration || `Payment of ${inr(Number(payAmount))} collected for ${loan?.loan_account_no}`,
+      })
+
+      await loadLoanDetails(true)
     } catch (err: any) {
       toast.error('Payment Failed', err.message || 'Payment failed')
     } finally {
@@ -258,6 +281,69 @@ export default function LoanDetailPage({ params }: PageProps) {
       toast.error('Foreclosure Failed', err.message || 'Foreclosure failed')
     } finally {
       setFcLoading(false)
+    }
+  }
+
+  // Handle One-Time Settlement (OTS)
+  const handleProcessOTS = async () => {
+    if (!loan || Number(otsPayoff) <= 0 || otsLoading) return
+    const ok = await confirmAction({
+      title: 'Confirm One-Time Settlement (OTS)',
+      message: `Are you sure you want to settle Loan ${loan.loan_account_no} for ${inr(Number(otsPayoff))} (Interest Waived: ${inr(Number(otsInterestWaived))}, Penal Waived: ${inr(Number(otsPenalWaived))})? This will close the loan with 0 balance.`,
+      confirmText: 'Approve & Settle Loan',
+      variant: 'warning',
+    })
+    if (!ok) return
+    setOtsLoading(true)
+    try {
+      await processOTSSettlement(
+        id,
+        Number(otsPayoff),
+        Number(otsInterestWaived) || 0,
+        Number(otsPenalWaived) || 0,
+        otsDate || todayISO(),
+        otsRemarks,
+        otsApprovedBy || user?.name || 'Credit Committee'
+      )
+
+      await logAuditEvent({
+        event_type: 'OTS_SETTLED',
+        entity_type: 'LOAN',
+        entity_id: loan.loan_account_no,
+        actor_email: user?.email || 'system',
+        actor_name: user?.name || 'Staff',
+        actor_role: user?.role || 'staff',
+        branch_code: loan.branch_code,
+        narration: `OTS Settlement of ${inr(Number(otsPayoff))} approved for ${loan.loan_account_no}. Waived: Interest ${inr(Number(otsInterestWaived))}, Penal ${inr(Number(otsPenalWaived))}.`,
+      })
+
+      toast.success('OTS Settlement Approved', 'Loan settled and closed successfully under One-Time Settlement.')
+
+      // Auto-generate OTS Letter
+      generateOTSSettlementLetter({
+        letter_no: 'OTS-' + Date.now(),
+        settlement_date: otsDate || todayISO(),
+        loan_account_no: loan.loan_account_no,
+        member_name: loan.member_name_cache || loan.member_name,
+        customer_id: loan.customer_id,
+        father_husband_name: member?.father_husband_name || '',
+        address: member?.address_current || member?.village_city || '',
+        branch_code: loan.branch_code,
+        original_loan_amount: loan.loan_amount,
+        outstanding_before_settlement: loan.ledger_balance,
+        interest_waived: Number(otsInterestWaived) || 0,
+        penal_waived: Number(otsPenalWaived) || 0,
+        agreed_settlement_amount: Number(otsPayoff),
+        approved_by: otsApprovedBy,
+        remarks: otsRemarks,
+      })
+
+      await loadLoanDetails(true)
+      setActiveTab('schedule')
+    } catch (err: any) {
+      toast.error('OTS Settlement Failed', err.message || 'Could not process OTS')
+    } finally {
+      setOtsLoading(false)
     }
   }
 
@@ -522,8 +608,20 @@ export default function LoanDetailPage({ params }: PageProps) {
 
       await moveToTrash('transactions', txn.txn_id, txn, `Transaction ${txn.reference_no || txn.txn_id} (${inr(txn.amount)})`, user?.email || 'system')
       await recalcLoanLedger(id)
+
+      await logAuditEvent({
+        event_type: 'PAYMENT_DELETED',
+        entity_type: 'TRANSACTION',
+        entity_id: `REC-${txn.txn_id}`,
+        actor_email: user?.email || 'system',
+        actor_name: user?.name || 'Staff',
+        actor_role: user?.role || 'staff',
+        branch_code: loan?.branch_code || '',
+        narration: `Deleted transaction REC-${txn.txn_id} (${inr(txn.amount)}) for ${loan?.loan_account_no}`,
+      })
+
       toast.success('Transaction Deleted', 'Transaction deleted and loan ledger recalculated successfully.')
-      await loadLoanDetails()
+      await loadLoanDetails(true)
     } catch (err: any) {
       toast.error('Deletion Failed', err.message || 'Could not delete transaction.')
     } finally {
@@ -648,6 +746,7 @@ export default function LoanDetailPage({ params }: PageProps) {
       { key: 'restructure' as TabType, label: 'Restructure', icon: RefreshCw },
       { key: 'topup' as TabType, label: 'Top-Up', icon: TrendingUp },
       { key: 'foreclose' as TabType, label: '🔒 Foreclose', icon: ShieldCheck },
+      { key: 'ots' as TabType, label: '🤝 OTS Settlement', icon: Handshake },
     ] : []),
     { key: 'documents', label: `Docs (${documents.length})`, icon: Paperclip },
   ]
@@ -758,6 +857,27 @@ export default function LoanDetailPage({ params }: PageProps) {
               <div><span className="text-slate-400 block font-semibold uppercase tracking-wider mb-0.5">Frequency</span><span className="text-slate-700 font-medium">{loan.frequency} · {loan.tenure} EMIs</span></div>
               <div><span className="text-slate-400 block font-semibold uppercase tracking-wider mb-0.5">Disbursed Date</span><span className="text-slate-700 font-medium">{fdate(loan.disbursement_date)}</span></div>
               <div><span className="text-slate-400 block font-semibold uppercase tracking-wider mb-0.5">Branch Name / FO</span><span className="text-slate-700 font-medium">{loan.branch_code} / {loan.fo_name}</span></div>
+              {(() => {
+                const bpi = computeBrokenPeriodInterest({
+                  loan_amount: loan.loan_amount,
+                  interest_rate: loan.interest_rate,
+                  disbursement_date: loan.disbursement_date,
+                  installment_start_date: loan.installment_start_date || loan.disbursement_date,
+                  frequency: loan.frequency,
+                })
+                if (bpi.broken_days <= 0) return null
+                return (
+                  <div className="col-span-2 md:col-span-4 bg-amber-50/70 border border-amber-200/80 rounded-xl p-2.5 flex items-center justify-between text-xs text-amber-900 mt-1">
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span><strong>Broken Period:</strong> {bpi.broken_days} odd days between disbursal ({fdate(loan.disbursement_date)}) and 1st installment ({fdate(loan.installment_start_date)})</span>
+                    </div>
+                    <span className="font-bold text-amber-800 bg-white px-2 py-0.5 rounded border border-amber-300">
+                      Interest: {inr(bpi.broken_interest)}
+                    </span>
+                  </div>
+                )
+              })()}
             </div>
           </div>
 
@@ -1428,6 +1548,113 @@ export default function LoanDetailPage({ params }: PageProps) {
                       <ShieldCheck className="w-4 h-4" /> {fcLoading ? 'Processing early closure…' : 'Process Early Foreclosure Settlement'}
                     </button>
                   )}
+                </div>
+              )}
+
+              {/* TAB: One-Time Settlement (OTS) */}
+              {activeTab === 'ots' && !isClosed && (
+                <div className="space-y-5">
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                    <div className="flex items-center gap-2 font-bold text-sm text-emerald-900 mb-1">
+                      <Handshake className="w-4 h-4 text-emerald-700" />
+                      One-Time Settlement (OTS) & Loan Waiver Module
+                    </div>
+                    <p className="text-xs text-emerald-700 leading-relaxed">
+                      For distressed or non-performing accounts, specify the approved concessions/waivers on interest and penal charges. Approving the settlement will permanently close the account with zero remaining dues and generate an official OTS Sanction Letter & No Dues Certificate.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-4 border border-slate-200/60 rounded-xl text-xs">
+                    <div>
+                      <span className="text-slate-400 block font-semibold uppercase mb-1">Total Outstanding</span>
+                      <span className="text-lg font-bold text-slate-800">{inr(loan.ledger_balance || 0)}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block font-semibold uppercase mb-1">Overdue Arrears</span>
+                      <span className="text-lg font-bold text-red-600">{inr(loan.arrears_balance || 0)}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block font-semibold uppercase mb-1">Advance Wallet</span>
+                      <span className="text-lg font-bold text-blue-600">{inr(loan.advance_balance || 0)}</span>
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-xl p-4 space-y-4">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Settlement & Concession Terms</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">Agreed Settlement Amount (₹) *</label>
+                        <input
+                          type="number"
+                          value={otsPayoff}
+                          onChange={e => setOtsPayoff(e.target.value)}
+                          placeholder="e.g. 15000"
+                          className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-bold text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">Interest Waived (₹)</label>
+                        <input
+                          type="number"
+                          value={otsInterestWaived}
+                          onChange={e => setOtsInterestWaived(e.target.value)}
+                          placeholder="e.g. 2000"
+                          className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-medium text-red-700 focus:outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">Penal Charges Waived (₹)</label>
+                        <input
+                          type="number"
+                          value={otsPenalWaived}
+                          onChange={e => setOtsPenalWaived(e.target.value)}
+                          placeholder="e.g. 500"
+                          className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-medium text-red-700 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">Settlement Date</label>
+                        <input
+                          type="date"
+                          value={otsDate}
+                          onChange={e => setOtsDate(e.target.value)}
+                          className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">Approved By / Sanctioning Authority</label>
+                        <input
+                          type="text"
+                          value={otsApprovedBy}
+                          onChange={e => setOtsApprovedBy(e.target.value)}
+                          placeholder="e.g. Credit Committee / Managing Director"
+                          className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase">Management Approval Remarks</label>
+                      <textarea
+                        value={otsRemarks}
+                        onChange={e => setOtsRemarks(e.target.value)}
+                        rows={2}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none"
+                      />
+                    </div>
+
+                    <button
+                      onClick={handleProcessOTS}
+                      disabled={otsLoading || !otsPayoff || Number(otsPayoff) <= 0}
+                      className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white font-bold rounded-xl text-xs transition shadow-md shadow-emerald-600/10"
+                    >
+                      <Handshake className="w-4 h-4" />
+                      {otsLoading ? 'Processing OTS Settlement…' : `Approve OTS Settlement (${inr(Number(otsPayoff) || 0)}) & Issue NOC`}
+                    </button>
+                  </div>
                 </div>
               )}
 

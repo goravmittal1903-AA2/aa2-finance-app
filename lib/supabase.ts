@@ -60,14 +60,23 @@ export function invalidateCache(store?: string) {
   }
 }
 
+let notifyTimer: any = null
+const pendingStores = new Set<string>()
+
 function notifyDataChange(store: string) {
   invalidateCache(store)
   if (store === 'documents' || store === 'loan_documents') {
     invalidateCache('documents')
     invalidateCache('loan_documents')
   }
+  pendingStores.add(store)
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('aa2_data_changed', { detail: { store } }))
+    if (notifyTimer) clearTimeout(notifyTimer)
+    notifyTimer = setTimeout(() => {
+      const stores = Array.from(pendingStores)
+      pendingStores.clear()
+      window.dispatchEvent(new CustomEvent('aa2_data_changed', { detail: { stores, store } }))
+    }, 60)
   }
 }
 

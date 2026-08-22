@@ -668,3 +668,191 @@ export async function cleanupAllDuplicateTransactions(): Promise<{ cleaned: numb
 
   return { cleaned: cleanedCount, loansAffected: affectedLoans.size }
 }
+
+/**
+ * Broken Period Interest calculation for odd days between disbursement and 1st installment
+ */
+export function computeBrokenPeriodInterest({
+  loan_amount,
+  interest_rate,
+  disbursement_date,
+  installment_start_date,
+  frequency = 'Monthly',
+}: {
+  loan_amount: number
+  interest_rate: number
+  disbursement_date: string
+  installment_start_date: string
+  frequency?: string
+}) {
+  const amount = Number(loan_amount) || 0
+  const rate = Number(interest_rate) || 0
+  if (!disbursement_date || !installment_start_date || amount <= 0 || rate <= 0) {
+    return { actual_days: 0, standard_days: 30, broken_days: 0, broken_interest: 0 }
+  }
+
+  const actual_days = Math.max(0, daysBetween(disbursement_date, installment_start_date))
+  const standard_days = FREQ_DAYS[frequency] || 30
+  const broken_days = Math.max(0, actual_days - standard_days)
+  const daily_rate = (rate / 100) / 365
+  const broken_interest = Math.round(amount * daily_rate * broken_days)
+
+  return { actual_days, standard_days, broken_days, broken_interest }
+}
+
+/**
+ * RBI NBFC Prudential ECL (Expected Credit Loss) NPA Provisioning Summary
+ */
+export interface ECLProvisionSummary {
+  stage1_standard: { count: number; totalOutstanding: number; ratePct: number; provisionAmount: number }
+  stage2_sma: { count: number; totalOutstanding: number; ratePct: number; provisionAmount: number }
+  stage3_substandard: { count: number; totalOutstanding: number; ratePct: number; provisionAmount: number }
+  stage3_doubtful: { count: number; totalOutstanding: number; ratePct: number; provisionAmount: number }
+  stage3_loss: { count: number; totalOutstanding: number; ratePct: number; provisionAmount: number }
+  totalPortfolioOutstanding: number
+  totalProvisionRequired: number
+  netPortfolioValue: number
+  npaGrossRatio: number
+  provisionCoverageRatio: number
+  branchBreakdown: Record<string, { totalOutstanding: number; provisionAmount: number; count: number; npaCount: number }>
+}
+
+export function computeECLProvisioning(portfolio: PortfolioRow[]): ECLProvisionSummary {
+  const activeLoans = portfolio.filter(p => !p.status?.toUpperCase().startsWith('CLOS'))
+
+  let s1_out = 0, s1_count = 0
+  let s2_out = 0, s2_count = 0
+  let s3_sub_out = 0, s3_sub_count = 0
+  let s3_dbt_out = 0, s3_dbt_count = 0
+  let s3_los_out = 0, s3_los_count = 0
+
+  const branchMap: Record<string, { totalOutstanding: number; provisionAmount: number; count: number; npaCount: number }> = {}
+
+  for (const l of activeLoans) {
+    const out = l.outstanding || 0
+    const dpd = l.dpd || 0
+    const branch = l.branch || 'Head Office'
+
+    if (!branchMap[branch]) {
+      branchMap[branch] = { totalOutstanding: 0, provisionAmount: 0, count: 0, npaCount: 0 }
+    }
+    branchMap[branch].count++
+    branchMap[branch].totalOutstanding += out
+
+    let loanProvision = 0
+    if (dpd <= 30) {
+      // Stage 1: Standard Assets (0.40%)
+      s1_out += out
+      s1_count++
+      loanProvision = out * 0.004
+    } else if (dpd <= 89) {
+      // Stage 2: SMA-1 & SMA-2 Assets (10.0%)
+      s2_out += out
+      s2_count++
+      loanProvision = out * 0.10
+    } else if (dpd <= 179) {
+      // Stage 3: Sub-Standard NPA (25.0%)
+      s3_sub_out += out
+      s3_sub_count++
+      branchMap[branch].npaCount++
+      loanProvision = out * 0.25
+    } else if (dpd <= 365) {
+      // Stage 3: Doubtful NPA (50.0%)
+      s3_dbt_out += out
+      s3_dbt_count++
+      branchMap[branch].npaCount++
+      loanProvision = out * 0.50
+    } else {
+      // Stage 3: Loss Assets (100.0%)
+      s3_los_out += out
+      s3_los_count++
+      branchMap[branch].npaCount++
+      loanProvision = out * 1.00
+    }
+
+    branchMap[branch].provisionAmount += loanProvision
+  }
+
+  const s1_prov = Math.round(s1_out * 0.004)
+  const s2_prov = Math.round(s2_out * 0.10)
+  const s3_sub_prov = Math.round(s3_sub_out * 0.25)
+  const s3_dbt_prov = Math.round(s3_dbt_out * 0.50)
+  const s3_los_prov = Math.round(s3_los_out * 1.00)
+
+  const totalOutstanding = s1_out + s2_out + s3_sub_out + s3_dbt_out + s3_los_out
+  const totalProvision = s1_prov + s2_prov + s3_sub_prov + s3_dbt_prov + s3_los_prov
+  const npaOutstanding = s3_sub_out + s3_dbt_out + s3_los_out
+
+  return {
+    stage1_standard: { count: s1_count, totalOutstanding: s1_out, ratePct: 0.4, provisionAmount: s1_prov },
+    stage2_sma: { count: s2_count, totalOutstanding: s2_out, ratePct: 10.0, provisionAmount: s2_prov },
+    stage3_substandard: { count: s3_sub_count, totalOutstanding: s3_sub_out, ratePct: 25.0, provisionAmount: s3_sub_prov },
+    stage3_doubtful: { count: s3_dbt_count, totalOutstanding: s3_dbt_out, ratePct: 50.0, provisionAmount: s3_dbt_prov },
+    stage3_loss: { count: s3_los_count, totalOutstanding: s3_los_out, ratePct: 100.0, provisionAmount: s3_los_prov },
+    totalPortfolioOutstanding: totalOutstanding,
+    totalProvisionRequired: totalProvision,
+    netPortfolioValue: Math.max(0, totalOutstanding - totalProvision),
+    npaGrossRatio: totalOutstanding > 0 ? (npaOutstanding / totalOutstanding) * 100 : 0,
+    provisionCoverageRatio: npaOutstanding > 0 ? (totalProvision / npaOutstanding) * 100 : 100,
+    branchBreakdown: branchMap,
+  }
+}
+
+/**
+ * One-Time Settlement (OTS) and Loan Waiver processing
+ */
+export async function processOTSSettlement(
+  loan_account_no: string,
+  settlement_amount: number,
+  interest_waived: number,
+  penal_waived: number,
+  settlement_date: string,
+  remarks: string,
+  approved_by: string
+): Promise<number> {
+  const loan = await getOne<Loan>('loans', loan_account_no)
+  if (!loan) throw new Error('Loan account not found')
+
+  const nextTxId = Date.now() + Math.floor(Math.random() * 1000)
+  const narration = `One-Time Settlement (OTS) processed for ₹${Number(settlement_amount).toLocaleString('en-IN')}. Interest Waived: ₹${Number(interest_waived).toLocaleString('en-IN')}, Penal Waived: ₹${Number(penal_waived).toLocaleString('en-IN')}. Account closed under OTS approved by ${approved_by}.`
+
+  const newTxn: Transaction = {
+    txn_id: nextTxId,
+    loan_account_no,
+    amount: Number(settlement_amount),
+    txn_date: settlement_date,
+    mode: 'Settlement / OTS',
+    reference_no: 'OTS-' + Date.now(),
+    remarks: remarks || narration,
+    installment_no: null,
+    txn_type: 'PAYMENT',
+    classification: 'One-Time Settlement (OTS)',
+    payment_category: 'FORECLOSURE',
+    principal_component: Number(settlement_amount),
+    interest_component: 0,
+    penal_component: 0,
+    advance_component: 0,
+    shortage_amount: 0,
+    narration,
+    created_at: new Date().toISOString(),
+    entered_by: approved_by,
+    voided: false,
+  }
+
+  await putOne('transactions', newTxn, 'txn_id')
+
+  // Mark loan as closed under OTS
+  loan.status = 'CLOSE'
+  loan.close_date = settlement_date
+  loan.closure_type = 'OTS_SETTLEMENT'
+  loan.closure_amount = Number(settlement_amount)
+  loan.ledger_balance = 0
+  loan.dpd = 0
+  loan.dpd_bucket = '0 DPD (Current)'
+  loan.npa_flag = false
+
+  await putOne('loans', loan, 'loan_account_no')
+  await recalcLoanLedger(loan_account_no)
+
+  return nextTxId
+}

@@ -1,74 +1,89 @@
-import { putOne, getAll } from '@/lib/supabase'
+﻿import { putOne, getAll } from './supabase'
 
-export interface AuditLogRecord {
-  id: string
-  ts: string
+export type AuditEventType =
+  | 'PAYMENT_COLLECTED'
+  | 'PAYMENT_DELETED'
+  | 'LOAN_SANCTIONED'
+  | 'LOAN_RESTRUCTURED'
+  | 'OTS_SETTLED'
+  | 'KYC_UPDATED'
+  | 'DOCUMENT_UPLOADED'
+  | 'DOCUMENT_DELETED'
+  | 'USER_LOGIN'
+  | 'CREATE'
+  | 'UPDATE'
+  | 'DELETE'
+  | 'RESTORE'
+  | string
+
+export interface AuditLogEntry {
+  log_id: string
+  timestamp: string
+  event_type: AuditEventType
   entity_type: string
   entity_id: string
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE' | 'COLLECT' | 'RESOLVE' | 'CANCEL' | 'REOPEN'
-  summary: string
-  changes?: { field: string; from: any; to: any }[]
-  user: string
+  actor_email: string
+  actor_name: string
+  actor_role: string
+  branch_code?: string
+  old_values?: Record<string, any>
+  new_values?: Record<string, any>
+  narration: string
 }
 
-/** Record an audit trail log entry */
 export async function logAuditEvent(
-  action: AuditLogRecord['action'],
-  entityType: string,
-  entityId: string,
-  summary: string,
-  userEmail?: string,
-  changes?: { field: string; from: any; to: any }[]
-): Promise<void> {
-  const record: AuditLogRecord = {
-    id: `AUD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-    ts: new Date().toISOString(),
-    entity_type: entityType,
-    entity_id: String(entityId),
-    action,
-    summary,
-    user: userEmail || 'system',
-    changes,
+  entryOrAction: Omit<AuditLogEntry, 'log_id' | 'timestamp'> | string,
+  entity_type?: string,
+  entity_id?: string,
+  narration?: string,
+  actor_email?: string,
+  changes?: any
+): Promise<string> {
+  const log_id = 'AUDIT-' + Date.now() + '-' + Math.floor(Math.random() * 1000)
+  
+  let fullEntry: AuditLogEntry
+
+  if (typeof entryOrAction === 'object') {
+    fullEntry = {
+      ...entryOrAction,
+      log_id,
+      timestamp: new Date().toISOString(),
+    }
+  } else {
+    fullEntry = {
+      log_id,
+      timestamp: new Date().toISOString(),
+      event_type: entryOrAction || 'UPDATE',
+      entity_type: entity_type || 'SYSTEM',
+      entity_id: String(entity_id || ''),
+      actor_email: actor_email || 'system',
+      actor_name: (actor_email || 'system').split('@')[0],
+      actor_role: 'staff',
+      narration: narration || `${entryOrAction} on ${entity_type} ${entity_id}`,
+      new_values: changes,
+    }
   }
 
   try {
-    await putOne('audit_log', record, 'id')
+    await putOne('audit_logs', fullEntry, 'log_id')
   } catch (err) {
-    console.warn('Audit log write warning:', err)
+    console.warn('Failed to persist audit log:', err)
   }
+
+  return log_id
 }
 
-/** Get audit events for a specific entity ID (e.g. Member ID or Loan Account No) */
-export async function getEntityAuditLogs(entityId: string): Promise<AuditLogRecord[]> {
+export async function getAuditLogs(): Promise<AuditLogEntry[]> {
   try {
-    const { getOne } = await import('@/lib/supabase')
-    const [appLogs, dbEvents, cust] = await Promise.all([
-      getAll<AuditLogRecord>('audit_log'),
-      getAll<any>('audit_events'),
-      getOne<any>('customers', entityId)
-    ])
-
-    const formattedDbEvents: AuditLogRecord[] = dbEvents
-      .filter(e => e.entity_id === entityId || String(e.entity_id) === entityId)
-      .map(e => {
-        const actor = e.actor_email
-        const isLegacyEmployeeDefault = !actor || actor === 'employee@aa2finance.com'
-        const effectiveUser = isLegacyEmployeeDefault ? (cust?.created_by || actor || 'System User') : actor
-        return {
-          id: e.id || `DB-${e.occurred_at}`,
-          ts: e.occurred_at || e.created_at || new Date().toISOString(),
-          entity_type: e.entity_type || 'database',
-          entity_id: String(e.entity_id),
-          action: (e.action || 'UPDATE').toUpperCase() as any,
-          summary: `DB ${e.action || 'change'} on ${e.entity_type || 'record'} (${e.entity_id})`,
-          user: effectiveUser,
-        }
-      })
-
-    const all = [...appLogs.filter(l => l.entity_id === entityId || l.summary?.includes(entityId)), ...formattedDbEvents]
-    return all.sort((a, b) => (b.ts || '').localeCompare(a.ts || ''))
+    const logs = await getAll<AuditLogEntry>('audit_logs', true)
+    return logs.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
   } catch (err) {
-    console.warn('Get entity audit logs error:', err)
+    console.warn('Failed to load audit logs:', err)
     return []
   }
+}
+
+export async function getEntityAuditLogs(entity_id: string): Promise<AuditLogEntry[]> {
+  const all = await getAuditLogs()
+  return all.filter(l => l.entity_id === entity_id)
 }

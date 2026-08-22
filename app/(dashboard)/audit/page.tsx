@@ -5,6 +5,8 @@ import { getAll } from '@/lib/supabase'
 import { fdatetime } from '@/lib/utils'
 import { Search, Calendar, ShieldCheck, Download, AlertCircle } from 'lucide-react'
 
+import { getAuditLogs } from '@/lib/audit'
+
 interface AuditLogRecord {
   id: string
   ts: string
@@ -37,8 +39,26 @@ export default function AuditPage() {
   async function loadAuditLogs() {
     setLoading(true)
     try {
-      const data = await getAll<AuditLogRecord>('audit_log')
-      setLogs(data.sort((a,b) => (b.ts || '').localeCompare(a.ts || '')))
+      const [newLogs, oldLogs] = await Promise.all([
+        getAuditLogs(),
+        getAll<AuditLogRecord>('audit_log').catch(() => []),
+      ])
+
+      const mappedNew: AuditLogRecord[] = newLogs.map(n => ({
+        id: n.log_id,
+        ts: n.timestamp,
+        entity_type: n.entity_type,
+        entity_id: n.entity_id,
+        action: (n.event_type.includes('COLLECT') || n.event_type.includes('SANCTION') || n.event_type.includes('CREATE')) ? 'CREATE'
+          : n.event_type.includes('DELETE') ? 'DELETE'
+          : n.event_type.includes('SETTLE') ? 'RESOLVE'
+          : 'UPDATE',
+        summary: n.narration,
+        user: `${n.actor_name} (${n.actor_email})`,
+      }))
+
+      const combined = [...mappedNew, ...oldLogs]
+      setLogs(combined.sort((a, b) => (b.ts || '').localeCompare(a.ts || '')))
     } catch (err) {
       console.error(err)
     } finally {

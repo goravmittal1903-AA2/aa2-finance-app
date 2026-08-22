@@ -194,6 +194,24 @@ export interface RestructureAgreementData {
   reason: string
 }
 
+export interface OTSSettlementLetterData {
+  letter_no: string
+  settlement_date: string
+  loan_account_no: string
+  member_name: string
+  customer_id: string
+  father_husband_name: string
+  address: string
+  branch_code: string
+  original_loan_amount: number
+  outstanding_before_settlement: number
+  interest_waived: number
+  penal_waived: number
+  agreed_settlement_amount: number
+  approved_by: string
+  remarks?: string
+}
+
 const INR = (v: number) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 const FDATE = (d: string) => {
   if (!d) return '—'
@@ -1105,4 +1123,63 @@ export function generateRestructureAgreement(data: RestructureAgreementData) {
     </div>
   `
   printDocument(`Restructure_Agreement_${data.loan_account_no}`, body)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 8. ONE-TIME SETTLEMENT (OTS) & WAIVER AGREEMENT
+// ═══════════════════════════════════════════════════════════════════════════════
+export function generateOTSSettlementLetter(data: OTSSettlementLetterData) {
+  const totalWaived = (data.interest_waived || 0) + (data.penal_waived || 0)
+
+  const body = `
+    <div class="doc-title doc-title-green">ONE-TIME SETTLEMENT (OTS) & NO DUES SANCTION LETTER</div>
+
+    <div style="text-align: right; font-size: 10px; color: #64748b; margin-bottom: 12px;">
+      Settlement Ref: <strong>${data.letter_no}</strong> &nbsp;|&nbsp; Settlement Date: <strong>${FDATE(data.settlement_date)}</strong>
+    </div>
+
+    <p class="text-sm" style="line-height: 1.8;">
+      This settlement agreement is executed between <strong>AA2 Microfinance Pvt. Ltd.</strong> and
+      <strong>${data.member_name}</strong> (Customer ID: <strong>${data.customer_id}</strong>),
+      S/D/W of <strong>${data.father_husband_name || '-'}</strong>,
+      residing at <strong>${data.address || 'On Record'}</strong>,
+      regarding the final settlement and closure of Loan Account No: <strong>${data.loan_account_no}</strong>.
+    </p>
+
+    <div class="grid">
+      <div class="box">
+        <div class="box-title">Account Information</div>
+        <div class="row"><span class="label">Loan Account No:</span> <span class="value font-mono"><strong>${data.loan_account_no}</strong></span></div>
+        <div class="row"><span class="label">Original Loan Amount:</span> <span class="value">${INR(data.original_loan_amount)}</span></div>
+        <div class="row"><span class="label">Branch Code:</span> <span class="value">${data.branch_code}</span></div>
+        <div class="row"><span class="label">Sanctioned Approver:</span> <span class="value">${data.approved_by}</span></div>
+      </div>
+      <div class="box" style="background: #f0fdf4; border-color: #bbf7d0;">
+        <div class="box-title" style="color: #166534;">Settlement & Waiver Summary</div>
+        <div class="row"><span class="label">Total Pre-Settlement Outstanding:</span> <span class="value">${INR(data.outstanding_before_settlement)}</span></div>
+        <div class="row"><span class="label">Interest Waived:</span> <span class="value" style="color: #b91c1c;">${INR(data.interest_waived)}</span></div>
+        <div class="row"><span class="label">Penal Charges Waived:</span> <span class="value" style="color: #b91c1c;">${INR(data.penal_waived)}</span></div>
+        <div class="row"><span class="label"><strong>Agreed OTS Payoff Received:</strong></span> <span class="value" style="font-size: 13px; font-weight: 800; color: #166534;">${INR(data.agreed_settlement_amount)}</span></div>
+      </div>
+    </div>
+
+    <div class="box mb-4" style="background: #f8fafc;">
+      <div class="box-title">Settlement Terms & Release of Liability</div>
+      <p class="text-xs" style="color: #334155; line-height: 1.7; margin: 0;">
+        1. The lender acknowledges receipt of <strong>${INR(data.agreed_settlement_amount)}</strong> towards full & final settlement of all dues against Loan Account No: <strong>${data.loan_account_no}</strong>.<br>
+        2. A total concession/waiver of <strong>${INR(totalWaived)}</strong> (Interest: ${INR(data.interest_waived)}, Penal: ${INR(data.penal_waived)}) is granted as special resolution.<br>
+        3. All securities/hypothecations are discharged. No further claims or liabilities remain against the borrower.<br>
+        4. The account status will be reported as <strong>SETTLED / CLOSED UNDER OTS</strong> to Credit Information Bureaus (CRIF High Mark / CIBIL / Equifax).
+      </p>
+    </div>
+
+    ${data.remarks ? `<p class="text-xs" style="color: #64748b;"><strong>Management Approval Notes:</strong> ${data.remarks}</p>` : ''}
+
+    <div class="signatures" style="margin-top: 50px;">
+      <div class="sig-box">Borrower's Acceptance</div>
+      <div class="sig-box">Credit Committee / BM Signature</div>
+      <div class="sig-box">Authorized Signatory<br>(AA2 Microfinance)</div>
+    </div>
+  `
+  printDocument(`OTS_Settlement_${data.loan_account_no}`, body)
 }
