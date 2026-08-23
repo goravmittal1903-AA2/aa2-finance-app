@@ -4,9 +4,13 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getAll, putOne } from '@/lib/supabase'
+import { logAuditEvent } from '@/lib/audit'
 import { toast } from '@/lib/toast'
 import type { Customer } from '@/lib/types'
-import { ArrowLeft, Save, AlertTriangle, Check, ArrowRight, UserCheck, Search, ShieldCheck, MapPin, Building, User } from 'lucide-react'
+import {
+  ArrowLeft, Save, AlertTriangle, Check, ArrowRight,
+  UserCheck, Search, ShieldCheck, MapPin, Building, User, Edit3
+} from 'lucide-react'
 import { todayISO, calculateAgeInYearsMonths } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
 import { confirmAction } from '@/lib/confirm'
@@ -110,6 +114,29 @@ export default function NewMemberPage() {
     }
   }
 
+  // Populate existing member to update details
+  const handlePopulateExisting = (existing: Customer) => {
+    setFormData({
+      full_name: existing.full_name || '',
+      father_husband_name: existing.father_husband_name || '',
+      gender: existing.gender || 'Female',
+      dob: existing.dob || '',
+      mobile: existing.mobile || '',
+      aadhar_last4: existing.aadhar_last4 || '',
+      pan_no: existing.pan_no || '',
+      village_city: existing.village_city || '',
+      pincode: existing.pincode || '',
+      district: existing.district || '',
+      state: existing.state || 'UTTARAKHAND',
+      branch_code: existing.branch_code || '',
+      bm_name: existing.bm_name || '',
+      fo_name: existing.fo_name || '',
+      address_current: existing.address_current || '',
+    })
+    toast.success('Member Loaded', `Loaded details for ${existing.full_name} (${existing.customer_id}). You can now edit and save.`)
+    setCurrentStep(2)
+  }
+
   const handleChange = async (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     let { name, value } = e.target
 
@@ -174,7 +201,6 @@ export default function NewMemberPage() {
     setCurrentStep(1)
   }
 
-  // Step Validation before progressing
   const validateStep = (step: number): boolean => {
     setError('')
     if (step === 2) {
@@ -212,7 +238,6 @@ export default function NewMemberPage() {
     setCurrentStep(prev => Math.max(1, prev - 1))
   }
 
-  // Generate MEM12345 Member ID
   const generateCustomerNumber = async (): Promise<string> => {
     const existing = await getAll<Customer>('customers')
     const maxNum = existing.reduce((max, c) => {
@@ -259,6 +284,20 @@ export default function NewMemberPage() {
       }
 
       await putOne('customers', newCustomer, 'customer_id')
+
+      // Record immutable audit log on member creation
+      await logAuditEvent({
+        event_type: 'CREATE',
+        entity_type: 'MEMBER',
+        entity_id: customerId,
+        actor_email: user?.email || 'system',
+        actor_name: (user?.email || 'system').split('@')[0],
+        actor_role: 'staff',
+        branch_code: newCustomer.branch_code,
+        narration: `New member registered: ${newCustomer.full_name} (${customerId}) with mobile ${newCustomer.mobile}`,
+        new_values: newCustomer,
+      })
+
       localStorage.removeItem(DRAFT_KEY)
       toast.success('Member Registered', `Member ${newCustomer.full_name} onboarded with ID ${customerId}.`)
       window.dispatchEvent(new Event('aa2_data_changed'))
@@ -280,7 +319,7 @@ export default function NewMemberPage() {
         <span className="text-xs font-mono text-slate-400">AA2 Microfinance Borrower Onboarding</span>
       </div>
 
-      {/* Stepper Progress Bar */}
+      {/* Stepper Progress Header */}
       <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-xs">
         <div className="grid grid-cols-5 gap-2">
           {STEPS.map((s) => {
@@ -322,23 +361,23 @@ export default function NewMemberPage() {
 
       {/* Error Alert */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs font-semibold flex items-center gap-2">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs font-semibold flex items-center gap-2 animate-in fade-in duration-200">
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
-      {/* Main Step Form Body */}
+      {/* Main Step Form Body with Transitions */}
       <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-xs">
         {/* STEP 1: Quick Member Lookup & Dedupe Check */}
         {currentStep === 1 && (
-          <div className="space-y-5">
+          <div className="space-y-5 animate-in fade-in-50 slide-in-from-right-1 duration-200">
             <div className="border-b border-slate-100 pb-3">
               <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <Search className="w-4 h-4 text-blue-600" /> Step 1: Quick Member Lookup (Deduplication Check)
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Search existing database by Mobile, Aadhaar Last 4, PAN, Member ID, or Name to prevent duplicate registrations.
+                Search existing database by Mobile, Aadhaar Last 4, PAN, Member ID, or Name before registration.
               </p>
             </div>
 
@@ -366,16 +405,23 @@ export default function NewMemberPage() {
                   </div>
                   <div className="space-y-2">
                     {sfdcSearchResults.map(m => (
-                      <div key={m.customer_id} className="bg-white p-3 rounded-lg border border-amber-200 flex items-center justify-between text-xs">
+                      <div key={m.customer_id} className="bg-white p-3.5 rounded-xl border border-amber-200 flex flex-wrap items-center justify-between gap-3 text-xs">
                         <div>
-                          <p className="font-bold text-slate-800">{m.full_name} <span className="font-mono text-blue-600">({m.customer_id})</span></p>
-                          <p className="text-slate-500 text-[11px]">Mobile: {m.mobile || '—'} · Aadhaar: {m.aadhar_last4 || '—'} · {m.village_city || '—'}</p>
+                          <p className="font-bold text-slate-800">{m.full_name} <span className="font-mono text-blue-600 font-bold">({m.customer_id})</span></p>
+                          <p className="text-slate-500 text-[11px] mt-0.5">Mobile: {m.mobile || '—'} · Aadhaar: {m.aadhar_last4 || '—'} · {m.village_city || '—'}</p>
                         </div>
-                        <div className="flex gap-2">
-                          <Link href={`/members/${m.customer_id}`} className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handlePopulateExisting(m)}
+                            className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold rounded-lg text-xs border border-purple-200 flex items-center gap-1 transition"
+                          >
+                            <Edit3 className="w-3 h-3" /> Update Details
+                          </button>
+                          <Link href={`/members/${m.customer_id}`} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs transition">
                             View Profile
                           </Link>
-                          <Link href={`/loans/new?customer_id=${m.customer_id}`} className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs">
+                          <Link href={`/loans/new?customer_id=${m.customer_id}`} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs transition">
                             Sanction Loan
                           </Link>
                         </div>
@@ -388,7 +434,7 @@ export default function NewMemberPage() {
               {sfdcSearched && sfdcSearchResults.length === 0 && !sfdcSearching && (
                 <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl text-xs flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>No duplicate member found for &quot;{sfdcSearchQuery}&quot;. You can safely proceed to new registration.</span>
+                  <span>No duplicate member found for &quot;{sfdcSearchQuery}&quot;. You can safely proceed to new registration below.</span>
                 </div>
               )}
             </div>
@@ -397,7 +443,7 @@ export default function NewMemberPage() {
 
         {/* STEP 2: Personal & Contact Information */}
         {currentStep === 2 && (
-          <div className="space-y-5">
+          <div className="space-y-5 animate-in fade-in-50 slide-in-from-right-1 duration-200">
             <div className="border-b border-slate-100 pb-3">
               <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <User className="w-4 h-4 text-blue-600" /> Step 2: Personal & Contact Details
@@ -484,7 +530,7 @@ export default function NewMemberPage() {
 
         {/* STEP 3: Identity & KYC Documents */}
         {currentStep === 3 && (
-          <div className="space-y-5">
+          <div className="space-y-5 animate-in fade-in-50 slide-in-from-right-1 duration-200">
             <div className="border-b border-slate-100 pb-3">
               <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-blue-600" /> Step 3: Identity & KYC Verification
@@ -529,7 +575,7 @@ export default function NewMemberPage() {
 
         {/* STEP 4: Address & Residential Location */}
         {currentStep === 4 && (
-          <div className="space-y-5">
+          <div className="space-y-5 animate-in fade-in-50 slide-in-from-right-1 duration-200">
             <div className="border-b border-slate-100 pb-3">
               <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-blue-600" /> Step 4: Residential Address & Location
@@ -603,7 +649,7 @@ export default function NewMemberPage() {
 
         {/* STEP 5: Branch Assignment & Final Review */}
         {currentStep === 5 && (
-          <div className="space-y-5">
+          <div className="space-y-5 animate-in fade-in-50 slide-in-from-right-1 duration-200">
             <div className="border-b border-slate-100 pb-3">
               <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <Building className="w-4 h-4 text-blue-600" /> Step 5: Branch Assignment & Final Review
@@ -671,7 +717,7 @@ export default function NewMemberPage() {
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10.5px] block">Aadhaar (Last 4)</span>
-                  <span className="font-mono font-bold text-slate-800">{formData.aadhar_last4 || '—'}</span>
+                  <span className="font-mono font-bold text-slate-800 tracking-wider">•••• •••• {formData.aadhar_last4 || '—'}</span>
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10.5px] block">PAN</span>
