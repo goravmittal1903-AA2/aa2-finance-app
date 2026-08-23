@@ -98,12 +98,9 @@ export default function DashboardPage() {
     const currentMonth = today.slice(0, 7)
 
     return portfolio.filter(p => {
-      // Branch filter
       if (selectedBranch !== 'ALL' && (p.branch || 'Head Office') !== selectedBranch) return false
-      // FO filter
       if (selectedFO !== 'ALL' && (p.fo || '') !== selectedFO) return false
 
-      // Date preset filter based on disbursal
       const d = p.disb_date || ''
       if (datePreset === 'TODAY' && d !== today) return false
       if (datePreset === 'MTD' && !d.startsWith(currentMonth)) return false
@@ -155,36 +152,48 @@ export default function DashboardPage() {
   const collectionEfficiency = totalDisbursed > 0 ? Math.round((totalCollected / totalDisbursed) * 100) : 0
   const grossNpaRatio = outstanding > 0 ? ((npaAmount / outstanding) * 100).toFixed(2) : '0.00'
 
-  // Today Live Demand & Collection Pulse
+  // Today Live Demand & Comprehensive Collection Pulse
   const todayMetrics = useMemo(() => {
     const today = todayISO()
     const activeLoanNos = new Set(portfolio.filter(p => p.status === 'ACTIVE').map(p => p.loan_account_no))
 
-    // Today Due Installments
-    const todayDues = schedule.filter(s => s.due_date === today && activeLoanNos.has(s.loan_account_no))
-    const todayDemandAmount = todayDues.reduce((sum, s) => sum + (s.emi_due || 0), 0)
-    const todayDemandCount = todayDues.length
+    // 1. Scheduled exactly on today
+    const todayExactDues = schedule.filter(s => s.due_date === today && activeLoanNos.has(s.loan_account_no))
+    const todayExactDemandAmount = todayExactDues.reduce((sum, s) => sum + (s.emi_due || 0), 0)
+    const todayExactDemandCount = todayExactDues.length
 
-    // Today Payments Collected
+    // 2. Total Accumulated Actionable Demand (all dues on or before today that are pending/overdue)
+    const pendingDuesAsOfToday = schedule.filter(s =>
+      s.due_date <= today &&
+      activeLoanNos.has(s.loan_account_no) &&
+      (s.status === 'Pending' || s.status === 'Overdue' || s.status === 'Partial')
+    )
+    const accumulatedDemandAmount = pendingDuesAsOfToday.reduce((sum, s) => sum + Math.max(0, (s.emi_due || 0) - (s.paid_amount || 0)), 0)
+    const accumulatedAccountsCount = new Set(pendingDuesAsOfToday.map(s => s.loan_account_no)).size
+
+    // 3. Today Payments Collected
     const todayPayments = transactions.filter(t => t.txn_date === today && t.txn_type === 'PAYMENT' && !t.voided)
     const todayCollectedAmount = todayPayments.reduce((sum, t) => sum + (t.amount || 0), 0)
     const todayCollectedCount = todayPayments.length
 
-    // Overdue Arrears Collected Today
+    // 4. Overdue Arrears Recovered Today
     const todayArrearsCollected = todayPayments.filter(t => {
       const p = portfolio.find(item => item.loan_account_no === t.loan_account_no)
       return p && (p.dpd || 0) > 0
     }).reduce((sum, t) => sum + (t.amount || 0), 0)
 
-    const todayEfficiency = todayDemandAmount > 0
-      ? Math.min(100, Math.round((todayCollectedAmount / todayDemandAmount) * 100))
+    const effectiveDemand = todayExactDemandAmount > 0 ? todayExactDemandAmount : accumulatedDemandAmount
+    const todayEfficiency = effectiveDemand > 0
+      ? Math.min(100, Math.round((todayCollectedAmount / effectiveDemand) * 100))
       : (todayCollectedAmount > 0 ? 100 : 0)
 
-    const todayRemainingGap = Math.max(0, todayDemandAmount - todayCollectedAmount)
+    const todayRemainingGap = Math.max(0, effectiveDemand - todayCollectedAmount)
 
     return {
-      demandAmount: todayDemandAmount,
-      demandCount: todayDemandCount,
+      exactDemandAmount: todayExactDemandAmount,
+      exactDemandCount: todayExactDemandCount,
+      accumulatedDemandAmount,
+      accumulatedAccountsCount,
       collectedAmount: todayCollectedAmount,
       collectedCount: todayCollectedCount,
       arrearsCollected: todayArrearsCollected,
@@ -449,16 +458,22 @@ export default function DashboardPage() {
               LIVE
             </span>
           </div>
-          <p className="text-xs text-slate-400">
-            Due Target: <strong className="text-slate-200">{inr(todayMetrics.demandAmount)}</strong> across {todayMetrics.demandCount} installments
+          <p className="text-xs text-slate-300">
+            Scheduled Today: <strong className="text-white font-mono">{inr(todayMetrics.exactDemandAmount)}</strong> ({todayMetrics.exactDemandCount} dues) · Total Pending Due: <strong className="text-amber-300 font-mono">{inr(todayMetrics.accumulatedDemandAmount)}</strong> ({todayMetrics.accumulatedAccountsCount} accounts)
           </p>
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-slate-800/60 rounded-xl p-3.5 border border-slate-700/40">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Today&apos;s Demand</span>
-            <span className="text-xl font-bold font-mono text-white mt-1 block">{inr(todayMetrics.demandAmount)}</span>
-            <span className="text-[10.5px] text-slate-400 mt-0.5 block">{todayMetrics.demandCount} installments scheduled</span>
+            <span className="text-xl font-bold font-mono text-white mt-1 block">
+              {todayMetrics.exactDemandAmount > 0 ? inr(todayMetrics.exactDemandAmount) : inr(todayMetrics.accumulatedDemandAmount)}
+            </span>
+            <span className="text-[10.5px] text-slate-400 mt-0.5 block">
+              {todayMetrics.exactDemandAmount > 0
+                ? `${todayMetrics.exactDemandCount} installments scheduled`
+                : `${todayMetrics.accumulatedAccountsCount} accounts due/overdue`}
+            </span>
           </div>
 
           <div className="bg-slate-800/60 rounded-xl p-3.5 border border-slate-700/40">
@@ -468,7 +483,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="bg-slate-800/60 rounded-xl p-3.5 border border-slate-700/40">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Overdue Arrears Recovered</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Overdue Recovered</span>
             <span className="text-xl font-bold font-mono text-amber-400 mt-1 block">{inr(todayMetrics.arrearsCollected)}</span>
             <span className="text-[10.5px] text-slate-400 mt-0.5 block">Delinquent collections</span>
           </div>
