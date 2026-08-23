@@ -361,17 +361,17 @@ export default function NewMemberPage() {
 
       {/* Error Alert */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs font-semibold flex items-center gap-2 animate-in fade-in duration-200">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs font-semibold flex items-center gap-2 tab-transition">
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
-      {/* Main Step Form Body with Transitions */}
+      {/* Main Step Form Body with Tab Transition */}
       <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-xs">
         {/* STEP 1: Quick Member Lookup & Dedupe Check */}
         {currentStep === 1 && (
-          <div className="space-y-5 animate-in fade-in-50 slide-in-from-right-1 duration-200">
+          <div className="space-y-5 tab-transition">
             <div className="border-b border-slate-100 pb-3">
               <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <Search className="w-4 h-4 text-blue-600" /> Step 1: Quick Member Lookup (Deduplication Check)
@@ -443,7 +443,7 @@ export default function NewMemberPage() {
 
         {/* STEP 2: Personal & Contact Information */}
         {currentStep === 2 && (
-          <div className="space-y-5 animate-in fade-in-50 slide-in-from-right-1 duration-200">
+          <div className="space-y-5 tab-transition">
             <div className="border-b border-slate-100 pb-3">
               <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <User className="w-4 h-4 text-blue-600" /> Step 2: Personal & Contact Details
@@ -530,7 +530,7 @@ export default function NewMemberPage() {
 
         {/* STEP 3: Identity & KYC Documents */}
         {currentStep === 3 && (
-          <div className="space-y-5 animate-in fade-in-50 slide-in-from-right-1 duration-200">
+          <div className="space-y-5 tab-transition">
             <div className="border-b border-slate-100 pb-3">
               <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-blue-600" /> Step 3: Identity & KYC Verification
@@ -575,7 +575,7 @@ export default function NewMemberPage() {
 
         {/* STEP 4: Address & Residential Location */}
         {currentStep === 4 && (
-          <div className="space-y-5 animate-in fade-in-50 slide-in-from-right-1 duration-200">
+          <div className="space-y-5 tab-transition">
             <div className="border-b border-slate-100 pb-3">
               <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-blue-600" /> Step 4: Residential Address & Location
@@ -649,7 +649,7 @@ export default function NewMemberPage() {
 
         {/* STEP 5: Branch Assignment & Final Review */}
         {currentStep === 5 && (
-          <div className="space-y-5 animate-in fade-in-50 slide-in-from-right-1 duration-200">
+          <div className="space-y-5 tab-transition">
             <div className="border-b border-slate-100 pb-3">
               <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <Building className="w-4 h-4 text-blue-600" /> Step 5: Branch Assignment & Final Review

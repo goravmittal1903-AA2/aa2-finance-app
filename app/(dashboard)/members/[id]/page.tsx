@@ -6,13 +6,13 @@ import { useRouter } from 'next/navigation'
 import { getOne, getFiltered, putOne } from '@/lib/supabase'
 import { logAuditEvent, getAuditLogs, type AuditLogEntry } from '@/lib/audit'
 import type { Customer, Loan } from '@/lib/types'
-import { inr, fdate, statusColor } from '@/lib/utils'
+import { inr, fdate, statusColor, maskPAN } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
 import { confirmAction } from '@/lib/confirm'
 import { toast } from '@/lib/toast'
 import {
   ArrowLeft, Phone, MapPin, User, Landmark, Shield,
-  FileText, Plus, CheckCircle2, Clock, Trash2, Edit3, X
+  FileText, Plus, CheckCircle2, Clock, Trash2, Edit3, X, Eye, EyeOff
 } from 'lucide-react'
 
 interface PageProps {
@@ -26,6 +26,7 @@ export default function MemberDetailPage({ params }: PageProps) {
   const [loans, setLoans] = useState<Loan[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [showPAN, setShowPAN] = useState(false)
   const router = useRouter()
 
   const [activeTab, setActiveTab] = useState<'profile' | 'loans' | 'audit'>('profile')
@@ -229,8 +230,8 @@ export default function MemberDetailPage({ params }: PageProps) {
 
       {/* Edit Member Modal */}
       {isEditing && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in-50 duration-200">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-3xl my-8 overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-3xl my-8 overflow-hidden tab-transition">
             <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-slate-800">Edit Member Profile</h3>
@@ -295,19 +296,19 @@ export default function MemberDetailPage({ params }: PageProps) {
                 </div>
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">District</label>
-                  <input type="text" value={editFormData.district || ''} onChange={e => setEditFormData({ ...editFormData, district: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
+                  <input type="text" value={editFormData.district || ''} onChange={e => setEditFormData({ ...editFormData, district: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
                 </div>
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">State</label>
-                  <input type="text" value={editFormData.state || ''} onChange={e => setEditFormData({ ...editFormData, state: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
+                  <input type="text" value={editFormData.state || ''} onChange={e => setEditFormData({ ...editFormData, state: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
                 </div>
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Branch Manager Name</label>
-                  <input type="text" value={editFormData.bm_name || ''} onChange={e => setEditFormData({ ...editFormData, bm_name: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
+                  <input type="text" value={editFormData.bm_name || ''} onChange={e => setEditFormData({ ...editFormData, bm_name: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
                 </div>
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Field Officer Name</label>
-                  <input type="text" value={editFormData.fo_name || ''} onChange={e => setEditFormData({ ...editFormData, fo_name: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
+                  <input type="text" value={editFormData.fo_name || ''} onChange={e => setEditFormData({ ...editFormData, fo_name: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
                 </div>
               </div>
               <div>
@@ -355,7 +356,21 @@ export default function MemberDetailPage({ params }: PageProps) {
                 <p className="font-mono font-bold text-slate-700 mt-0.5">
                   Aadhaar: <span className="text-slate-800 tracking-wider">•••• •••• {customer.aadhar_last4 || '—'}</span>
                 </p>
-                <p className="font-mono text-[11px] text-slate-500">PAN: {customer.pan_no || '—'}</p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="font-mono text-[11px] text-slate-700 font-semibold">
+                    PAN: {showPAN ? (customer.pan_no || '—') : maskPAN(customer.pan_no)}
+                  </span>
+                  {customer.pan_no && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPAN(!showPAN)}
+                      className="p-0.5 text-slate-400 hover:text-blue-600 transition"
+                      title={showPAN ? "Hide PAN" : "Show PAN"}
+                    >
+                      {showPAN ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div>
@@ -406,7 +421,7 @@ export default function MemberDetailPage({ params }: PageProps) {
 
       {/* Tab 1: Profile & Demographics */}
       {activeTab === 'profile' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in fade-in-50 slide-in-from-left-1 duration-200">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 tab-transition">
           <div className="bg-white rounded-2xl p-6 shadow-xs border border-slate-100 space-y-4">
             <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
               <User className="w-4 h-4 text-blue-500" /> Personal & Demographic Information
@@ -416,7 +431,22 @@ export default function MemberDetailPage({ params }: PageProps) {
               <div className="py-2.5 flex justify-between"><span className="text-slate-400">Date of Birth</span><span className="font-semibold text-slate-700">{fdate(customer.dob)}</span></div>
               <div className="py-2.5 flex justify-between"><span className="text-slate-400">Mobile Number</span><span className="font-mono font-semibold text-slate-700">{customer.mobile || '—'}</span></div>
               <div className="py-2.5 flex justify-between"><span className="text-slate-400">Aadhaar (Last 4)</span><span className="font-mono font-bold text-slate-800 tracking-wider">•••• •••• {customer.aadhar_last4 || '—'}</span></div>
-              <div className="py-2.5 flex justify-between"><span className="text-slate-400">PAN Card</span><span className="font-mono font-bold text-slate-800">{customer.pan_no || '—'}</span></div>
+              <div className="py-2.5 flex justify-between items-center">
+                <span className="text-slate-400">PAN Card</span>
+                <span className="font-mono font-bold text-slate-800 flex items-center gap-1.5">
+                  {showPAN ? (customer.pan_no || '—') : maskPAN(customer.pan_no)}
+                  {customer.pan_no && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPAN(!showPAN)}
+                      className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-blue-600 transition"
+                      title={showPAN ? "Hide PAN" : "Show PAN"}
+                    >
+                      {showPAN ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  )}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -438,7 +468,7 @@ export default function MemberDetailPage({ params }: PageProps) {
 
       {/* Tab 2: Loan Facilities */}
       {activeTab === 'loans' && (
-        <div className="bg-white rounded-2xl shadow-xs border border-slate-100 overflow-hidden animate-in fade-in-50 slide-in-from-right-1 duration-200">
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-100 overflow-hidden tab-transition">
           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-800">Associated Loan Accounts ({loans.length})</h3>
             <Link
@@ -497,7 +527,7 @@ export default function MemberDetailPage({ params }: PageProps) {
 
       {/* Tab 3: Activity Audit History */}
       {activeTab === 'audit' && (
-        <div className="bg-white rounded-2xl p-6 shadow-xs border border-slate-100 space-y-4 animate-in fade-in-50 slide-in-from-right-1 duration-200">
+        <div className="bg-white rounded-2xl p-6 shadow-xs border border-slate-100 space-y-4 tab-transition">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
               <FileText className="w-4 h-4 text-purple-600" /> Immutable Activity Audit Log ({auditLogs.length})
