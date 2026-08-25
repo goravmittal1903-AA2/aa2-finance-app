@@ -17,16 +17,22 @@ export const FREQ_PER_YEAR: Record<string, number> = {
 }
 
 export function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr)
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
+  if (!dateStr) return ''
+  const parts = dateStr.slice(0, 10).split('-').map(Number)
+  if (parts.length < 3 || parts.some(isNaN)) return dateStr
+  const [y, m, d] = parts
+  const dt = new Date(Date.UTC(y, m - 1, d + days))
+  return dt.toISOString().slice(0, 10)
 }
 
 export function addMonthsLike(dateStr: string, frequency: string): string {
-  const m = frequency === 'Monthly' ? 1 : frequency === 'Bi-Monthly' ? 2 : 3
-  const d = new Date(dateStr)
-  d.setMonth(d.getMonth() + m)
-  return d.toISOString().slice(0, 10)
+  if (!dateStr) return ''
+  const mAdd = frequency === 'Monthly' ? 1 : frequency === 'Bi-Monthly' ? 2 : 3
+  const parts = dateStr.slice(0, 10).split('-').map(Number)
+  if (parts.length < 3 || parts.some(isNaN)) return dateStr
+  const [y, m, d] = parts
+  const dt = new Date(Date.UTC(y, m - 1 + mAdd, d))
+  return dt.toISOString().slice(0, 10)
 }
 
 export function daysBetween(a: string, b: string): number {

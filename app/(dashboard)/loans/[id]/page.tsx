@@ -4,7 +4,7 @@ import { useEffect, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getOne, getFiltered, putOne, putMany, delOne, getAll, supabase } from '@/lib/supabase'
-import { recalcLoanLedger, applyPayment, computeForeclosure, addDays, addMonthsLike, computeLoanEconomics, generateSchedule, classifyAndAllocatePayment, computeBrokenPeriodInterest, processOTSSettlement, generateUniqueLoanAccountNo, FREQ_PER_YEAR } from '@/lib/calculations'
+import { recalcLoanLedger, applyPayment, computeForeclosure, addDays, addMonthsLike, daysBetween, computeLoanEconomics, generateSchedule, classifyAndAllocatePayment, computeBrokenPeriodInterest, processOTSSettlement, generateUniqueLoanAccountNo, FREQ_PER_YEAR } from '@/lib/calculations'
 import type { Loan, ScheduleRow, Transaction, Customer } from '@/lib/types'
 import { inr, fdate, fdatetime, todayISO, statusColor, username } from '@/lib/utils'
 import { generateSanctionLetter, generatePaymentReceipt, generateThermalPaymentReceipt, generateForeclosureNoc, generateRepaymentSchedule, generateSOA, generateTopUpLetter, generateRestructureAgreement, generateOTSSettlementLetter } from '@/lib/document-generator'
@@ -132,10 +132,21 @@ export default function LoanDetailPage({ params }: PageProps) {
       if (!l) { if (!silent) setLoading(false); return }
       setLoan(l)
       setEditForm({
+        member_name: l.member_name_cache || l.member_name,
         fo_name: l.fo_name,
         bm_name: l.bm_name,
         branch_code: l.branch_code,
-        product_type: l.product_type,
+        product_type: l.product_type || 'Individual Loan',
+        loan_amount: l.loan_amount,
+        net_disbursement: l.net_disbursement,
+        file_charge: l.file_charge,
+        interest_rate: l.interest_rate,
+        tenure: l.tenure,
+        installment_amount: l.installment_amount,
+        frequency: l.frequency,
+        disbursement_date: l.disbursement_date,
+        installment_start_date: l.installment_start_date,
+        status: l.status,
         repayment_mode: l.repayment_mode,
         penalty_per_day: l.penalty_per_day,
       })
@@ -360,10 +371,97 @@ export default function LoanDetailPage({ params }: PageProps) {
     if (!loan) return
     setEditSaving(true)
     try {
-      const updated = { ...loan, ...editForm, updated_at: new Date().toISOString() }
+      const loanAmt = Number(editForm.loan_amount ?? loan.loan_amount)
+      const tenure = Number(editForm.tenure ?? loan.tenure)
+      const intRate = Number(editForm.interest_rate ?? loan.interest_rate)
+      const emiAmt = Number(editForm.installment_amount ?? loan.installment_amount)
+      const startDateStr = editForm.installment_start_date || loan.installment_start_date || loan.disbursement_date
+      const freq = editForm.frequency || loan.frequency || 'Weekly'
+
+      const updated = {
+        ...loan,
+        ...editForm,
+        member_name_cache: editForm.member_name || loan.member_name_cache || loan.member_name,
+        loan_amount: loanAmt,
+        net_disbursement: Number(editForm.net_disbursement ?? loan.net_disbursement),
+        file_charge: Number(editForm.file_charge ?? loan.file_charge),
+        interest_rate: intRate,
+        tenure: tenure,
+        tenure_months: tenure,
+        total_installments: tenure,
+        installment_amount: emiAmt,
+        emi_amount: emiAmt,
+        frequency: freq,
+        repayment_frequency: freq,
+        disbursement_date: editForm.disbursement_date || loan.disbursement_date,
+        disb_date: editForm.disbursement_date || loan.disbursement_date,
+        installment_start_date: startDateStr,
+        first_installment_date: startDateStr,
+        product_type: editForm.product_type || loan.product_type || 'Individual Loan',
+        status: editForm.status || loan.status,
+        penalty_per_day: Number(editForm.penalty_per_day ?? loan.penalty_per_day ?? 0),
+        updated_at: new Date().toISOString(),
+      }
+
+      // If start date or loan terms changed, regenerate schedule starting from new installment_start_date
+      const startDateChanged = editForm.installment_start_date && editForm.installment_start_date !== loan.installment_start_date
+      const termsChanged = editForm.loan_amount !== undefined || editForm.tenure !== undefined || editForm.installment_amount !== undefined
+
+      if (startDateChanged || termsChanged) {
+        const pPerEmi = loanAmt / tenure
+        const totalInt = updated.total_interest || Math.max(0, (emiAmt * tenure) - loanAmt)
+        const iPerEmi = totalInt / tenure
+        const paidCount = Number((loan as any)?.paid_emi || (loan as any)?.data?.paid_emi || 0)
+        const today = todayISO()
+        const daysPerInst = freq === 'Weekly' ? 7 : freq === 'Bi-Monthly' ? 15 : freq === 'Monthly' ? 30 : 1
+
+        const newSchedule: ScheduleRow[] = []
+        for (let i = 1; i <= tenure; i++) {
+          const dueDate = addDays(startDateStr, (i - 1) * daysPerInst)
+          const isPaid = i <= paidCount
+          const daysLate = !isPaid && dueDate < today ? daysBetween(dueDate, today) : 0
+          let status = 'Pending'
+          if (isPaid) status = 'Paid'
+          else if (daysLate > 0) status = 'Overdue'
+
+          const schedId = id + '_' + i
+          newSchedule.push({
+            id: schedId,
+            loan_account_no: id,
+            installment_no: i,
+            due_date: dueDate,
+            principal_due: Math.round(pPerEmi * 100) / 100,
+            interest_due: Math.round(iPerEmi * 100) / 100,
+            emi_due: Math.round(emiAmt * 100) / 100,
+            paid_amount: isPaid ? emiAmt : 0,
+            paid_date: isPaid ? dueDate : null,
+            status: status as any,
+            dpd: isPaid ? 0 : daysLate,
+            data: {
+              id: schedId,
+              loan_account_no: id,
+              installment_no: i,
+              due_date: dueDate,
+              opening_balance: 0,
+              principal_due: Math.round(pPerEmi * 100) / 100,
+              interest_due: Math.round(iPerEmi * 100) / 100,
+              emi_due: Math.round(emiAmt * 100) / 100,
+              closing_balance: 0,
+              paid_amount: isPaid ? emiAmt : 0,
+              paid_date: isPaid ? dueDate : null,
+              status: status,
+              dpd: isPaid ? 0 : daysLate,
+            }
+          } as any)
+        }
+        await putMany('schedule', newSchedule, 'id')
+        setSchedule(newSchedule)
+      }
+
       await putOne('loans', updated, 'loan_account_no')
+      await recalcLoanLedger(id)
       setLoan(updated as Loan)
-      toast.success('Loan Updated', 'Loan details updated.')
+      toast.success('Loan Updated', 'Loan details and repayment schedule saved successfully.')
     } catch (err: any) {
       toast.error('Save Failed', err.message || 'Save failed')
     } finally {
@@ -1595,12 +1693,89 @@ export default function LoanDetailPage({ params }: PageProps) {
                   <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
                     <Edit2 className="w-4 h-4 text-slate-500" />
                     <h3 className="text-sm font-bold text-slate-800">Edit Loan Details</h3>
-                    <span className="text-xs text-slate-400">(Core financial terms require restructure/new loan)</span>
+                    <span className="text-xs text-emerald-600 font-semibold">(All fields, financial terms & dates fully editable)</span>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Field Officer Name</label>
-                      <input type="text" value={editForm.fo_name || ''} onChange={e => setEditForm(p => ({ ...p, fo_name: e.target.value }))}
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Member Name</label>
+                      <input type="text" value={editForm.member_name || ''} onChange={e => setEditForm(p => ({ ...p, member_name: e.target.value }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Product Type</label>
+                      <select value={editForm.product_type || 'Individual Loan'} onChange={e => setEditForm(p => ({ ...p, product_type: e.target.value }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+                        <option value="Individual Loan">Individual Loan</option>
+                        <option value="Group Loan">Group Loan</option>
+                        <option value="Business Loan">Business Loan</option>
+                        <option value="Personal Loan">Personal Loan</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Loan Status</label>
+                      <select value={editForm.status || 'ACTIVE'} onChange={e => setEditForm(p => ({ ...p, status: e.target.value as any }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-semibold">
+                        <option value="ACTIVE">ACTIVE</option>
+                        <option value="CLOSED">CLOSED</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Disbursement Date *</label>
+                      <input type="date" value={editForm.disbursement_date || ''} onChange={e => setEditForm(p => ({ ...p, disbursement_date: e.target.value }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">First Installment Date (1st EMI) *</label>
+                      <input type="date" value={editForm.installment_start_date || ''} onChange={e => setEditForm(p => ({ ...p, installment_start_date: e.target.value }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-bold text-blue-700" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Repayment Frequency</label>
+                      <select value={editForm.frequency || 'Weekly'} onChange={e => setEditForm(p => ({ ...p, frequency: e.target.value as any }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+                        <option value="Weekly">Weekly</option>
+                        <option value="Bi-Monthly">Bi-Monthly</option>
+                        <option value="Monthly">Monthly</option>
+                        <option value="Daily">Daily</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Loan Amount (₹)</label>
+                      <input type="number" value={editForm.loan_amount ?? ''} onChange={e => setEditForm(p => ({ ...p, loan_amount: Number(e.target.value) }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono font-semibold" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Net Disbursement (₹)</label>
+                      <input type="number" value={editForm.net_disbursement ?? ''} onChange={e => setEditForm(p => ({ ...p, net_disbursement: Number(e.target.value) }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">File Charge / Processing Fee (₹)</label>
+                      <input type="number" value={editForm.file_charge ?? ''} onChange={e => setEditForm(p => ({ ...p, file_charge: Number(e.target.value) }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono" />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Interest Rate (% p.a.)</label>
+                      <input type="number" step="0.01" value={editForm.interest_rate ?? ''} onChange={e => setEditForm(p => ({ ...p, interest_rate: Number(e.target.value) }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tenure (Total Installments)</label>
+                      <input type="number" value={editForm.tenure ?? ''} onChange={e => setEditForm(p => ({ ...p, tenure: Number(e.target.value) }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono font-semibold" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">EMI Amount (₹)</label>
+                      <input type="number" value={editForm.installment_amount ?? ''} onChange={e => setEditForm(p => ({ ...p, installment_amount: Number(e.target.value) }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono font-bold text-blue-700" />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Branch Code</label>
+                      <input type="text" value={editForm.branch_code || ''} onChange={e => setEditForm(p => ({ ...p, branch_code: e.target.value }))}
                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
                     </div>
                     <div className="space-y-1">
@@ -1609,15 +1784,11 @@ export default function LoanDetailPage({ params }: PageProps) {
                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Branch Code</label>
-                      <input type="text" value={editForm.branch_code || ''} onChange={e => setEditForm(p => ({ ...p, branch_code: e.target.value }))}
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Field Officer Name</label>
+                      <input type="text" value={editForm.fo_name || ''} onChange={e => setEditForm(p => ({ ...p, fo_name: e.target.value }))}
                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Product Type</label>
-                      <input type="text" value={editForm.product_type || ''} onChange={e => setEditForm(p => ({ ...p, product_type: e.target.value }))}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                    </div>
+
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Repayment Mode</label>
                       <select value={editForm.repayment_mode || ''} onChange={e => setEditForm(p => ({ ...p, repayment_mode: e.target.value }))}
@@ -1635,8 +1806,8 @@ export default function LoanDetailPage({ params }: PageProps) {
                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
                     </div>
                   </div>
-                  <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl text-xs text-amber-700">
-                    <strong>Note:</strong> To change core loan terms (amount, rate, tenure, EMI), use the <strong>Restructure</strong> tab. This tab only updates administrative fields.
+                  <div className="bg-blue-50 border border-blue-200 p-3 rounded-xl text-xs text-blue-800">
+                    <strong>Note:</strong> Modifying the <strong>First Installment Date</strong> or financial terms (amount, tenure, EMI) will automatically re-calculate and update all repayment schedule due dates accordingly.
                   </div>
                   <button onClick={handleSaveEdit} disabled={editSaving}
                     className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-bold rounded-xl text-xs transition">
