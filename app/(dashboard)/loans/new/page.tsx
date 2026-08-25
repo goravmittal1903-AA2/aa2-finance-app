@@ -520,17 +520,18 @@ function NewLoanWizard() {
           </div>
         )}
 
-        {/* STEP 2: Product & Financial Parameters */}
+                {/* STEP 2: Product & Financial Parameters */}
         {currentStep === 2 && (
           <div className="space-y-5 tab-transition">
             <div className="border-b border-slate-100 pb-3">
               <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <DollarSign className="w-4 h-4 text-blue-600" /> Step 2: Loan Product &amp; Financial Parameters
               </h3>
-              <p className="text-xs text-slate-400 mt-0.5">Configure sanction amount, flat interest rate, tenure, and deduction fees.</p>
+              <p className="text-xs text-slate-400 mt-0.5">Configure sanction amount, tenure, flat interest rate, EMI, and deduction charges.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              {/* 1. Loan Product Scheme */}
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">Loan Product Scheme *</label>
                 <select
@@ -539,14 +540,26 @@ function NewLoanWizard() {
                     const val = e.target.value
                     if (PRODUCT_DEFAULTS[val]) {
                       const def = PRODUCT_DEFAULTS[val]
+                      const amt = Number(def.loan_amount) || 0
+                      const term = Number(def.tenure) || 1
+                      const rate = Number(def.interest_rate) || 0
+                      const freq = def.frequency
+                      const periodsPerYear = freq === 'Weekly' ? 52 : freq === 'Bi-Monthly' ? 24 : freq === 'Quarterly' ? 4 : 12
+                      const tenureYears = term / periodsPerYear
+                      const totalInterest = amt * (rate / 100) * tenureYears
+                      const emi = term > 0 ? Math.round((amt + totalInterest) / term) : 0
+                      const pct = amt > 0 ? ((Number(def.file_charge) / amt) * 100).toFixed(2) : '2.00'
+
                       setFormData(prev => ({
                         ...prev,
                         product_type: val,
                         frequency: def.frequency,
                         loan_amount: def.loan_amount,
                         interest_rate: def.interest_rate,
+                        emi_amount: String(emi),
                         tenure: def.tenure,
                         file_charge: def.file_charge,
+                        file_charge_pct: pct,
                       }))
                     } else {
                       setFormData(prev => ({ ...prev, product_type: val }))
@@ -561,13 +574,22 @@ function NewLoanWizard() {
                 </select>
               </div>
 
+              {/* 2. Repayment Frequency */}
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">Repayment Frequency *</label>
                 <select
                   value={formData.frequency}
                   onChange={e => {
                     const freq = e.target.value
-                    setFormData(prev => ({ ...prev, frequency: freq }))
+                    const amt = Number(formData.loan_amount) || 0
+                    const term = Number(formData.tenure) || 1
+                    const rate = Number(formData.interest_rate) || 0
+                    const periodsPerYear = freq === 'Weekly' ? 52 : freq === 'Bi-Monthly' ? 24 : freq === 'Quarterly' ? 4 : 12
+                    const tenureYears = term / periodsPerYear
+                    const totalInterest = amt * (rate / 100) * tenureYears
+                    const emi = term > 0 ? Math.round((amt + totalInterest) / term) : 0
+
+                    setFormData(prev => ({ ...prev, frequency: freq, emi_amount: String(emi) }))
                     handleDisbursementDateChange(formData.disbursement_date)
                   }}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -579,45 +601,174 @@ function NewLoanWizard() {
                 </select>
               </div>
 
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Sanction Loan Amount (₹) *</label>
-                <input
-                  type="number"
-                  value={formData.loan_amount}
-                  onChange={e => setFormData(prev => ({ ...prev, loan_amount: e.target.value }))}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Annual Interest Rate (% p.a. flat) *</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={formData.interest_rate}
-                  onChange={e => setFormData(prev => ({ ...prev, interest_rate: e.target.value }))}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
+              {/* 3. Tenure (Number of Installments) */}
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">Tenure (Number of Installments) *</label>
                 <input
                   type="number"
                   value={formData.tenure}
-                  onChange={e => setFormData(prev => ({ ...prev, tenure: e.target.value }))}
+                  onChange={e => {
+                    const term = Number(e.target.value) || 0
+                    const amt = Number(formData.loan_amount) || 0
+                    const rate = Number(formData.interest_rate) || 0
+                    const freq = formData.frequency
+                    const periodsPerYear = freq === 'Weekly' ? 52 : freq === 'Bi-Monthly' ? 24 : freq === 'Quarterly' ? 4 : 12
+                    const tenureYears = term > 0 ? term / periodsPerYear : 0
+                    const totalInterest = amt * (rate / 100) * tenureYears
+                    const emi = term > 0 ? Math.round((amt + totalInterest) / term) : 0
+
+                    setFormData(prev => ({ ...prev, tenure: e.target.value, emi_amount: String(emi) }))
+                  }}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
+              {/* 4. Sanction Loan Amount */}
               <div>
-                <label className="font-semibold text-slate-700 block mb-1">Processing / File Fee (₹)</label>
+                <label className="font-semibold text-slate-700 block mb-1">Sanction Loan Amount (₹) *</label>
+                <input
+                  type="number"
+                  value={formData.loan_amount}
+                  onChange={e => {
+                    const amt = Number(e.target.value) || 0
+                    const term = Number(formData.tenure) || 1
+                    const rate = Number(formData.interest_rate) || 0
+                    const freq = formData.frequency
+                    const periodsPerYear = freq === 'Weekly' ? 52 : freq === 'Bi-Monthly' ? 24 : freq === 'Quarterly' ? 4 : 12
+                    const tenureYears = term > 0 ? term / periodsPerYear : 0
+                    const totalInterest = amt * (rate / 100) * tenureYears
+                    const emi = term > 0 ? Math.round((amt + totalInterest) / term) : 0
+
+                    // Also recalculate file charge based on current percentage
+                    const pct = Number(formData.file_charge_pct) || 0
+                    const fileFee = Math.round((amt * pct) / 100)
+
+                    setFormData(prev => ({
+                      ...prev,
+                      loan_amount: e.target.value,
+                      emi_amount: String(emi),
+                      file_charge: String(fileFee),
+                    }))
+                  }}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* 5. Annual Interest Rate (% p.a. flat) <-> Installment Amount (Two-Way Auto-Calculated) */}
+              <div className="bg-blue-50/40 border border-blue-200/80 rounded-2xl p-3.5 space-y-2">
+                <label className="font-bold text-blue-900 block text-[11px] uppercase tracking-wider">
+                  Annual Interest Rate (% p.a. flat)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={formData.interest_rate}
+                  onChange={e => {
+                    const rate = Number(e.target.value) || 0
+                    const amt = Number(formData.loan_amount) || 0
+                    const term = Number(formData.tenure) || 1
+                    const freq = formData.frequency
+                    const periodsPerYear = freq === 'Weekly' ? 52 : freq === 'Bi-Monthly' ? 24 : freq === 'Quarterly' ? 4 : 12
+                    const tenureYears = term / periodsPerYear
+                    const totalInterest = amt * (rate / 100) * tenureYears
+                    const emi = term > 0 ? Math.round((amt + totalInterest) / term) : 0
+
+                    setFormData(prev => ({
+                      ...prev,
+                      interest_rate: e.target.value,
+                      emi_amount: String(emi),
+                    }))
+                  }}
+                  className="w-full px-3 py-2 bg-white border border-blue-300 rounded-xl font-mono text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <span className="text-[10px] text-blue-600 font-medium block">
+                  Entering Rate auto-calculates Instalment EMI
+                </span>
+              </div>
+
+              <div className="bg-emerald-50/40 border border-emerald-200/80 rounded-2xl p-3.5 space-y-2">
+                <label className="font-bold text-emerald-900 block text-[11px] uppercase tracking-wider">
+                  Instalment / EMI Amount (₹)
+                </label>
+                <input
+                  type="number"
+                  value={formData.emi_amount}
+                  onChange={e => {
+                    const emi = Number(e.target.value) || 0
+                    const amt = Number(formData.loan_amount) || 0
+                    const term = Number(formData.tenure) || 1
+                    const freq = formData.frequency
+                    const periodsPerYear = freq === 'Weekly' ? 52 : freq === 'Bi-Monthly' ? 24 : freq === 'Quarterly' ? 4 : 12
+                    const tenureYears = term / periodsPerYear
+                    const totalRepayable = emi * term
+                    const totalInterest = totalRepayable - amt
+                    const flatRate = (amt > 0 && tenureYears > 0 && totalInterest >= 0)
+                      ? ((totalInterest / (amt * tenureYears)) * 100).toFixed(2)
+                      : '0.00'
+
+                    setFormData(prev => ({
+                      ...prev,
+                      emi_amount: e.target.value,
+                      interest_rate: flatRate,
+                    }))
+                  }}
+                  className="w-full px-3 py-2 bg-white border border-emerald-300 rounded-xl font-mono text-sm font-bold text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <span className="text-[10px] text-emerald-700 font-medium block">
+                  Entering EMI auto-calculates Interest Rate (% p.a.)
+                </span>
+              </div>
+
+              {/* 6. Processing / File Fee (%) <-> Processing / File Fee (₹) (Two-Way Auto-Calculated) */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2">
+                <label className="font-bold text-slate-700 block text-[11px] uppercase tracking-wider">
+                  Processing Fee (%)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.file_charge_pct}
+                  onChange={e => {
+                    const pct = Number(e.target.value) || 0
+                    const amt = Number(formData.loan_amount) || 0
+                    const fee = Math.round((amt * pct) / 100)
+
+                    setFormData(prev => ({
+                      ...prev,
+                      file_charge_pct: e.target.value,
+                      file_charge: String(fee),
+                    }))
+                  }}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <span className="text-[10px] text-slate-500 font-medium block">
+                  Entering Fee % auto-calculates Fee Amount (₹)
+                </span>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2">
+                <label className="font-bold text-slate-700 block text-[11px] uppercase tracking-wider">
+                  Processing Fee (₹)
+                </label>
                 <input
                   type="number"
                   value={formData.file_charge}
-                  onChange={e => setFormData(prev => ({ ...prev, file_charge: e.target.value }))}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={e => {
+                    const fee = Number(e.target.value) || 0
+                    const amt = Number(formData.loan_amount) || 0
+                    const pct = amt > 0 ? ((fee / amt) * 100).toFixed(2) : '0.00'
+
+                    setFormData(prev => ({
+                      ...prev,
+                      file_charge: e.target.value,
+                      file_charge_pct: pct,
+                    }))
+                  }}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <span className="text-[10px] text-slate-500 font-medium block">
+                  Entering Fee Amount auto-calculates Fee %
+                </span>
               </div>
             </div>
 

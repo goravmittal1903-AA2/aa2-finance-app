@@ -466,7 +466,7 @@ export default function LoansPage() {
               )}
               {filtered.map(p => {
                 const isSelected = selectedLoanNos.has(p.loan_account_no)
-                const product = loanProductMap.get(p.loan_account_no) || 'Individual Loan'
+                const product = loanProductMap.get(p.loan_account_no) || 'Individual Loan (IL)'
 
                 return (
                   <tr key={p.loan_account_no} className={`hover:bg-slate-50/60 transition ${isSelected ? 'bg-blue-50/40' : ''}`}>

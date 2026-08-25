@@ -137,7 +137,7 @@ export default function LoanDetailPage({ params }: PageProps) {
         fo_name: l.fo_name,
         bm_name: l.bm_name,
         branch_code: l.branch_code,
-        product_type: l.product_type || 'Individual Loan',
+        product_type: l.product_type || 'Individual Loan (IL)',
         loan_amount: l.loan_amount,
         net_disbursement: l.net_disbursement,
         file_charge: l.file_charge,
@@ -406,7 +406,7 @@ export default function LoanDetailPage({ params }: PageProps) {
         disb_date: editForm.disbursement_date || loan.disbursement_date,
         installment_start_date: startDateStr,
         first_installment_date: startDateStr,
-        product_type: editForm.product_type || loan.product_type || 'Individual Loan',
+        product_type: editForm.product_type || loan.product_type || 'Individual Loan (IL)',
         status: editForm.status || loan.status,
         penalty_per_day: Number(editForm.penalty_per_day ?? loan.penalty_per_day ?? 0),
         updated_at: new Date().toISOString(),
@@ -763,7 +763,7 @@ export default function LoanDetailPage({ params }: PageProps) {
           new_installment_amount: Number(topupEmi),
           topup_date: topupDate,
           first_emi_date: topupStartDate || topupDate,
-          product_type: loan.product_type || 'Individual Loan',
+          product_type: loan.product_type || 'Individual Loan (IL)',
         })
 
         toast.success('Top-Up Disbursed', `In-Place Top-Up of ${inr(topupAmt)} disbursed and Top-Up sanction letter generated!`)
@@ -1713,7 +1713,7 @@ export default function LoanDetailPage({ params }: PageProps) {
                     </div>
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Product Type</label>
-                      <select value={editForm.product_type || 'Individual Loan'} onChange={e => setEditForm(p => ({ ...p, product_type: e.target.value }))}
+                      <select value={editForm.product_type || 'Individual Loan (IL)'} onChange={e => setEditForm(p => ({ ...p, product_type: e.target.value }))}
                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
                         <option value="Individual Loan">Individual Loan</option>
                         <option value="Group Loan">Group Loan</option>
