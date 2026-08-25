@@ -68,6 +68,8 @@ export interface Loan {
   aadhar_last4?: string
   pan_no?: string
   pincode?: string
+  broken_interest?: number
+  broken_interest_collection_mode?: 'UPFRONT_DEDUCTION' | 'ADD_TO_FIRST_EMI'
   created_at: string
   created_by: string
   updated_at: string

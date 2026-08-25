@@ -1183,3 +1183,198 @@ export function generateOTSSettlementLetter(data: OTSSettlementLetterData) {
   `
   printDocument(`OTS_Settlement_${data.loan_account_no}`, body)
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 9. MEMBER LOAN PASSBOOK PRINT SHEET
+// ═══════════════════════════════════════════════════════════════════════════════
+export interface PassbookData {
+  loan_account_no: string
+  member_name: string
+  customer_id: string
+  father_husband_name?: string
+  mobile?: string
+  address?: string
+  branch_code: string
+  fo_name?: string
+  loan_amount: number
+  installment_amount: number
+  tenure: number
+  frequency: string
+  disbursement_date: string
+  ledger_balance: number
+  total_collected: number
+  schedule: {
+    installment_no: number
+    due_date: string
+    emi_due: number
+    principal_due: number
+    interest_due: number
+    paid_amount: number
+    paid_date: string | null
+    status: string
+    closing_balance: number
+  }[]
+  transactions?: {
+    txn_id: number | string
+    txn_date: string
+    amount: number
+    mode: string
+    reference_no: string
+  }[]
+}
+
+export function generatePassbook(data: PassbookData) {
+  const rows = data.schedule.map(s => `
+    <tr>
+      <td class="center font-mono"><strong>#${s.installment_no}</strong></td>
+      <td class="center font-mono">${FDATE(s.due_date)}</td>
+      <td class="right font-mono">${INR(s.emi_due)}</td>
+      <td class="center font-mono">${s.paid_date ? FDATE(s.paid_date) : '—'}</td>
+      <td class="right font-mono" style="font-weight: 700; color: ${s.paid_amount > 0 ? '#166534' : '#64748b'};">${s.paid_amount > 0 ? INR(s.paid_amount) : '—'}</td>
+      <td class="right font-mono">${INR(s.closing_balance)}</td>
+      <td class="center"><span class="badge ${s.status === 'Paid' ? 'badge-green' : s.status === 'Overdue' ? 'badge-red' : s.status === 'Partial' ? 'badge-amber' : 'badge-gray'}">${s.status}</span></td>
+      <td style="width: 70px; border-bottom: 1px dashed #cbd5e1;"></td>
+    </tr>`).join('')
+
+  const body = `
+    <div class="doc-title doc-title-navy">MEMBER LOAN ACCOUNT PASSBOOK</div>
+
+    <div class="grid" style="margin-bottom: 12px;">
+      <div class="box">
+        <div class="box-title">Member Details</div>
+        <div class="row"><span class="label">Member Name:</span> <span class="value"><strong>${data.member_name}</strong></span></div>
+        <div class="row"><span class="label">Customer ID:</span> <span class="value font-mono">${data.customer_id}</span></div>
+        <div class="row"><span class="label">S/O, W/O, D/O:</span> <span class="value">${data.father_husband_name || '—'}</span></div>
+        <div class="row"><span class="label">Mobile:</span> <span class="value font-mono">${data.mobile || '—'}</span></div>
+        <div class="row"><span class="label">Address:</span> <span class="value">${data.address || '—'}</span></div>
+      </div>
+      <div class="box">
+        <div class="box-title">Loan Facility Matrix</div>
+        <div class="row"><span class="label">Loan Account No:</span> <span class="value font-mono"><strong>${data.loan_account_no}</strong></span></div>
+        <div class="row"><span class="label">Sanction Amount:</span> <span class="value font-bold">${INR(data.loan_amount)}</span></div>
+        <div class="row"><span class="label">EMI Installment:</span> <span class="value font-bold" style="color: #1d4ed8;">${INR(data.installment_amount)} (${data.frequency})</span></div>
+        <div class="row"><span class="label">Disbursal Date:</span> <span class="value">${FDATE(data.disbursement_date)}</span></div>
+        <div class="row"><span class="label">Branch / Field Officer:</span> <span class="value">${data.branch_code} / ${data.fo_name || '—'}</span></div>
+      </div>
+    </div>
+
+    <div class="section-title">Installment Collection & Balance Ledger</div>
+    <table>
+      <thead>
+        <tr>
+          <th>EMI #</th>
+          <th>Due Date</th>
+          <th>EMI Due</th>
+          <th>Date Paid</th>
+          <th>Amount Paid</th>
+          <th>Principal Balance</th>
+          <th>Status</th>
+          <th>FO Initial</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+
+    <div class="footer-note" style="margin-top: 20px;">
+      <strong>Passbook Rules:</strong> 1. Always demand an official printed/thermal receipt for every cash handover. 2. Verify and preserve this passbook at every weekly/monthly collection meeting.
+    </div>
+
+    <div class="signatures" style="margin-top: 40px;">
+      <div class="sig-box">Borrower's Signature</div>
+      <div class="sig-box">Field Officer Signature</div>
+      <div class="sig-box">Branch Manager Signature</div>
+    </div>
+  `
+  printDocument(`Passbook_${data.loan_account_no}`, body)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 10. LEGAL LOAN AGREEMENT & DEMAND PROMISSORY NOTE (DPN)
+// ═══════════════════════════════════════════════════════════════════════════════
+export interface LoanAgreementData {
+  loan_account_no: string
+  member_name: string
+  customer_id: string
+  father_husband_name?: string
+  mobile?: string
+  address?: string
+  branch_code: string
+  fo_name?: string
+  bm_name?: string
+  loan_amount: number
+  net_disbursement: number
+  interest_rate: number
+  tenure: number
+  frequency: string
+  installment_amount: number
+  disbursement_date: string
+  installment_start_date: string
+  product_type: string
+}
+
+export function generateLoanAgreement(data: LoanAgreementData) {
+  const body = `
+    <div class="doc-title doc-title-navy">MICROFINANCE LOAN AGREEMENT &amp; DEMAND PROMISSORY NOTE</div>
+
+    <div style="text-align: right; font-size: 10px; color: #64748b; margin-bottom: 12px;">
+      Facility Ref: <strong>${data.loan_account_no}</strong> &nbsp;|&nbsp; Date: <strong>${FDATE(data.disbursement_date)}</strong>
+    </div>
+
+    <p class="text-sm" style="line-height: 1.8;">
+      THIS LOAN AGREEMENT is executed on this <strong>${FDATE(data.disbursement_date)}</strong> at <strong>${data.branch_code}</strong> between:
+      <br>
+      <strong>AA2 MICROFINANCE PVT. LTD.</strong>, an NBFC-MFI operating under RBI guidelines, having its Branch Office at <strong>${data.branch_code}</strong> (hereinafter referred to as the <strong>"Lender"</strong>), and
+      <br>
+      <strong>${data.member_name}</strong> (Customer ID: <strong>${data.customer_id}</strong>), S/D/W of <strong>${data.father_husband_name || '—'}</strong>, residing at <strong>${data.address || 'On Record'}</strong>, Mobile: <strong>${data.mobile || '—'}</strong> (hereinafter referred to as the <strong>"Borrower"</strong>).
+    </p>
+
+    <div class="section-title">Schedule of Key Financial Terms</div>
+    <table>
+      <tbody>
+        <tr><td style="width: 35%;" class="left font-bold">Facility Account Number</td><td class="font-mono font-bold text-blue">${data.loan_account_no}</td></tr>
+        <tr><td class="left font-bold">Product Scheme</td><td>${data.product_type}</td></tr>
+        <tr><td class="left font-bold">Sanctioned Principal Amount</td><td class="font-bold">${INR(data.loan_amount)}</td></tr>
+        <tr><td class="left font-bold">Net Disbursed Amount</td><td class="font-bold font-mono">${INR(data.net_disbursement)}</td></tr>
+        <tr><td class="left font-bold">Annual Flat Interest Rate</td><td>${data.interest_rate}% p.a.</td></tr>
+        <tr><td class="left font-bold">Repayment Tenure &amp; Frequency</td><td>${data.tenure} ${data.frequency} Installments</td></tr>
+        <tr><td class="left font-bold">Equated Installment Amount (EMI)</td><td class="font-bold text-emerald">${INR(data.installment_amount)} per ${data.frequency}</td></tr>
+        <tr><td class="left font-bold">First Repayment Due Date</td><td class="font-mono">${FDATE(data.installment_start_date)}</td></tr>
+      </tbody>
+    </table>
+
+    <div class="box mb-4" style="background: #f8fafc; border-color: #cbd5e1; margin-top: 15px;">
+      <div class="box-title" style="color: #0f172a;">DEMAND PROMISSORY NOTE (DPN)</div>
+      <p class="text-xs" style="color: #334155; line-height: 1.8; margin: 0;">
+        ON DEMAND, I, <strong>${data.member_name}</strong>, promise to pay <strong>AA2 MICROFINANCE PVT. LTD.</strong> or order, at <strong>${data.branch_code}</strong>, the sum of <strong>${INR(data.loan_amount)}</strong> (Rupees in words: ${INR(data.loan_amount)}) together with interest at the rate of <strong>${data.interest_rate}% per annum</strong> for value received.
+      </p>
+    </div>
+
+    <div class="box mb-4" style="background: #ffffff; border-color: #e2e8f0;">
+      <div class="box-title">Terms &amp; Conditions</div>
+      <p class="text-xs" style="color: #475569; line-height: 1.7; margin: 0;">
+        1. <strong>Repayment Obligation:</strong> The Borrower agrees to pay each installment on or before the due date specified in the Repayment Schedule.<br>
+        2. <strong>Prepayment &amp; Foreclosure:</strong> As per RBI MFI Master Directions, no prepayment penalty shall be charged for early loan foreclosure.<br>
+        3. <strong>Default &amp; Credit Bureau Reporting:</strong> In case of overdue repayment, the loan will be classified as SMA/NPA and reported to CRIF High Mark, Equifax, Experian, and CIBIL.
+      </p>
+    </div>
+
+    <div class="signatures" style="margin-top: 50px;">
+      <div class="sig-box">
+        Signature / Thumb Impression of Borrower<br>
+        <span style="font-size: 9px; color: #64748b;">(${data.member_name})</span>
+      </div>
+      <div class="sig-box">
+        Field Officer / Witness<br>
+        <span style="font-size: 9px; color: #64748b;">(${data.fo_name || 'Staff'})</span>
+      </div>
+      <div class="sig-box">
+        Authorized Signatory<br>
+        <span style="font-size: 9px; color: #64748b;">(Branch Manager, ${data.branch_code})</span>
+      </div>
+    </div>
+  `
+  printDocument(`Loan_Agreement_${data.loan_account_no}`, body)
+}
