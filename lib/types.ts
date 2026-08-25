@@ -172,6 +172,7 @@ export interface PortfolioRow {
   par_flag: number
   disb_date: string
   frequency: string
+  mobile?: string
 }
 
 export type UserRole = 'employee' | 'admin' | 'it'

@@ -23,7 +23,7 @@ interface PageProps {
   params: Promise<{ id: string }>
 }
 
-type TabType = 'schedule' | 'transactions' | 'foreclose' | 'ots' | 'edit' | 'restructure' | 'topup' | 'documents' | 'soa'
+type TabType = 'schedule' | 'transactions' | 'foreclose' | 'ots' | 'edit' | 'restructure' | 'topup' | 'documents' | 'soa' | 'audit'
 
 interface LoanDocument {
   doc_id: string
@@ -48,6 +48,7 @@ export default function LoanDetailPage({ params }: PageProps) {
   const [schedule, setSchedule] = useState<ScheduleRow[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [documents, setDocuments] = useState<LoanDocument[]>([])
+  const [auditLogs, setAuditLogs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabType>('schedule')
 
@@ -183,6 +184,14 @@ export default function LoanDetailPage({ params }: PageProps) {
       setSchedule(sched.sort((a, b) => a.installment_no - b.installment_no))
       setTransactions(cleanTxs.sort((a, b) => (b.txn_date || '').localeCompare(a.txn_date || '') || Number(b.txn_id || 0) - Number(a.txn_id || 0)))
       setDocuments(mergedDocs)
+      const { getAuditLogs } = await import('@/lib/audit')
+      const allLogs = await getAuditLogs()
+      const loanLogs = allLogs.filter(l =>
+        l.entity_id === id ||
+        (l.narration && l.narration.includes(id)) ||
+        (l.entity_type === 'LOAN' && l.entity_id === id)
+      )
+      setAuditLogs(loanLogs)
       if (l.installment_amount) setPayAmount(String(l.installment_amount))
     } catch (err) {
       console.error('Error fetching loan detail:', err)
@@ -1065,6 +1074,7 @@ export default function LoanDetailPage({ params }: PageProps) {
       { key: 'ots' as TabType, label: 'OTS Settlement', icon: Handshake },
     ] : []),
     { key: 'documents', label: `Docs (${documents.length})`, icon: Paperclip },
+    { key: 'audit' as TabType, label: `Audit Trail (${auditLogs.length})`, icon: FileText },
   ]
 
   function Receipt({ className }: { className?: string }) {
@@ -1416,7 +1426,7 @@ export default function LoanDetailPage({ params }: PageProps) {
         </div>
 
         {/* Right Column: Tabbed Lists */}
-        <div className="xl:col-span-2 space-y-6">
+        <div className="xl:col-span-2 space-y-6 tab-transition">
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
             {/* Tabs Header */}
             <div className="flex flex-wrap border-b border-slate-100 bg-slate-50/50 px-2">
