@@ -223,7 +223,7 @@ function NewLoanWizard() {
       product_type: formData.product_type,
     }
     return generateSchedule(dummyLoan)
-  }, [formData, economics, selectedMember])
+  }, [formData, economics, selectedMember, brokenPeriod, formData.broken_interest_collection_mode])
 
   const PRODUCT_DEFAULTS: Record<string, { frequency: string, loan_amount: string, interest_rate: string, tenure: string, file_charge: string }> = {
     'Individual Loan (IL)': { frequency: 'Weekly', loan_amount: '30000', interest_rate: '24', tenure: '50', file_charge: '600' },

@@ -2426,6 +2426,42 @@ export default function LoanDetailPage({ params }: PageProps) {
                   )}
                 </div>
               )}
+
+              {/* TAB 9: Audit Trail */}
+              {activeTab === 'audit' && (
+                <div className="bg-white rounded-2xl p-6 shadow-xs border border-slate-100 space-y-4 tab-transition">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-purple-600" /> Immutable Loan Activity Audit History ({auditLogs.length})
+                    </h3>
+                    <span className="text-xs text-slate-400">Chronological history of sanction, repayments, and adjustments</span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {auditLogs.map((log: any, idx: number) => (
+                      <div key={log.id || log.log_id || idx} className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 text-xs flex justify-between items-start gap-4">
+                        <div className="space-y-1">
+                          <p className="font-bold text-slate-800">{log.narration}</p>
+                          <div className="flex items-center gap-3 text-slate-400 text-[10.5px]">
+                            <span>Event: <strong className="text-blue-600 font-mono font-bold">{log.event_type}</strong></span>
+                            <span>Actor: <strong className="text-slate-600">{log.actor_email || log.actor_name || 'System'}</strong></span>
+                            {log.branch_code && <span>Branch: {log.branch_code}</span>}
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-mono text-slate-400 whitespace-nowrap bg-white px-2 py-1 rounded border border-slate-200">
+                          {fdate(log.timestamp || log.created_at || todayISO())}
+                        </span>
+                      </div>
+                    ))}
+
+                    {auditLogs.length === 0 && (
+                      <div className="py-8 text-center text-slate-400 text-xs">
+                        No activity audit events recorded for this loan yet. All sanctions, repayments, top-ups, and waivers are recorded here.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
