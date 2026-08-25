@@ -216,21 +216,29 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
     getOne<Loan>('loans', loan_account_no),
   ])
 
-  // Step 1: Sort and reset non-fixed rows
+  // Step 1: Sort and set baseline rows (respecting imported paid EMIs)
   const rows = rawRows.sort((a, b) => a.installment_no - b.installment_no)
+  const importedPaidEmi = Number((loan as any)?.paid_emi || (loan as any)?.data?.paid_emi || 0)
 
   for (const r of rows) {
     if (r.status !== 'Restructured' && r.status !== 'Waived') {
-      r.paid_amount = 0
-      r.status = 'Pending'
-      r.paid_date = null
-      r.dpd = 0
+      if (importedPaidEmi > 0 && r.installment_no <= importedPaidEmi) {
+        r.paid_amount = r.emi_due
+        r.status = 'Paid'
+        r.paid_date = r.paid_date || r.due_date
+        r.dpd = 0
+      } else {
+        r.paid_amount = 0
+        r.status = 'Pending'
+        r.paid_date = null
+        r.dpd = 0
+      }
     }
   }
 
-  // Step 2: Filter, sort, and physically purge duplicate payment transactions
+  // Step 2: Filter, sort, and physically purge duplicate post-import payment transactions
   const sortedRaw = rawTxns
-    .filter(t => (t.txn_type === 'PAYMENT' || t.txn_type === 'FORECLOSURE') && !t.voided)
+    .filter(t => (t.txn_type === 'PAYMENT' || t.txn_type === 'FORECLOSURE') && !t.voided && (t as any).created_by !== 'excel_import')
     .sort((a, b) => a.txn_date.localeCompare(b.txn_date) || (a.txn_id || 0) - (b.txn_id || 0))
 
   const txns: Transaction[] = []
