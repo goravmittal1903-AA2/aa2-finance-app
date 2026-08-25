@@ -43,16 +43,24 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = adminClient()
-    let query = supabase.from(table).select('data')
+    let allData: any[] = []
+    let from = 0
+    const STEP = 1000
 
-    if (field && value) {
-      query = query.eq(`data->>${field}`, value) as any
+    while (true) {
+      let query = supabase.from(table).select('data').range(from, from + STEP - 1)
+      if (field && value) {
+        query = query.eq(`data->>${field}`, value) as any
+      }
+      const { data, error } = await query
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+      if (!data || data.length === 0) break
+      allData = allData.concat(data)
+      if (data.length < STEP) break
+      from += STEP
     }
 
-    const { data, error } = await query
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-
-    return NextResponse.json({ records: (data || []).map((r: any) => r.data) })
+    return NextResponse.json({ records: (allData || []).map((r: any) => r.data) })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 })
   }

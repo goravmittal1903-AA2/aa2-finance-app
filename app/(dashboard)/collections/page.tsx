@@ -253,7 +253,7 @@ export default function CollectionsPage() {
         const totalOverdue = overdueRows.reduce((s, r) => s + Math.max(0, (r.emi_due || 0) - (r.paid_amount || 0)), 0)
         const totalDue = todayEmi + totalOverdue
 
-        if ((todayRow && todayRow.status !== 'Paid') || totalOverdue > 0) {
+        if (todayRow && todayRow.status !== 'Paid') {
           const firstEmiDate = loan.installment_start_date || (loan as any).first_installment_date || loan.disbursement_date
           const meetingDay = getMeetingDay(firstEmiDate)
           const freq = loan.frequency || (loan as any).repayment_frequency || 'Weekly'
