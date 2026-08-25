@@ -11,7 +11,7 @@ import { inr, todayISO, fdate } from '@/lib/utils'
 import { generatePaymentReceipt, generateThermalPaymentReceipt } from '@/lib/document-generator'
 import {
   Calendar, Search, Save, CheckCircle, AlertCircle, Sparkles,
-  Upload, Download, Printer, FileText, Table2, RefreshCw, Smartphone
+  Upload, Download, Printer, FileText, Table2, Smartphone
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 
@@ -24,13 +24,13 @@ interface CollectionEntry {
   referenceNo: string
 }
 
-type Tab = 'sheet' | 'csv_upload' | 'field_printout' | 'individual'
+type Tab = 'sheet' | 'individual' | 'csv_upload' | 'field_printout'
 
 interface EmiEntry {
   loan: Loan
-  rows: ScheduleRow[]           // grouped EMI rows for this loan
-  totalBalance: number          // sum of balances across all due EMIs
-  emiCount: number              // how many EMIs are due
+  rows: ScheduleRow[]
+  totalBalance: number
+  emiCount: number
   firstDueDate: string
   lastEmiNo: number
   collectAmt: string
@@ -146,6 +146,7 @@ export default function CollectionsPage() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
+
   // Individual EMI tab state
   const [emiEntries, setEmiEntries] = useState<EmiEntry[]>([])
   const [emiLoading, setEmiLoading] = useState(false)
@@ -158,12 +159,56 @@ export default function CollectionsPage() {
 
   useEffect(() => {
     loadCollectionSheet()
-    const handler = () => loadCollectionSheet()
+    if (activeTab === 'individual') loadEmiEntries()
+    const handler = () => {
+      loadCollectionSheet()
+      if (activeTab === 'individual') loadEmiEntries()
+    }
     window.addEventListener('aa2_data_changed', handler)
     return () => window.removeEventListener('aa2_data_changed', handler)
-  }, [date])
+  }, [date, activeTab, branch, foName])
 
+  async function loadCollectionSheet() {
+    setLoading(true)
+    setErrorMessage('')
+    try {
+      const [loans, schedule] = await Promise.all([
+        getAll<Loan>('loans'),
+        getAll<ScheduleRow>('schedule')
+      ])
+      const activeLoans = loans.filter(l => l.status === 'ACTIVE' || l.status === 'SANCTIONED')
+      const newEntries: CollectionEntry[] = []
 
+      for (const loan of activeLoans) {
+        // Accurately capture Pending, Overdue, and Partial dues on or before selected date
+        const dueRows = schedule.filter(r =>
+          r.loan_account_no === loan.loan_account_no &&
+          (r.status === 'Pending' || r.status === 'Overdue' || r.status === 'Partial') &&
+          r.due_date <= date
+        )
+
+        // Calculate exact remaining balance due (EMI minus already paid amount)
+        const totalOverdue = dueRows.reduce((s, r) => s + Math.max(0, (r.emi_due || 0) - (r.paid_amount || 0)), 0)
+
+        if (totalOverdue > 0 || dueRows.length > 0) {
+          newEntries.push({
+            loan,
+            emiAmt: loan.installment_amount || 0,
+            totalOverdue,
+            collectedAmount: '',
+            mode: 'Cash',
+            referenceNo: ''
+          })
+        }
+      }
+      setEntries(newEntries)
+    } catch (err) {
+      console.error(err)
+      setErrorMessage('Failed to load collections from database.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   async function loadEmiEntries() {
     setEmiLoading(true)
@@ -173,24 +218,27 @@ export default function CollectionsPage() {
         getAll<ScheduleRow>('schedule')
       ])
       const activeLoans = loans.filter(l => l.status === 'ACTIVE' || l.status === 'SANCTIONED')
-      const today = todayISO()
       const entries: EmiEntry[] = []
+
       for (const loan of activeLoans) {
         const bMatch = !branch || (loan.branch_code || '').toLowerCase().includes(branch.toLowerCase())
         const fMatch = !foName || (loan.fo_name || '').toLowerCase().includes(foName.toLowerCase())
         if (!bMatch || !fMatch) continue
-        // Only show installments due ON OR BEFORE today
+
+        // Capture all unpaid/partially paid EMIs on or before selected date
         const dueRows = schedule
           .filter(r =>
             r.loan_account_no === loan.loan_account_no &&
             (r.status === 'Pending' || r.status === 'Overdue' || r.status === 'Partial') &&
-            r.due_date <= today
+            r.due_date <= date
           )
           .sort((a, b) => a.installment_no - b.installment_no)
+
         if (dueRows.length === 0) continue
-        // Group ALL due EMIs for this loan into ONE entry
+
         const totalBalance = dueRows.reduce((s, r) => s + Math.max(0, (r.emi_due || 0) - (r.paid_amount || 0)), 0)
         if (totalBalance <= 0) continue
+
         entries.push({
           loan,
           rows: dueRows,
@@ -205,39 +253,10 @@ export default function CollectionsPage() {
         })
       }
       setEmiEntries(entries)
-    } catch (err) { console.error(err) }
-    finally { setEmiLoading(false) }
-  }
-
-  useEffect(() => { if (activeTab === 'individual') loadEmiEntries() }, [activeTab, branch, foName])
-
-  async function loadCollectionSheet() {
-    setLoading(true)
-    setErrorMessage('')
-    try {
-      const [loans, schedule] = await Promise.all([
-        getAll<Loan>('loans'),
-        getAll<ScheduleRow>('schedule')
-      ])
-      const activeLoans = loans.filter(l => l.status === 'ACTIVE' || l.status === 'SANCTIONED')
-      const newEntries: CollectionEntry[] = []
-      for (const loan of activeLoans) {
-        const dueRows = schedule.filter(r =>
-          r.loan_account_no === loan.loan_account_no &&
-          (r.status === 'Pending' || r.status === 'Overdue') &&
-          r.due_date <= date
-        )
-        const totalOverdue = dueRows.reduce((s, r) => s + (r.emi_due || 0), 0)
-        if (totalOverdue > 0 || dueRows.length > 0) {
-          newEntries.push({ loan, emiAmt: loan.installment_amount || 0, totalOverdue, collectedAmount: '', mode: 'Cash', referenceNo: '' })
-        }
-      }
-      setEntries(newEntries)
     } catch (err) {
       console.error(err)
-      setErrorMessage('Failed to load collections from database.')
     } finally {
-      setLoading(false)
+      setEmiLoading(false)
     }
   }
 
@@ -245,7 +264,7 @@ export default function CollectionsPage() {
     const bMatch = !branch || (e.loan.branch_code || '').toLowerCase().includes(branch.toLowerCase())
     const fMatch = !foName || (e.loan.fo_name || '').toLowerCase().includes(foName.toLowerCase())
     const dMatch = !dueFilter ||
-      (dueFilter === 'overdue' && e.totalOverdue > 0 && e.loan.dpd > 0) ||
+      (dueFilter === 'overdue' && e.totalOverdue > 0 && (e.loan.dpd || 0) > 0) ||
       (dueFilter === 'due' && e.totalOverdue > 0)
     return bMatch && fMatch && dMatch
   })
@@ -266,12 +285,11 @@ export default function CollectionsPage() {
       title: 'Post Collections',
       message: `Post ${toProcess.length} collections (${inr(totalCollectedSum)}) to the database?`,
       confirmText: 'Post Collections',
-      variant: 'warning',
+      variant: 'info',
     })
     if (!ok) return
     setSaving(true); setErrorMessage(''); setMessage('')
     try {
-      // Process payments in parallel batch for instant completion
       await Promise.all(
         toProcess.map(item =>
           applyPayment(
@@ -280,18 +298,21 @@ export default function CollectionsPage() {
             date,
             item.mode,
             item.referenceNo || 'BULK-' + Date.now(),
-            'Bulk collections sheet entry',
+            'Bulk collections worksheet entry',
             user?.email || 'system'
           )
         )
       )
       toast.success('Collections Posted', `Successfully posted ${toProcess.length} payments!`)
       setMessage(`Successfully posted ${toProcess.length} payments!`)
+      window.dispatchEvent(new Event('aa2_data_changed'))
       await loadCollectionSheet()
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed.')
       toast.error('Posting Failed', err.message || 'Could not post payments.')
-    } finally { setSaving(false) }
+    } finally {
+      setSaving(false)
+    }
   }
 
   // ── CSV Upload Handler ─────────────────────────────────────────────────────
@@ -314,7 +335,7 @@ export default function CollectionsPage() {
       title: 'Process CSV Payments',
       message: `Process ${csvRows.length} CSV payment rows?`,
       confirmText: 'Process Payments',
-      variant: 'warning',
+      variant: 'info',
     })
     if (!ok) return
     setCsvProcessing(true)
@@ -331,21 +352,22 @@ export default function CollectionsPage() {
     }
     setCsvProcessing(false)
     setCsvDone(true)
+    window.dispatchEvent(new Event('aa2_data_changed'))
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-12">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">Collections</h1>
-        <p className="text-slate-500 text-sm mt-0.5">Bulk collection sheet, CSV upload, and field officer printout.</p>
+        <h1 className="text-2xl font-bold text-slate-800">Collections Hub</h1>
+        <p className="text-slate-500 text-xs mt-0.5">Bulk collection worksheet, individual receipt collection, CSV upload, and field officer printouts.</p>
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-slate-200 overflow-x-auto gap-1">
+      <div className="flex border-b border-slate-200 overflow-x-auto gap-1 text-xs">
         {([
           { id: 'sheet', label: 'Collection Worksheet', icon: Table2 },
-          { id: 'individual', label: 'Individual EMI', icon: FileText },
+          { id: 'individual', label: 'Individual EMI Collection', icon: FileText },
           { id: 'csv_upload', label: 'CSV Bulk Upload', icon: Upload },
           { id: 'field_printout', label: 'Field Sheet Printout', icon: Printer },
         ] as { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[]).map(tab => (
@@ -358,195 +380,182 @@ export default function CollectionsPage() {
 
       {/* ── TAB 1: Collection Worksheet ── */}
       {activeTab === 'sheet' && (
-        <>
-          {message && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4" /> {message}</div>}
-          {errorMessage && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2"><AlertCircle className="w-4 h-4" /> {errorMessage}</div>}
+        <div className="space-y-4 tab-transition">
+          {message && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-xs flex items-center gap-2"><CheckCircle className="w-4 h-4" /> {message}</div>}
+          {errorMessage && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs flex items-center gap-2"><AlertCircle className="w-4 h-4" /> {errorMessage}</div>}
 
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-            <div className="space-y-1.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs text-xs">
+            <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Due Date</label>
-              <div className="relative"><Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none" />
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
-            <div className="space-y-1.5">
+
+            <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Branch</label>
-              <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input type="text" placeholder="Filter by branch" value={branch} onChange={e => setBranch(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none" />
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input type="text" placeholder="Filter branch" value={branch} onChange={e => setBranch(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
-            <div className="space-y-1.5">
+
+            <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Field Officer</label>
-              <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input type="text" placeholder="Filter by FO name" value={foName} onChange={e => setFoName(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none" />
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input type="text" placeholder="Filter FO" value={foName} onChange={e => setFoName(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
-            <div className="space-y-1.5">
+
+            <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Status Filter</label>
               <select value={dueFilter} onChange={e => setDueFilter(e.target.value as any)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none">
-                <option value="">All Due</option>
-                <option value="overdue">Overdue Only</option>
-                <option value="due">With Amount Due</option>
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">All Due As of Date</option>
+                <option value="overdue">Overdue Only (DPD &gt; 0)</option>
+                <option value="due">With Pending Amount</option>
               </select>
             </div>
-            <div className="flex items-end gap-2">
-              <button onClick={fillAllDue} className="w-full py-2 border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 text-xs font-bold rounded-xl transition">Fill All</button>
+
+            <div className="flex items-end">
+              <button onClick={fillAllDue} className="w-full py-2 border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 text-xs font-bold rounded-xl transition">
+                Auto-Fill All Dues
+              </button>
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-xs border border-slate-100 overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-600">{filteredEntries.length} loans shown</span>
+              <span className="text-xs font-bold text-slate-600">{filteredEntries.length} borrowing accounts with dues</span>
               <button onClick={handleSaveAll} disabled={saving || loading || totalCollectedSum === 0}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition">
-                <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : `Save All (${inr(totalCollectedSum)})`}
+                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition shadow-xs">
+                <Save className="w-3.5 h-3.5" /> {saving ? 'Posting Payments…' : `Post Selected (${inr(totalCollectedSum)})`}
               </button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
-                <thead><tr className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wide">
-                  <th className="text-left px-4 py-3">Member</th>
-                  <th className="text-left px-4 py-3">Loan A/C</th>
-                  <th className="text-left px-4 py-3">Branch / FO</th>
-                  <th className="text-right px-4 py-3">EMI Due</th>
-                  <th className="text-right px-4 py-3">Overdue</th>
-                  <th className="text-left px-4 py-3 w-36">Collected (₹)</th>
-                  <th className="text-left px-4 py-3 w-32">Mode</th>
-                  <th className="text-left px-4 py-3 w-36">Ref No</th>
-                </tr></thead>
-                <tbody className="divide-y divide-slate-100">
-                  {loading && <tr><td colSpan={8} className="py-10 text-center text-slate-400">Loading…</td></tr>}
+                <thead>
+                  <tr className="bg-slate-50 text-slate-400 text-[10px] uppercase tracking-wide">
+                    <th className="text-left px-4 py-3 font-semibold">Member</th>
+                    <th className="text-left px-4 py-3 font-semibold">Loan A/C</th>
+                    <th className="text-left px-4 py-3 font-semibold">Branch / FO</th>
+                    <th className="text-right px-4 py-3 font-semibold">Installment EMI</th>
+                    <th className="text-right px-4 py-3 font-semibold">Net Pending Due</th>
+                    <th className="text-left px-4 py-3 w-40 font-semibold">Collected (₹)</th>
+                    <th className="text-left px-4 py-3 w-32 font-semibold">Mode</th>
+                    <th className="text-left px-4 py-3 w-36 font-semibold">Ref No</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {loading && <tr><td colSpan={8} className="py-10 text-center text-slate-400">Loading collection worksheet…</td></tr>}
                   {!loading && filteredEntries.length === 0 && <tr><td colSpan={8} className="py-10 text-center text-slate-400">No pending dues for selected filters.</td></tr>}
                   {!loading && filteredEntries.map(e => (
-                    <tr key={e.loan.loan_account_no} className="hover:bg-slate-50/50">
-                      <td className="px-4 py-2.5 font-semibold text-slate-800">
-                        <Link href={`/members/${e.loan.customer_id}`} className="text-blue-600 hover:underline">
+                    <tr key={e.loan.loan_account_no} className="hover:bg-slate-50/50 transition">
+                      <td className="px-4 py-2.5 font-bold text-slate-800">
+                        <Link href={`/members/${e.loan.customer_id}`} className="hover:underline">
                           {e.loan.member_name_cache || e.loan.member_name}
                         </Link>
                       </td>
-                      <td className="px-4 py-2.5 font-mono text-blue-600 font-bold text-[11px]">
+                      <td className="px-4 py-2.5 font-mono text-blue-600 font-bold">
                         <Link href={`/loans/${e.loan.loan_account_no}`} className="hover:underline">
                           {e.loan.loan_account_no}
                         </Link>
                       </td>
                       <td className="px-4 py-2.5 text-slate-500 text-[11px]">{e.loan.branch_code} / {e.loan.fo_name || '—'}</td>
-                      <td className="px-4 py-2.5 text-right font-medium">{inr(e.emiAmt)}</td>
-                      <td className="px-4 py-2.5 text-right font-bold text-red-600">{inr(e.totalOverdue)}</td>
+                      <td className="px-4 py-2.5 text-right font-mono text-slate-600">{inr(e.emiAmt)}</td>
+                      <td className="px-4 py-2.5 text-right font-mono font-bold text-amber-700">{inr(e.totalOverdue)}</td>
                       <td className="px-4 py-2">
                         <div className="flex gap-1">
                           <input type="number" placeholder="0" value={e.collectedAmount}
                             onChange={el => setField(e.loan.loan_account_no, 'collectedAmount', el.target.value)}
-                            className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:border-blue-400" />
+                            className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold font-mono focus:bg-white focus:outline-none focus:border-blue-400" />
                           <button type="button" onClick={() => setField(e.loan.loan_account_no, 'collectedAmount', String(e.totalOverdue || e.emiAmt))}
-                            className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg" title="Fill due amount"><Sparkles className="w-3 h-3 text-slate-600" /></button>
+                            className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg transition" title="Fill net due"><Sparkles className="w-3 h-3 text-slate-600" /></button>
                         </div>
                       </td>
                       <td className="px-4 py-2">
                         <select value={e.mode} onChange={el => setField(e.loan.loan_account_no, 'mode', el.target.value)}
                           className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none">
-                          <option>Cash</option><option>UPI</option><option>NACH / Bank</option><option>Cheque</option>
+                          <option>Cash</option><option>UPI</option><option>Bank Transfer / NEFT</option><option>Cheque</option>
                         </select>
                       </td>
                       <td className="px-4 py-2">
-                        <input type="text" placeholder="Receipt / UTR" value={e.referenceNo}
+                        <input type="text" placeholder="Ref/UTR" value={e.referenceNo}
                           onChange={el => setField(e.loan.loan_account_no, 'referenceNo', el.target.value)}
-                          className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none" />
+                          className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:bg-white focus:outline-none" />
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            {filteredEntries.length > 0 && (
-              <div className="px-5 py-3.5 bg-slate-900 text-white flex justify-between items-center">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Collected Today</span>
-                <span className="text-lg font-black text-emerald-400">{inr(totalCollectedSum)}</span>
-              </div>
-            )}
           </div>
-        </>
+        </div>
       )}
 
-      {/* ── TAB: Individual EMI Collection ── */}
+      {/* ── TAB 2: Individual EMI Collection with Instant Receipts ── */}
       {activeTab === 'individual' && (
-        <div className="space-y-5">
-          <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">Individual EMI Collection</h3>
-                <p className="text-xs text-slate-500 mt-1">Collect individual installments one by one. Each installment row can be collected separately.</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input type="text" placeholder="Filter by branch" value={branch} onChange={e => setBranch(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none" />
-              </div>
-              <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input type="text" placeholder="Filter by FO name" value={foName} onChange={e => setFoName(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+        <div className="space-y-4 tab-transition">
+          <div className="bg-white rounded-2xl shadow-xs border border-slate-100 overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-600">{emiEntries.filter(e => e.status === 'pending').length} loans with pending EMIs</span>
-              <span className="text-xs text-slate-500">{emiEntries.filter(e => e.status === 'success').length} collected this session</span>
+              <span className="text-xs font-bold text-slate-700">Single Installment Collection & Instant Receipts ({emiEntries.length} due loans)</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
-                <thead><tr className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wide">
-                  <th className="text-left px-4 py-3">Member</th>
-                  <th className="text-left px-4 py-3">Loan A/C</th>
-                  <th className="text-left px-4 py-3">Branch / FO</th>
-                  <th className="text-center px-4 py-3">EMIs Due</th>
-                  <th className="text-left px-4 py-3">First Due Date</th>
-                  <th className="text-right px-4 py-3">Single EMI (₹)</th>
-                  <th className="text-right px-4 py-3">Total Balance</th>
-                  <th className="text-center px-4 py-3">DPD</th>
-                  <th className="text-left px-4 py-3 w-32">Collect (₹)</th>
-                  <th className="text-left px-4 py-3 w-28">Mode</th>
-                  <th className="text-left px-4 py-3 w-32">Ref / UTR</th>
-                  <th className="text-center px-4 py-3">Action</th>
-                </tr></thead>
-                <tbody className="divide-y divide-slate-100">
-                  {emiLoading && <tr><td colSpan={12} className="py-10 text-center text-slate-400">Loading due installments…</td></tr>}
-                  {!emiLoading && emiEntries.length === 0 && (
-                    <tr><td colSpan={12} className="py-10 text-center text-emerald-500 font-semibold">No pending dues as of today.</td></tr>
-                  )}
+                <thead>
+                  <tr className="bg-slate-50 text-slate-400 text-[10px] uppercase tracking-wide">
+                    <th className="px-4 py-3 text-left font-semibold">Borrower</th>
+                    <th className="px-4 py-3 text-left font-semibold">Loan A/C</th>
+                    <th className="px-4 py-3 text-left font-semibold">Installments Due</th>
+                    <th className="px-4 py-3 text-right font-semibold">Net Balance Due</th>
+                    <th className="px-4 py-3 text-left w-36 font-semibold">Collect (₹)</th>
+                    <th className="px-4 py-3 text-left w-28 font-semibold">Mode</th>
+                    <th className="px-4 py-3 text-right font-semibold">Action & Print</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {emiLoading && <tr><td colSpan={7} className="py-8 text-center text-slate-400">Loading dues…</td></tr>}
+                  {!emiLoading && emiEntries.length === 0 && <tr><td colSpan={7} className="py-8 text-center text-slate-400">No overdue installments found as of date.</td></tr>}
                   {!emiLoading && emiEntries.map((e, idx) => (
-                    <tr key={idx} className={`hover:bg-slate-50/50 transition ${e.status === 'success' ? 'bg-emerald-50/50' : e.status === 'error' ? 'bg-red-50/30' : ''}`}>
-                      <td className="px-4 py-3 font-semibold text-slate-800">{e.loan.member_name_cache || e.loan.member_name}</td>
-                      <td className="px-4 py-3 font-mono text-blue-600 font-bold text-[11px]">{e.loan.loan_account_no}</td>
-                      <td className="px-4 py-3 text-slate-500 text-[11px]">{e.loan.branch_code} / {e.loan.fo_name || '—'}</td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-red-100 text-red-700 font-black text-xs">{e.emiCount}</span>
+                    <tr key={e.loan.loan_account_no} className="hover:bg-slate-50/50 transition">
+                      <td className="px-4 py-2.5 font-bold text-slate-800">
+                        <Link href={`/members/${e.loan.customer_id}`} className="hover:underline">
+                          {e.loan.member_name_cache || e.loan.member_name}
+                        </Link>
                       </td>
-                      <td className="px-4 py-3 text-slate-700 font-semibold">{fdate(e.firstDueDate)}</td>
-                      <td className="px-4 py-3 text-right font-bold text-slate-700">{inr(e.loan.installment_amount || 0)}</td>
-                      <td className="px-4 py-3 text-right font-black text-red-600 text-sm">{inr(e.totalBalance)}</td>
-                      <td className="px-4 py-3 text-center font-bold text-red-600">{e.loan.dpd || 0}</td>
+                      <td className="px-4 py-2.5 font-mono text-blue-600 font-bold">
+                        <Link href={`/loans/${e.loan.loan_account_no}`} className="hover:underline">
+                          {e.loan.loan_account_no}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-600">
+                        <span className="font-semibold text-slate-800">{e.emiCount} EMI(s)</span>
+                        <p className="text-[10px] text-slate-400">Due from {fdate(e.firstDueDate)}</p>
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono font-bold text-amber-700">{inr(e.totalBalance)}</td>
                       <td className="px-4 py-2">
-                        <input type="number" value={e.collectAmt} disabled={e.status === 'success' || e.status === 'saving'}
-                          onChange={ev => setEmiEntries(prev => prev.map((x, i) => i === idx ? { ...x, collectAmt: ev.target.value } : x))}
-                          className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:border-blue-400 disabled:opacity-50" />
+                        <input
+                          type="number"
+                          value={e.collectAmt}
+                          onChange={el => setEmiEntries(prev => prev.map((x, i) => i === idx ? { ...x, collectAmt: el.target.value } : x))}
+                          className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
                       </td>
                       <td className="px-4 py-2">
-                        <select value={e.mode} disabled={e.status === 'success' || e.status === 'saving'}
-                          onChange={ev => setEmiEntries(prev => prev.map((x, i) => i === idx ? { ...x, mode: ev.target.value } : x))}
-                          className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none disabled:opacity-50">
-                          <option>Cash</option><option>UPI</option><option>NACH / Bank</option><option>Cheque</option>
+                        <select
+                          value={e.mode}
+                          onChange={el => setEmiEntries(prev => prev.map((x, i) => i === idx ? { ...x, mode: el.target.value } : x))}
+                          className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none"
+                        >
+                          <option>Cash</option><option>UPI</option><option>Bank Transfer / NEFT</option><option>Cheque</option>
                         </select>
                       </td>
-                      <td className="px-4 py-2">
-                        <input type="text" value={e.ref} disabled={e.status === 'success' || e.status === 'saving'} placeholder="Receipt / UTR"
-                          onChange={ev => setEmiEntries(prev => prev.map((x, i) => i === idx ? { ...x, ref: ev.target.value } : x))}
-                          className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none disabled:opacity-50" />
-                      </td>
-                      <td className="px-4 py-2 text-center">
+                      <td className="px-4 py-2 text-right">
                         {e.status === 'success' ? (
-                          <div className="flex items-center justify-center gap-1">
-                            <span className="text-emerald-600 font-bold text-xs flex items-center gap-1 mr-1">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <span className="text-emerald-600 font-bold text-[10.5px] flex items-center gap-1">
                               <CheckCircle className="w-3.5 h-3.5" /> Done
                             </span>
                             <button
@@ -564,7 +573,7 @@ export default function CollectionsPage() {
                                 entered_by: user?.name || user?.email || 'Field Staff',
                               })}
                               title="Print A4 Receipt"
-                              className="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded flex items-center gap-0.5 transition"
+                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded-lg flex items-center gap-1 transition"
                             >
                               <Printer className="w-3 h-3" /> A4
                             </button>
@@ -583,13 +592,13 @@ export default function CollectionsPage() {
                                 entered_by: user?.name || user?.email || 'Field Staff',
                               })}
                               title="Print 80mm Thermal Receipt"
-                              className="px-1.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold rounded flex items-center gap-0.5 transition border border-blue-200"
+                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold rounded-lg flex items-center gap-1 transition border border-blue-200"
                             >
                               <Smartphone className="w-3 h-3" /> POS
                             </button>
                           </div>
                         ) : e.status === 'saving' ? (
-                          <span className="text-blue-600 text-xs flex items-center justify-center gap-1">
+                          <span className="text-blue-600 text-xs flex items-center justify-end gap-1">
                             <span className="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin inline-block" /> Saving…
                           </span>
                         ) : (
@@ -606,13 +615,14 @@ export default function CollectionsPage() {
                                   user?.email || 'system'
                                 )
                                 setEmiEntries(prev => prev.map((x, i) => i === idx ? { ...x, status: 'success' as const, lastTxnId: newTxId } : x))
+                                window.dispatchEvent(new Event('aa2_data_changed'))
                               } catch (err: any) {
                                 setEmiEntries(prev => prev.map((x, i) => i === idx ? { ...x, status: 'error' as const } : x))
                                 toast.error('Collection Failed', err.message || 'Unknown error')
                               }
                             }}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg transition">
-                            Collect
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-xl transition shadow-xs">
+                            Collect &amp; Issue Receipt
                           </button>
                         )}
                       </td>
@@ -625,61 +635,63 @@ export default function CollectionsPage() {
         </div>
       )}
 
-      {/* ── TAB 2: CSV Bulk Upload ── */}
+      {/* ── TAB 3: CSV Bulk Upload ── */}
       {activeTab === 'csv_upload' && (
-        <div className="space-y-5">
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+        <div className="space-y-4 tab-transition">
+          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-xs text-blue-900">
             <p className="font-bold mb-1">CSV Bulk Payment Upload</p>
-            <p className="text-xs">Upload a CSV file from your field officer collection sheet. Required columns (header required):
-              <code className="bg-blue-100 px-1.5 py-0.5 rounded mx-1 font-mono text-xs">loan_account_no, amount, txn_date, mode, reference_no, remarks</code>
-              Dates must be in <code className="bg-blue-100 px-1 rounded font-mono">YYYY-MM-DD</code> format.
+            <p className="text-slate-600 leading-relaxed">Upload a CSV file exported from offline field sheets or banking statements. Required columns (headers required):
+              <code className="bg-blue-100 px-1.5 py-0.5 rounded mx-1 font-mono text-[11px]">loan_account_no, amount, txn_date, mode, reference_no, remarks</code>
+              Dates must follow standard <code className="bg-blue-100 px-1 rounded font-mono text-[11px]">YYYY-MM-DD</code> format.
             </p>
           </div>
 
           <div className="flex items-center gap-3">
             <button onClick={downloadSampleCSV}
-              className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition border border-slate-200">
-              <Download className="w-3.5 h-3.5" /> Download Sample CSV
+              className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition border border-slate-200">
+              <Download className="w-3.5 h-3.5 text-slate-600" /> Download Sample CSV
             </button>
-            <label className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition cursor-pointer">
+            <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-xs">
               <Upload className="w-3.5 h-3.5" /> Choose CSV File
               <input ref={fileRef} type="file" accept=".csv" onChange={handleFileChange} className="hidden" />
             </label>
           </div>
 
           {csvRows.length > 0 && (
-            <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+            <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-xs">
               <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-700">{csvRows.length} rows parsed from CSV</span>
                 {!csvDone && (
                   <button onClick={processCsvRows} disabled={csvProcessing}
-                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition">
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition shadow-xs">
                     {csvProcessing ? 'Processing…' : `Post ${csvRows.length} Payments`}
                   </button>
                 )}
                 {csvDone && <span className="text-xs text-emerald-600 font-bold flex items-center gap-1"><CheckCircle className="w-4 h-4" /> All rows processed</span>}
               </div>
               <table className="w-full text-xs">
-                <thead><tr className="bg-slate-50 text-slate-500 text-[10px] uppercase">
-                  <th className="px-4 py-2 text-left">Loan A/C</th>
-                  <th className="px-4 py-2 text-right">Amount</th>
-                  <th className="px-4 py-2 text-left">Date</th>
-                  <th className="px-4 py-2 text-left">Mode</th>
-                  <th className="px-4 py-2 text-left">Reference</th>
-                  <th className="px-4 py-2 text-left">Status</th>
-                </tr></thead>
-                <tbody className="divide-y divide-slate-100">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-400 text-[10px] uppercase tracking-wide">
+                    <th className="px-4 py-2 text-left font-semibold">Loan A/C</th>
+                    <th className="px-4 py-2 text-right font-semibold">Amount</th>
+                    <th className="px-4 py-2 text-left font-semibold">Date</th>
+                    <th className="px-4 py-2 text-left font-semibold">Mode</th>
+                    <th className="px-4 py-2 text-left font-semibold">Reference</th>
+                    <th className="px-4 py-2 text-left font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
                   {csvRows.map((row, i) => (
                     <tr key={i} className={row.status === 'error' ? 'bg-red-50' : row.status === 'success' ? 'bg-emerald-50/40' : ''}>
                       <td className="px-4 py-2 font-mono font-bold text-blue-600">{row.loan_account_no}</td>
-                      <td className="px-4 py-2 text-right font-bold">{inr(Number(row.amount))}</td>
+                      <td className="px-4 py-2 text-right font-mono font-bold">{inr(Number(row.amount))}</td>
                       <td className="px-4 py-2">{fdate(row.txn_date)}</td>
                       <td className="px-4 py-2">{row.mode}</td>
                       <td className="px-4 py-2 font-mono text-[10px]">{row.reference_no || '—'}</td>
                       <td className="px-4 py-2">
-                        {row.status === 'pending' && <span className="badge bg-slate-100 text-slate-500 text-[9px]">Pending</span>}
-                        {row.status === 'success' && <span className="badge bg-emerald-50 text-emerald-700 text-[9px]">✓ Posted</span>}
-                        {row.status === 'error' && <span className="badge bg-red-50 text-red-600 text-[9px]" title={row.error}>✗ Error</span>}
+                        {row.status === 'pending' && <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-500 font-bold text-[9px]">Pending</span>}
+                        {row.status === 'success' && <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold text-[9px]">✓ Posted</span>}
+                        {row.status === 'error' && <span className="px-2 py-0.5 rounded bg-red-50 text-red-600 font-bold text-[9px]" title={row.error}>✗ Error</span>}
                       </td>
                     </tr>
                   ))}
@@ -690,53 +702,58 @@ export default function CollectionsPage() {
         </div>
       )}
 
-      {/* ── TAB 3: Field Sheet Printout ── */}
+      {/* ── TAB 4: Field Sheet Printout ── */}
       {activeTab === 'field_printout' && (
-        <div className="space-y-5">
-          <div className="bg-white p-5 rounded-2xl border border-slate-100 space-y-4">
+        <div className="space-y-4 tab-transition">
+          <div className="bg-white p-5 rounded-2xl border border-slate-100 space-y-4 shadow-xs">
             <h3 className="text-sm font-bold text-slate-800">Field Officer Day Collection Sheet</h3>
-            <p className="text-xs text-slate-500">Configure filters below and print a formatted sheet for your field officers to carry during collections.</p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div><label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Collection Date</label>
-                <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none" />
+            <p className="text-xs text-slate-400">Configure date &amp; branch filters below and print a formatted sheet for field officers to carry during collection routes.</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Collection Date</label>
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
-              <div><label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Branch Code</label>
-                <input type="text" placeholder="e.g. HARIDWAR" value={branch} onChange={e => setBranch(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none" />
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Branch Code</label>
+                <input type="text" placeholder="e.g. HARIDWAR" value={branch} onChange={e => setBranch(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
-              <div><label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Field Officer Name</label>
-                <input type="text" placeholder="e.g. SACHIN KUMAR" value={foName} onChange={e => setFoName(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none" />
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Field Officer Name</label>
+                <input type="text" placeholder="e.g. SACHIN KUMAR" value={foName} onChange={e => setFoName(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
             <div className="flex items-center gap-3 pt-2">
               <button
                 onClick={() => printFieldSheet(filteredEntries, date, branch, foName)}
                 disabled={filteredEntries.length === 0}
-                className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition shadow-md shadow-blue-500/10">
-                <Printer className="w-4 h-4" /> Print Field Collection Sheet ({filteredEntries.length} loans)
+                className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition shadow-sm">
+                <Printer className="w-3.5 h-3.5" /> Print Field Collection Sheet ({filteredEntries.length} loans)
               </button>
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+          <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
-                <thead><tr className="bg-slate-50 text-slate-500 text-[10px] uppercase">
-                  <th className="px-4 py-3 text-left">Loan A/C</th>
-                  <th className="px-4 py-3 text-left">Member Name</th>
-                  <th className="px-4 py-3 text-left">Mobile</th>
-                  <th className="px-4 py-3 text-left">Branch / FO</th>
-                  <th className="px-4 py-3 text-right">Amount Due</th>
-                </tr></thead>
-                <tbody className="divide-y divide-slate-100">
-                  {loading && <tr><td colSpan={5} className="py-8 text-center text-slate-400">Loading…</td></tr>}
+                <thead>
+                  <tr className="bg-slate-50 text-slate-400 text-[10px] uppercase tracking-wide">
+                    <th className="px-4 py-3 text-left font-semibold">Loan A/C</th>
+                    <th className="px-4 py-3 text-left font-semibold">Member Name</th>
+                    <th className="px-4 py-3 text-left font-semibold">Mobile</th>
+                    <th className="px-4 py-3 text-left font-semibold">Branch / FO</th>
+                    <th className="px-4 py-3 text-right font-semibold">Net Balance Due</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {loading && <tr><td colSpan={5} className="py-8 text-center text-slate-400">Loading dues…</td></tr>}
                   {!loading && filteredEntries.length === 0 && <tr><td colSpan={5} className="py-8 text-center text-slate-400">No dues for selected filters.</td></tr>}
                   {!loading && filteredEntries.map(e => (
-                    <tr key={e.loan.loan_account_no} className="hover:bg-slate-50/50">
+                    <tr key={e.loan.loan_account_no} className="hover:bg-slate-50/50 transition">
                       <td className="px-4 py-2.5 font-mono text-blue-600 font-bold">{e.loan.loan_account_no}</td>
-                      <td className="px-4 py-2.5 font-semibold">{e.loan.member_name_cache || e.loan.member_name}</td>
-                      <td className="px-4 py-2.5">{e.loan.mobile || '—'}</td>
+                      <td className="px-4 py-2.5 font-bold text-slate-800">{e.loan.member_name_cache || e.loan.member_name}</td>
+                      <td className="px-4 py-2.5 text-slate-600">{e.loan.mobile || '—'}</td>
                       <td className="px-4 py-2.5 text-slate-500">{e.loan.branch_code} / {e.loan.fo_name || '—'}</td>
-                      <td className="px-4 py-2.5 text-right font-bold text-red-600">{inr(e.totalOverdue || e.emiAmt)}</td>
+                      <td className="px-4 py-2.5 text-right font-mono font-bold text-amber-700">{inr(e.totalOverdue || e.emiAmt)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -744,8 +761,8 @@ export default function CollectionsPage() {
             </div>
             {filteredEntries.length > 0 && (
               <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-between text-xs font-bold text-slate-700">
-                <span>{filteredEntries.length} entries</span>
-                <span>Total Due: {inr(filteredEntries.reduce((s, e) => s + (e.totalOverdue || e.emiAmt), 0))}</span>
+                <span>{filteredEntries.length} accounts</span>
+                <span>Total Due: <strong className="font-mono">{inr(filteredEntries.reduce((s, e) => s + (e.totalOverdue || e.emiAmt), 0))}</strong></span>
               </div>
             )}
           </div>
