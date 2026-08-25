@@ -102,13 +102,26 @@ export function computeLoanEconomics({
 export function generateSchedule(loan: any): ScheduleRow[] {
   const rows: ScheduleRow[] = []
   const stepDays = FREQ_DAYS[loan.frequency] || 30
-  let opening = loan.total_loan
+  const brokenMode = loan.broken_interest_collection_mode || 'UPFRONT_DEDUCTION'
+  const brokenInterest = Math.round((Number(loan.broken_interest) || 0) * 100) / 100
+
+  let opening = brokenMode === 'ADD_TO_FIRST_EMI' && brokenInterest > 0
+    ? Math.round((loan.total_loan + brokenInterest) * 100) / 100
+    : loan.total_loan
+
   let due = loan.installment_start_date
 
   for (let i = 1; i <= loan.tenure; i++) {
-    const interest_due = Math.round(loan.per_installment_interest * 100) / 100
-    const emi_due = loan.installment_amount
-    const principal_due = emi_due - interest_due
+    let interest_due = Math.round(loan.per_installment_interest * 100) / 100
+    let emi_due = loan.installment_amount
+
+    // If adding broken interest to 1st installment
+    if (i === 1 && brokenMode === 'ADD_TO_FIRST_EMI' && brokenInterest > 0) {
+      interest_due = Math.round((interest_due + brokenInterest) * 100) / 100
+      emi_due = Math.round((emi_due + brokenInterest) * 100) / 100
+    }
+
+    const principal_due = Math.round((emi_due - interest_due) * 100) / 100
     const closing = Math.max(0, Math.round((opening - emi_due) * 100) / 100)
     
     rows.push({
