@@ -1,8 +1,8 @@
 [build]
   command = "npm run build"
-  publish = ".next"
 
 [build.environment]
+  NODE_VERSION = "20"
   NETLIFY_FEEDBACK_DRAWER = "false"
 
 [[plugins]]
