@@ -222,17 +222,32 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
     getOne<Loan>('loans', loan_account_no),
   ])
 
-  // Step 1: Sort and set baseline rows (respecting imported paid EMIs)
+  // Step 1: Sort and set baseline rows (respecting imported paid EMIs AND advance balance / total collected)
   const rows = rawRows.sort((a, b) => a.installment_no - b.installment_no)
   const importedPaidEmi = Number((loan as any)?.paid_emi || (loan as any)?.data?.paid_emi || 0)
+  const advanceBal = Number((loan as any)?.advance_balance || (loan as any)?.data?.advance_balance || (loan as any)?.data?.ADVANCE || 0)
+  const totalRec = Number((loan as any)?.total_collected || (loan as any)?.data?.total_collected || (loan as any)?.data?.TOTAL_RECEIVED_AMOUNT || 0)
+  const emiAmt = Number(loan?.installment_amount || (loan as any)?.data?.installment_amount || 0)
 
+  // Calculate effective baseline coverage in rupees
+  const effectiveBaselinePaid = Math.max(totalRec, (importedPaidEmi * emiAmt) + advanceBal)
+
+  let remBaseline = effectiveBaselinePaid
   for (const r of rows) {
     if (r.status !== 'Restructured' && r.status !== 'Waived') {
-      if (importedPaidEmi > 0 && r.installment_no <= importedPaidEmi) {
-        r.paid_amount = r.emi_due
+      const due = r.emi_due || emiAmt
+      if (remBaseline >= due) {
+        r.paid_amount = due
         r.status = 'Paid'
         r.paid_date = r.paid_date || r.due_date
         r.dpd = 0
+        remBaseline -= due
+      } else if (remBaseline > 0) {
+        r.paid_amount = remBaseline
+        r.status = 'Partial'
+        r.paid_date = r.paid_date || r.due_date
+        r.dpd = 0
+        remBaseline = 0
       } else {
         r.paid_amount = 0
         r.status = 'Pending'
