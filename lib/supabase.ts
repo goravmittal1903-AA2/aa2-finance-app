@@ -90,12 +90,28 @@ export async function getAll<T>(store: string, forceRefresh = false): Promise<T[
     return cached.data
   }
 
-  const { data, error } = await supabase.from(tbl(store)).select('data')
-  if (error) {
-    console.warn(`getAll(${store}) error:`, error.message)
-    return getAllViaServer<T>(store)
+  let allData: any[] = []
+  let from = 0
+  const STEP = 1000
+
+  while (true) {
+    const { data, error } = await supabase
+      .from(tbl(store))
+      .select('data')
+      .range(from, from + STEP - 1)
+
+    if (error) {
+      console.warn(`getAll(${store}) error:`, error.message)
+      return getAllViaServer<T>(store)
+    }
+
+    if (!data || data.length === 0) break
+    allData = allData.concat(data)
+    if (data.length < STEP) break
+    from += STEP
   }
-  const list = (data || []).map((r: { data: T }) => r.data)
+
+  const list = (allData || []).map((r: { data: T }) => r.data)
   const sorted = list.sort((a: any, b: any) =>
     (b.created_at || b.updated_at || b.disbursement_date || b.txn_date || '').localeCompare(
       a.created_at || a.updated_at || a.disbursement_date || a.txn_date || ''

@@ -17,16 +17,22 @@ export const FREQ_PER_YEAR: Record<string, number> = {
 }
 
 export function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr)
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
+  if (!dateStr) return ''
+  const parts = dateStr.slice(0, 10).split('-').map(Number)
+  if (parts.length < 3 || parts.some(isNaN)) return dateStr
+  const [y, m, d] = parts
+  const dt = new Date(Date.UTC(y, m - 1, d + days))
+  return dt.toISOString().slice(0, 10)
 }
 
 export function addMonthsLike(dateStr: string, frequency: string): string {
-  const m = frequency === 'Monthly' ? 1 : frequency === 'Bi-Monthly' ? 2 : 3
-  const d = new Date(dateStr)
-  d.setMonth(d.getMonth() + m)
-  return d.toISOString().slice(0, 10)
+  if (!dateStr) return ''
+  const mAdd = frequency === 'Monthly' ? 1 : frequency === 'Bi-Monthly' ? 2 : 3
+  const parts = dateStr.slice(0, 10).split('-').map(Number)
+  if (parts.length < 3 || parts.some(isNaN)) return dateStr
+  const [y, m, d] = parts
+  const dt = new Date(Date.UTC(y, m - 1 + mAdd, d))
+  return dt.toISOString().slice(0, 10)
 }
 
 export function daysBetween(a: string, b: string): number {
@@ -216,21 +222,44 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
     getOne<Loan>('loans', loan_account_no),
   ])
 
-  // Step 1: Sort and reset non-fixed rows
+  // Step 1: Sort and set baseline rows (respecting imported paid EMIs AND advance balance / total collected)
   const rows = rawRows.sort((a, b) => a.installment_no - b.installment_no)
+  const importedPaidEmi = Number((loan as any)?.paid_emi || (loan as any)?.data?.paid_emi || 0)
+  const advanceBal = Number((loan as any)?.advance_balance || (loan as any)?.data?.advance_balance || (loan as any)?.data?.ADVANCE || 0)
+  const totalRec = Number((loan as any)?.total_collected || (loan as any)?.data?.total_collected || (loan as any)?.data?.TOTAL_RECEIVED_AMOUNT || 0)
+  const emiAmt = Number(loan?.installment_amount || (loan as any)?.data?.installment_amount || 0)
 
+  // Calculate effective baseline coverage in rupees
+  const effectiveBaselinePaid = Math.max(totalRec, (importedPaidEmi * emiAmt) + advanceBal)
+
+  let remBaseline = effectiveBaselinePaid
   for (const r of rows) {
     if (r.status !== 'Restructured' && r.status !== 'Waived') {
-      r.paid_amount = 0
-      r.status = 'Pending'
-      r.paid_date = null
-      r.dpd = 0
+      const due = r.emi_due || emiAmt
+      if (remBaseline >= due) {
+        r.paid_amount = due
+        r.status = 'Paid'
+        r.paid_date = r.paid_date || r.due_date
+        r.dpd = 0
+        remBaseline -= due
+      } else if (remBaseline > 0) {
+        r.paid_amount = remBaseline
+        r.status = 'Partial'
+        r.paid_date = r.paid_date || r.due_date
+        r.dpd = 0
+        remBaseline = 0
+      } else {
+        r.paid_amount = 0
+        r.status = 'Pending'
+        r.paid_date = null
+        r.dpd = 0
+      }
     }
   }
 
-  // Step 2: Filter, sort, and physically purge duplicate payment transactions
+  // Step 2: Filter, sort, and physically purge duplicate post-import payment transactions
   const sortedRaw = rawTxns
-    .filter(t => (t.txn_type === 'PAYMENT' || t.txn_type === 'FORECLOSURE') && !t.voided)
+    .filter(t => (t.txn_type === 'PAYMENT' || t.txn_type === 'FORECLOSURE') && !t.voided && (t as any).created_by !== 'excel_import')
     .sort((a, b) => a.txn_date.localeCompare(b.txn_date) || (a.txn_id || 0) - (b.txn_id || 0))
 
   const txns: Transaction[] = []
