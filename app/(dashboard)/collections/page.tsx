@@ -15,16 +15,31 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 
+function getMeetingDay(dateStr?: string): string {
+  if (!dateStr) return '—'
+  const parts = dateStr.slice(0, 10).split('-').map(Number)
+  if (parts.length < 3 || parts.some(isNaN)) return '—'
+  const [y, m, d] = parts
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  return days[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]
+}
+
 interface CollectionEntry {
   loan: Loan
-  emiAmt: number
+  meetingDay: string
+  frequency: string
+  totalTenure: number
+  paidEmis: number
+  pendingEmis: number
+  todayEmi: number
   totalOverdue: number
+  totalDue: number
   collectedAmount: string
   mode: string
   referenceNo: string
 }
 
-type Tab = 'sheet' | 'csv_upload' | 'field_printout' | 'individual'
+type Tab = 'sheet' | 'individual' | 'csv_upload' | 'field_printout'
 
 interface EmiEntry {
   loan: Loan
@@ -85,17 +100,21 @@ function downloadSampleCSV() {
 
 // ─── Field Sheet Printout ─────────────────────────────────────────────────────
 function printFieldSheet(entries: CollectionEntry[], date: string, branch: string, foName: string) {
-  const pw = window.open('', '_blank', 'width=900,height=1000')
+  const pw = window.open('', '_blank', 'width=1000,height=1000')
   if (!pw) { toast.error('Popup Blocked', 'Please allow popups.'); return }
   const rows = entries.map(e => `
     <tr>
       <td>${e.loan.loan_account_no}</td>
       <td>${e.loan.member_name_cache || e.loan.member_name}</td>
-      <td>${e.loan.mobile || '—'}</td>
-      <td>${inr(e.totalOverdue || e.emiAmt)}</td>
-      <td style="width:90px; border-bottom: 1px solid #ccc;"></td>
-      <td style="width:100px; border-bottom: 1px solid #ccc;"></td>
+      <td>${e.loan.branch_code} / ${e.loan.fo_name || '—'}</td>
+      <td>${e.meetingDay}</td>
+      <td>${e.frequency}</td>
+      <td>${e.paidEmis} / ${e.totalTenure}</td>
+      <td>${e.pendingEmis}</td>
+      <td>${inr(e.totalDue || e.todayEmi)}</td>
       <td style="width:80px; border-bottom: 1px solid #ccc;"></td>
+      <td style="width:90px; border-bottom: 1px solid #ccc;"></td>
+      <td style="width:70px; border-bottom: 1px solid #ccc;"></td>
     </tr>`).join('')
   pw.document.write(`
     <!DOCTYPE html><html><head><meta charset="utf-8">
@@ -112,14 +131,14 @@ function printFieldSheet(entries: CollectionEntry[], date: string, branch: strin
     </style></head><body>
     <h2>AA2 MICRO FINANCE — Field Collection Sheet</h2>
     <div class="info">
-      Date: <strong>${date}</strong> &nbsp;|&nbsp; 
+      Date: <strong>${date}</strong> (${getMeetingDay(date)}) &nbsp;|&nbsp; 
       Branch: <strong>${branch || 'ALL'}</strong> &nbsp;|&nbsp;
       Field Officer: <strong>${foName || 'ALL'}</strong> &nbsp;|&nbsp;
-      Total Due: <strong>${inr(entries.reduce((s, e) => s + (e.totalOverdue || e.emiAmt), 0))}</strong>
+      Total Due: <strong>${inr(entries.reduce((s, e) => s + (e.totalDue || e.todayEmi), 0))}</strong>
     </div>
     <table>
       <thead><tr>
-        <th>Loan A/C</th><th>Member Name</th><th>Mobile</th>
+        <th>Loan A/C</th><th>Member Name</th><th>Branch / FO</th><th>Meeting Day</th><th>Frequency</th><th>Paid / Tenor</th><th>Pending</th>
         <th>Amount Due (₹)</th><th>Collected (₹)</th><th>Mode / Ref</th><th>Sign</th>
       </tr></thead>
       <tbody>${rows}</tbody>
@@ -219,17 +238,43 @@ export default function CollectionsPage() {
         getAll<Loan>('loans'),
         getAll<ScheduleRow>('schedule')
       ])
-      const activeLoans = loans.filter(l => l.status === 'ACTIVE' || l.status === 'SANCTIONED')
+      const activeLoans = loans.filter(l => l.status === 'ACTIVE')
       const newEntries: CollectionEntry[] = []
+
       for (const loan of activeLoans) {
-        const dueRows = schedule.filter(r =>
-          r.loan_account_no === loan.loan_account_no &&
-          (r.status === 'Pending' || r.status === 'Overdue') &&
-          r.due_date <= date
-        )
-        const totalOverdue = dueRows.reduce((s, r) => s + (r.emi_due || 0), 0)
-        if (totalOverdue > 0 || dueRows.length > 0) {
-          newEntries.push({ loan, emiAmt: loan.installment_amount || 0, totalOverdue, collectedAmount: '', mode: 'Cash', referenceNo: '' })
+        const lSched = schedule
+          .filter(r => r.loan_account_no === loan.loan_account_no)
+          .sort((a, b) => a.installment_no - b.installment_no)
+
+        const todayRow = lSched.find(r => r.due_date === date)
+        const overdueRows = lSched.filter(r => r.due_date < date && (r.status === 'Pending' || r.status === 'Overdue'))
+
+        const todayEmi = (todayRow && todayRow.status !== 'Paid') ? (todayRow.emi_due || loan.installment_amount || 0) : 0
+        const totalOverdue = overdueRows.reduce((s, r) => s + Math.max(0, (r.emi_due || 0) - (r.paid_amount || 0)), 0)
+        const totalDue = todayEmi + totalOverdue
+
+        if ((todayRow && todayRow.status !== 'Paid') || totalOverdue > 0) {
+          const firstEmiDate = loan.installment_start_date || (loan as any).first_installment_date || loan.disbursement_date
+          const meetingDay = getMeetingDay(firstEmiDate)
+          const freq = loan.frequency || (loan as any).repayment_frequency || 'Weekly'
+          const totalTenure = loan.tenure || lSched.length || 26
+          const paidEmis = lSched.filter(r => r.status === 'Paid').length || Number((loan as any).paid_emi || (loan as any).data?.paid_emi || 0)
+          const pendingEmis = Math.max(0, totalTenure - paidEmis)
+
+          newEntries.push({
+            loan,
+            meetingDay,
+            frequency: freq,
+            totalTenure,
+            paidEmis,
+            pendingEmis,
+            todayEmi,
+            totalOverdue,
+            totalDue,
+            collectedAmount: '',
+            mode: 'Cash',
+            referenceNo: '',
+          })
         }
       }
       setEntries(newEntries)
@@ -245,8 +290,8 @@ export default function CollectionsPage() {
     const bMatch = !branch || (e.loan.branch_code || '').toLowerCase().includes(branch.toLowerCase())
     const fMatch = !foName || (e.loan.fo_name || '').toLowerCase().includes(foName.toLowerCase())
     const dMatch = !dueFilter ||
-      (dueFilter === 'overdue' && e.totalOverdue > 0 && e.loan.dpd > 0) ||
-      (dueFilter === 'due' && e.totalOverdue > 0)
+      (dueFilter === 'overdue' && e.totalOverdue > 0) ||
+      (dueFilter === 'due' && e.todayEmi > 0)
     return bMatch && fMatch && dMatch
   })
 
@@ -256,7 +301,7 @@ export default function CollectionsPage() {
     ))
   }
 
-  const fillAllDue = () => setEntries(prev => prev.map(e => ({ ...e, collectedAmount: String(e.totalOverdue || e.emiAmt) })))
+  const fillAllDue = () => setEntries(prev => prev.map(e => ({ ...e, collectedAmount: String(e.totalDue || e.todayEmi) })))
   const totalCollectedSum = entries.reduce((s, e) => s + (Number(e.collectedAmount) || 0), 0)
 
   async function handleSaveAll() {
@@ -362,6 +407,44 @@ export default function CollectionsPage() {
           {message && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4" /> {message}</div>}
           {errorMessage && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2"><AlertCircle className="w-4 h-4" /> {errorMessage}</div>}
 
+          {/* Branch Breakdown KPI Summary Bar */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-gradient-to-br from-blue-600 to-indigo-700 text-white p-4 rounded-2xl shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-200 block">Total Due Accounts ({date})</span>
+              <div className="flex items-baseline justify-between mt-1">
+                <span className="text-2xl font-black">{filteredEntries.length}</span>
+                <span className="text-xs bg-blue-500/30 px-2 py-0.5 rounded-full font-semibold">{getMeetingDay(date)}</span>
+              </div>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 block">Pataudi Branch</span>
+              <div className="flex items-baseline justify-between mt-1">
+                <span className="text-2xl font-black text-slate-800">
+                  {filteredEntries.filter(e => (e.loan.branch_code || '').toUpperCase() === 'PATAUDI').length}
+                </span>
+                <span className="text-[11px] text-slate-500 font-semibold">Accounts</span>
+              </div>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 block">Khatauli Branch</span>
+              <div className="flex items-baseline justify-between mt-1">
+                <span className="text-2xl font-black text-slate-800">
+                  {filteredEntries.filter(e => (e.loan.branch_code || '').toUpperCase() === 'KHATAULI').length}
+                </span>
+                <span className="text-[11px] text-slate-500 font-semibold">Accounts</span>
+              </div>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600 block">Haridwar Branch</span>
+              <div className="flex items-baseline justify-between mt-1">
+                <span className="text-2xl font-black text-slate-800">
+                  {filteredEntries.filter(e => (e.loan.branch_code || '').toUpperCase() === 'HARIDWAR').length}
+                </span>
+                <span className="text-[11px] text-slate-500 font-semibold">Accounts</span>
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Due Date</label>
@@ -406,49 +489,61 @@ export default function CollectionsPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead><tr className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wide">
-                  <th className="text-left px-4 py-3">Member</th>
-                  <th className="text-left px-4 py-3">Loan A/C</th>
-                  <th className="text-left px-4 py-3">Branch / FO</th>
-                  <th className="text-right px-4 py-3">EMI Due</th>
-                  <th className="text-right px-4 py-3">Overdue</th>
-                  <th className="text-left px-4 py-3 w-36">Collected (₹)</th>
-                  <th className="text-left px-4 py-3 w-32">Mode</th>
-                  <th className="text-left px-4 py-3 w-36">Ref No</th>
+                  <th className="text-left px-3 py-3">Member</th>
+                  <th className="text-left px-3 py-3">Loan A/C</th>
+                  <th className="text-left px-3 py-3">Branch / FO</th>
+                  <th className="text-left px-3 py-3">Meeting Day</th>
+                  <th className="text-left px-3 py-3">Frequency</th>
+                  <th className="text-center px-3 py-3">Tenor</th>
+                  <th className="text-center px-3 py-3">Paid</th>
+                  <th className="text-center px-3 py-3">Pending</th>
+                  <th className="text-right px-3 py-3">Today EMI</th>
+                  <th className="text-right px-3 py-3">Overdue</th>
+                  <th className="text-right px-3 py-3">Total Due</th>
+                  <th className="text-left px-3 py-3 w-32">Collected (₹)</th>
+                  <th className="text-left px-3 py-3 w-28">Mode</th>
+                  <th className="text-left px-3 py-3 w-32">Ref No</th>
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
-                  {loading && <tr><td colSpan={8} className="py-10 text-center text-slate-400">Loading…</td></tr>}
-                  {!loading && filteredEntries.length === 0 && <tr><td colSpan={8} className="py-10 text-center text-slate-400">No pending dues for selected filters.</td></tr>}
+                  {loading && <tr><td colSpan={14} className="py-10 text-center text-slate-400">Loading…</td></tr>}
+                  {!loading && filteredEntries.length === 0 && <tr><td colSpan={14} className="py-10 text-center text-slate-400">No pending dues for selected filters.</td></tr>}
                   {!loading && filteredEntries.map(e => (
                     <tr key={e.loan.loan_account_no} className="hover:bg-slate-50/50">
-                      <td className="px-4 py-2.5 font-semibold text-slate-800">
+                      <td className="px-3 py-2.5 font-semibold text-slate-800 whitespace-nowrap">
                         <Link href={`/members/${e.loan.customer_id}`} className="text-blue-600 hover:underline">
                           {e.loan.member_name_cache || e.loan.member_name}
                         </Link>
                       </td>
-                      <td className="px-4 py-2.5 font-mono text-blue-600 font-bold text-[11px]">
+                      <td className="px-3 py-2.5 font-mono text-blue-600 font-bold text-[11px]">
                         <Link href={`/loans/${e.loan.loan_account_no}`} className="hover:underline">
                           {e.loan.loan_account_no}
                         </Link>
                       </td>
-                      <td className="px-4 py-2.5 text-slate-500 text-[11px]">{e.loan.branch_code} / {e.loan.fo_name || '—'}</td>
-                      <td className="px-4 py-2.5 text-right font-medium">{inr(e.emiAmt)}</td>
-                      <td className="px-4 py-2.5 text-right font-bold text-red-600">{inr(e.totalOverdue)}</td>
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-2.5 text-slate-500 text-[11px] whitespace-nowrap">{e.loan.branch_code} / {e.loan.fo_name || '—'}</td>
+                      <td className="px-3 py-2.5 font-bold text-slate-700 text-[11px]">{e.meetingDay}</td>
+                      <td className="px-3 py-2.5 text-slate-600 text-[11px]">{e.frequency}</td>
+                      <td className="px-3 py-2.5 text-center font-medium text-slate-700">{e.totalTenure}</td>
+                      <td className="px-3 py-2.5 text-center font-semibold text-emerald-600 bg-emerald-50/50 rounded">{e.paidEmis}</td>
+                      <td className="px-3 py-2.5 text-center font-semibold text-amber-600 bg-amber-50/50 rounded">{e.pendingEmis}</td>
+                      <td className="px-3 py-2.5 text-right font-medium">{inr(e.todayEmi)}</td>
+                      <td className="px-3 py-2.5 text-right font-bold text-red-600">{inr(e.totalOverdue)}</td>
+                      <td className="px-3 py-2.5 text-right font-black text-slate-800">{inr(e.totalDue)}</td>
+                      <td className="px-3 py-2">
                         <div className="flex gap-1">
                           <input type="number" placeholder="0" value={e.collectedAmount}
                             onChange={el => setField(e.loan.loan_account_no, 'collectedAmount', el.target.value)}
                             className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:border-blue-400" />
-                          <button type="button" onClick={() => setField(e.loan.loan_account_no, 'collectedAmount', String(e.totalOverdue || e.emiAmt))}
-                            className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg" title="Fill due amount"><Sparkles className="w-3 h-3 text-slate-600" /></button>
+                          <button type="button" onClick={() => setField(e.loan.loan_account_no, 'collectedAmount', String(e.totalDue))}
+                            className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg" title="Fill total due"><Sparkles className="w-3 h-3 text-slate-600" /></button>
                         </div>
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-2">
                         <select value={e.mode} onChange={el => setField(e.loan.loan_account_no, 'mode', el.target.value)}
                           className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none">
                           <option>Cash</option><option>UPI</option><option>NACH / Bank</option><option>Cheque</option>
                         </select>
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-2">
                         <input type="text" placeholder="Receipt / UTR" value={e.referenceNo}
                           onChange={el => setField(e.loan.loan_account_no, 'referenceNo', el.target.value)}
                           className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none" />
@@ -736,7 +831,7 @@ export default function CollectionsPage() {
                       <td className="px-4 py-2.5 font-semibold">{e.loan.member_name_cache || e.loan.member_name}</td>
                       <td className="px-4 py-2.5">{e.loan.mobile || '—'}</td>
                       <td className="px-4 py-2.5 text-slate-500">{e.loan.branch_code} / {e.loan.fo_name || '—'}</td>
-                      <td className="px-4 py-2.5 text-right font-bold text-red-600">{inr(e.totalOverdue || e.emiAmt)}</td>
+                      <td className="px-4 py-2.5 text-right font-bold text-red-600">{inr(e.totalDue || e.todayEmi)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -745,7 +840,7 @@ export default function CollectionsPage() {
             {filteredEntries.length > 0 && (
               <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-between text-xs font-bold text-slate-700">
                 <span>{filteredEntries.length} entries</span>
-                <span>Total Due: {inr(filteredEntries.reduce((s, e) => s + (e.totalOverdue || e.emiAmt), 0))}</span>
+                <span>Total Due: {inr(filteredEntries.reduce((s, e) => s + (e.totalDue || e.todayEmi), 0))}</span>
               </div>
             )}
           </div>
