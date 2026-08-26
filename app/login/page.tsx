@@ -4,6 +4,7 @@ import { useState, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, LockKeyhole, Loader2 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
+import { supabase } from '@/lib/supabase'
 
 import microfinanceLogo from '@/public/brand/aa2-microfinance.png'
 import foundationLogo from '@/public/brand/aa2-foundation.jpeg'
@@ -46,10 +47,29 @@ function LoginForm() {
     event.preventDefault()
     setError('')
     setLoading(true)
+    const cleanEmail = email.trim().toLowerCase()
     try {
-      await api('/api/auth/login/start', { email, password })
-      const profile = await refreshProfile()
-      if (!profile) throw new Error('Your application profile is inactive. Contact an administrator.')
+      // Direct browser sign in via Supabase client
+      const { data, error: sbErr } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      })
+
+      if (sbErr || !data.user) {
+        throw new Error(sbErr?.message || 'Invalid login credentials. Please check your email and password.')
+      }
+
+      // Set cookie on server as well
+      try {
+        await api('/api/auth/login/start', { email: cleanEmail, password })
+      } catch {
+        // Continue even if server cookie endpoint is slow
+      }
+
+      const profile = await refreshProfile(data.session)
+      if (!profile) {
+        throw new Error('Your application profile is inactive or not found. Contact an administrator.')
+      }
       router.replace('/dashboard')
     } catch (caught) {
       const failure = caught as Error
