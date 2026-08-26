@@ -54,7 +54,8 @@ export async function POST(request: NextRequest) {
         { status: 423 },
       )
     }
-    return NextResponse.json({ error: 'Incorrect password. Please try again.' }, { status: 401 })
+    const msg = signInError?.message || 'Incorrect password. Please try again.'
+    return NextResponse.json({ error: msg }, { status: 401 })
   }
 
   return NextResponse.json({ ok: true })
