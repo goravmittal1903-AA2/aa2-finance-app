@@ -49,7 +49,7 @@ function LoginForm() {
     setLoading(true)
     const cleanEmail = email.trim().toLowerCase()
     try {
-      // Direct browser sign in via Supabase client
+      // Direct browser sign in via Supabase client (instant)
       const { data, error: sbErr } = await supabase.auth.signInWithPassword({
         email: cleanEmail,
         password,
@@ -59,18 +59,13 @@ function LoginForm() {
         throw new Error(sbErr?.message || 'Invalid login credentials. Please check your email and password.')
       }
 
-      // Set cookie on server as well
-      try {
-        await api('/api/auth/login/start', { email: cleanEmail, password })
-      } catch {
-        // Continue even if server cookie endpoint is slow
-      }
-
       const profile = await refreshProfile(data.session)
       if (!profile) {
         throw new Error('Your application profile is inactive or not found. Contact an administrator.')
       }
-      router.replace('/dashboard')
+
+      // Immediate redirect to dashboard
+      window.location.assign('/dashboard')
     } catch (caught) {
       const failure = caught as Error
       setError(failure.message || 'Authentication failed.')
