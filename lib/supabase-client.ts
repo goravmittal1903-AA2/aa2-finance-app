@@ -6,8 +6,8 @@ import { createBrowserClient } from '@supabase/ssr'
  * Browser client backed by secure Supabase Auth cookies. It intentionally uses
  * the publishable/anon key only; privileged operations stay on the server.
  */
-const DEFAULT_URL = 'https://eslqcwvaulnuewglptyx.supabase.co'
-const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVzbHFjd3ZhdWxudWV3Z2xwdHl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5MDU2NDksImV4cCI6MjA5ODQ4MTY0OX0.xDsIyRYAfkVXThqfD57ignN1CORMnQiKRWp0KB3LmGU'
+const DEFAULT_URL = 'http://144.24.99.155:8000'
+const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE'
 
 export function createSupabaseBrowserClient() {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_URL.startsWith('http'))
