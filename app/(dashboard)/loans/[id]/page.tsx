@@ -4,7 +4,7 @@ import { useEffect, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getOne, getFiltered, putOne, putMany, delOne, getAll, supabase } from '@/lib/supabase'
-import { recalcLoanLedger, applyPayment, computeForeclosure, addDays, addMonthsLike, daysBetween, computeLoanEconomics, generateSchedule, classifyAndAllocatePayment, computeBrokenPeriodInterest, processOTSSettlement, generateUniqueLoanAccountNo, FREQ_PER_YEAR } from '@/lib/calculations'
+import { recalcLoanLedger, applyPayment, computeForeclosure, addDays, addMonthsLike, daysBetween, computeLoanEconomics, generateSchedule, classifyAndAllocatePayment, processOTSSettlement, generateUniqueLoanAccountNo, FREQ_PER_YEAR } from '@/lib/calculations'
 import type { Loan, ScheduleRow, Transaction, Customer } from '@/lib/types'
 import { inr, fdate, fdatetime, todayISO, statusColor, username } from '@/lib/utils'
 import { generateSanctionLetter, generatePassbook, generateLoanAgreement, generatePaymentReceipt, generateThermalPaymentReceipt, generateForeclosureNoc, generateRepaymentSchedule, generateSOA, generateTopUpLetter, generateRestructureAgreement, generateOTSSettlementLetter } from '@/lib/document-generator'
@@ -1243,27 +1243,6 @@ export default function LoanDetailPage({ params }: PageProps) {
               <div><span className="text-slate-400 block font-semibold uppercase tracking-wider mb-0.5">Frequency</span><span className="text-slate-700 font-medium">{loan.frequency} · {loan.tenure} EMIs</span></div>
               <div><span className="text-slate-400 block font-semibold uppercase tracking-wider mb-0.5">Disbursed Date</span><span className="text-slate-700 font-medium">{fdate(loan.disbursement_date)}</span></div>
               <div><span className="text-slate-400 block font-semibold uppercase tracking-wider mb-0.5">Branch Name / FO</span><span className="text-slate-700 font-medium">{loan.branch_code} / {loan.fo_name}</span></div>
-              {(() => {
-                const bpi = computeBrokenPeriodInterest({
-                  loan_amount: loan.loan_amount,
-                  interest_rate: loan.interest_rate,
-                  disbursement_date: loan.disbursement_date,
-                  installment_start_date: loan.installment_start_date || loan.disbursement_date,
-                  frequency: loan.frequency,
-                })
-                if (bpi.broken_days <= 0) return null
-                return (
-                  <div className="col-span-2 md:col-span-4 bg-amber-50/70 border border-amber-200/80 rounded-xl p-2.5 flex items-center justify-between text-xs text-amber-900 mt-1">
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span><strong>Broken Period:</strong> {bpi.broken_days} odd days between disbursal ({fdate(loan.disbursement_date)}) and 1st installment ({fdate(loan.installment_start_date)})</span>
-                    </div>
-                    <span className="font-bold text-amber-800 bg-white px-2 py-0.5 rounded border border-amber-300">
-                      Interest: {inr(bpi.broken_interest)}
-                    </span>
-                  </div>
-                )
-              })()}
             </div>
           </div>
 

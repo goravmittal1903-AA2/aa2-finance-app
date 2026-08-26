@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { getAll, putOne, putMany } from '@/lib/supabase'
 import {
   computeLoanEconomics, generateSchedule, generateUniqueLoanAccountNo,
-  checkActiveLoanLimit, computeBrokenPeriodInterest, addDays
+  checkActiveLoanLimit, addDays
 } from '@/lib/calculations'
 import type { Customer, Loan, ScheduleRow, Transaction } from '@/lib/types'
 import { inr, todayISO, fdate } from '@/lib/utils'
@@ -1049,6 +1049,7 @@ function NewLoanWizard() {
                 {submitting ? 'Sanctioning & Disbursing…' : 'Confirm & Sanction Loan'}
               </button>
             )}
+          </div>
           </div>
         </div>
 

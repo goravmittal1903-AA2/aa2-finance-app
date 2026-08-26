@@ -711,36 +711,7 @@ export async function cleanupAllDuplicateTransactions(): Promise<{ cleaned: numb
   return { cleaned: cleanedCount, loansAffected: affectedLoans.size }
 }
 
-/**
- * Broken Period Interest calculation for odd days between disbursement and 1st installment
- */
-export function computeBrokenPeriodInterest({
-  loan_amount,
-  interest_rate,
-  disbursement_date,
-  installment_start_date,
-  frequency = 'Monthly',
-}: {
-  loan_amount: number
-  interest_rate: number
-  disbursement_date: string
-  installment_start_date: string
-  frequency?: string
-}) {
-  const amount = Number(loan_amount) || 0
-  const rate = Number(interest_rate) || 0
-  if (!disbursement_date || !installment_start_date || amount <= 0 || rate <= 0) {
-    return { actual_days: 0, standard_days: 30, broken_days: 0, broken_interest: 0 }
-  }
 
-  const actual_days = Math.max(0, daysBetween(disbursement_date, installment_start_date))
-  const standard_days = FREQ_DAYS[frequency] || 30
-  const broken_days = Math.max(0, actual_days - standard_days)
-  const daily_rate = (rate / 100) / 365
-  const broken_interest = Math.round(amount * daily_rate * broken_days)
-
-  return { actual_days, standard_days, broken_days, broken_interest }
-}
 
 /**
  * RBI NBFC Prudential ECL (Expected Credit Loss) NPA Provisioning Summary
