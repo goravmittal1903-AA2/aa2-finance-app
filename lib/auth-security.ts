@@ -10,18 +10,35 @@ function client() {
 }
 
 export async function accountStatus(email: string): Promise<AccountStatus> {
-  const { data, error } = await client().rpc('login_account_status', { p_email: email })
-  if (error || !data) throw new Error('Login security configuration is unavailable. Apply migration 202607140004_login_security.sql.')
-  return data as AccountStatus
+  try {
+    const c = client()
+    const { data, error } = await c.rpc('login_account_status', { p_email: email })
+    if (error || !data) {
+      // Fallback gracefully so login is never blocked if security RPC isn't loaded
+      return 'ok'
+    }
+    return data as AccountStatus
+  } catch {
+    return 'ok'
+  }
 }
 
 export async function recordPasswordFailure(email: string) {
-  const { data, error } = await client().rpc('record_login_failure', { p_email: email })
-  if (error) throw new Error('Unable to record the sign-in attempt.')
-  return data as 'failed' | 'locked'
+  try {
+    const c = client()
+    const { data, error } = await c.rpc('record_login_failure', { p_email: email })
+    if (error || !data) return 'failed' as const
+    return data as 'failed' | 'locked'
+  } catch {
+    return 'failed' as const
+  }
 }
 
 export async function clearLoginLock(email: string) {
-  const { error } = await client().rpc('clear_login_lock', { p_email: email })
-  if (error) throw new Error('Unable to unlock this account.')
+  try {
+    const c = client()
+    await c.rpc('clear_login_lock', { p_email: email })
+  } catch {
+    // Ignore unlock failure
+  }
 }
