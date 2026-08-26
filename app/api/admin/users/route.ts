@@ -1,11 +1,12 @@
+import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY } from '@/lib/supabase-config'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import { requireAuthenticatedUser } from '@/lib/authz'
 
 function adminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const url = SUPABASE_URL
+  const key = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY || SUPABASE_ANON_KEY
   if (!url || !key) throw new Error('Supabase configuration is missing.')
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
 }

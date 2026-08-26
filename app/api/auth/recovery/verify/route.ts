@@ -1,3 +1,4 @@
+import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY } from '@/lib/supabase-config'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { z } from 'zod'
@@ -10,8 +11,8 @@ export async function POST(request: NextRequest) {
   if (!pending) return NextResponse.json({ error: 'Your recovery attempt has expired. Start again.' }, { status: 401 })
   const body = schema.safeParse(await request.json())
   if (!body.success) return NextResponse.json({ error: 'Enter the code from your email.' }, { status: 400 })
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const url = SUPABASE_URL
+  const key = SUPABASE_ANON_KEY || SUPABASE_ANON_KEY
   if (!url || !key) return NextResponse.json({ error: 'Supabase configuration is missing.' }, { status: 500 })
   const response = NextResponse.json({ ok: true })
   const supabase = createServerClient(url, key, { cookies: { getAll: () => request.cookies.getAll(), setAll: cookies => cookies.forEach(({ name, value, options }) => response.cookies.set(name, value, options)) } })

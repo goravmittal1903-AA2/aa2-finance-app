@@ -1,3 +1,4 @@
+import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY } from '@/lib/supabase-config'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { z } from 'zod'
@@ -32,8 +33,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'This account is inactive. Contact an IT administrator.' }, { status: 403 })
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const url = SUPABASE_URL
+  const key = SUPABASE_ANON_KEY || SUPABASE_ANON_KEY
   if (!url || !key) {
     return NextResponse.json({ error: 'Supabase configuration is missing.' }, { status: 500 })
   }

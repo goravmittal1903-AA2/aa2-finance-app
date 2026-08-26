@@ -1,3 +1,4 @@
+import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY } from '@/lib/supabase-config'
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
@@ -32,8 +33,8 @@ const RESOURCES = {
 let _adminClient: any = null
 function adminClient() {
   if (!_adminClient) {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY!
+    const url = SUPABASE_URL!
+    const key = SUPABASE_SERVICE_ROLE_KEY!
     _adminClient = createClient(url, key, { auth: { persistSession: false } })
   }
   return _adminClient

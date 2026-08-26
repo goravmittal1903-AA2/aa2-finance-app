@@ -3,12 +3,11 @@ import 'server-only'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
-const DEDICATED_URL = 'https://144.24.99.155.sslip.io'
-const DEDICATED_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE'
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase-config'
 
 export async function createSupabaseServerClient() {
   const cookieStore = await cookies()
-  return createServerClient(DEDICATED_URL, DEDICATED_ANON_KEY, {
+  return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
       getAll() {
         return cookieStore.getAll()

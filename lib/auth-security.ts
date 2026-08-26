@@ -2,11 +2,10 @@ import { createClient } from '@supabase/supabase-js'
 
 export type AccountStatus = 'ok' | 'invalid_domain' | 'unknown_email' | 'inactive' | 'locked'
 
-const DEDICATED_URL = 'https://144.24.99.155.sslip.io'
-const DEDICATED_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE'
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase-config'
 
 function client() {
-  return createClient(DEDICATED_URL, DEDICATED_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
 }
 
 export async function accountStatus(email: string): Promise<AccountStatus> {
