@@ -135,16 +135,7 @@ function NewLoanWizard() {
     }
   }
 
-  // Broken Period Interest calculation
-  const brokenPeriod = useMemo(() => {
-    return computeBrokenPeriodInterest({
-      loan_amount: Number(formData.loan_amount) || 0,
-      interest_rate: Number(formData.interest_rate) || 0,
-      disbursement_date: formData.disbursement_date,
-      installment_start_date: formData.installment_start_date,
-      frequency: formData.frequency,
-    })
-  }, [formData.loan_amount, formData.interest_rate, formData.disbursement_date, formData.installment_start_date, formData.frequency])
+
 
   // Loan Financial Economics Preview
   const economics = useMemo(() => {
@@ -163,17 +154,15 @@ function NewLoanWizard() {
       frequency,
     })
 
-    const netPayout = formData.broken_interest_collection_mode === 'UPFRONT_DEDUCTION'
-      ? Math.max(0, amount - file_charge - insurance_fee - (brokenPeriod.broken_interest || 0))
-      : Math.max(0, amount - file_charge - insurance_fee)
+    const netPayout = Math.max(0, amount - file_charge - insurance_fee)
 
     return {
       ...calc,
       insurance_fee,
       netPayout,
-      totalBrokenInterest: brokenPeriod.broken_interest || 0,
+      totalBrokenInterest: 0,
     }
-  }, [formData.loan_amount, formData.interest_rate, formData.tenure, formData.frequency, formData.file_charge, formData.insurance_fee, brokenPeriod])
+  }, [formData.loan_amount, formData.interest_rate, formData.tenure, formData.frequency, formData.file_charge, formData.insurance_fee])
 
   // Live Repayment Schedule Preview Rows
   const schedulePreview = useMemo(() => {
@@ -212,8 +201,6 @@ function NewLoanWizard() {
       dpd: 0,
       disbursed: true,
       imported: false,
-        broken_interest: brokenPeriod.broken_interest || 0,
-        broken_interest_collection_mode: formData.broken_interest_collection_mode as any,
       close_date: null,
       closure_amount: null,
       closure_type: null,
@@ -223,7 +210,7 @@ function NewLoanWizard() {
       product_type: formData.product_type,
     }
     return generateSchedule(dummyLoan)
-  }, [formData, economics, selectedMember, brokenPeriod, formData.broken_interest_collection_mode])
+  }, [formData, economics, selectedMember])
 
   const PRODUCT_DEFAULTS: Record<string, { frequency: string, loan_amount: string, interest_rate: string, tenure: string, file_charge: string }> = {
     'Individual Loan (IL)': { frequency: 'Weekly', loan_amount: '30000', interest_rate: '24', tenure: '50', file_charge: '600' },
@@ -822,66 +809,7 @@ function NewLoanWizard() {
               </div>
             </div>
 
-            {brokenPeriod.broken_days > 0 && (
-              <div className="bg-amber-50/70 border border-amber-200 text-amber-900 rounded-2xl p-4 space-y-3 text-xs tab-transition">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-bold text-sm">Broken Period Gap Detected: {brokenPeriod.broken_days} Odd Days</p>
-                    <p className="text-[11px] text-amber-700 mt-0.5">Calculated odd-day interest: <strong>{inr(brokenPeriod.broken_interest)}</strong></p>
-                  </div>
-                  <span className="px-2.5 py-1 rounded-full bg-amber-200 text-amber-900 font-bold text-[10px]">
-                    Custom EMI Start Date
-                  </span>
-                </div>
 
-                <div className="space-y-1.5 pt-2 border-t border-amber-200/80">
-                  <label className="font-bold text-amber-900 uppercase tracking-wider text-[10px] block">
-                    Select How to Collect Broken Period Interest:
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <label className={`p-3 rounded-xl border cursor-pointer transition flex items-start gap-2.5 ${
-                      formData.broken_interest_collection_mode === 'UPFRONT_DEDUCTION'
-                        ? 'bg-white border-amber-500 shadow-xs'
-                        : 'bg-amber-100/40 border-amber-200 hover:bg-white'
-                    }`}>
-                      <input
-                        type="radio"
-                        name="broken_collection_mode"
-                        checked={formData.broken_interest_collection_mode === 'UPFRONT_DEDUCTION'}
-                        onChange={() => setFormData(prev => ({ ...prev, broken_interest_collection_mode: 'UPFRONT_DEDUCTION' }))}
-                        className="mt-0.5 text-blue-600 focus:ring-blue-500"
-                      />
-                      <div>
-                        <strong className="block text-slate-800 text-xs">Option A: Deduct Upfront from Disbursal</strong>
-                        <span className="text-[10.5px] text-slate-500 block mt-0.5">
-                          Deducted from cash handover. All {formData.tenure} weekly EMIs remain uniform round figures ({inr(economics.installment_amount)}).
-                        </span>
-                      </div>
-                    </label>
-
-                    <label className={`p-3 rounded-xl border cursor-pointer transition flex items-start gap-2.5 ${
-                      formData.broken_interest_collection_mode === 'ADD_TO_FIRST_EMI'
-                        ? 'bg-white border-amber-500 shadow-xs'
-                        : 'bg-amber-100/40 border-amber-200 hover:bg-white'
-                    }`}>
-                      <input
-                        type="radio"
-                        name="broken_collection_mode"
-                        checked={formData.broken_interest_collection_mode === 'ADD_TO_FIRST_EMI'}
-                        onChange={() => setFormData(prev => ({ ...prev, broken_interest_collection_mode: 'ADD_TO_FIRST_EMI' }))}
-                        className="mt-0.5 text-blue-600 focus:ring-blue-500"
-                      />
-                      <div>
-                        <strong className="block text-slate-800 text-xs">Option B: Add into 1st Installment EMI</strong>
-                        <span className="text-[10.5px] text-slate-500 block mt-0.5">
-                          Borrower gets full payout in hand. Installment #1 due is {inr(economics.installment_amount + (brokenPeriod.broken_interest || 0))}, remaining EMIs are {inr(economics.installment_amount)}.
-                        </span>
-                      </div>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Interactive Schedule Preview Table */}
             <div className="space-y-2 pt-2">
@@ -1049,7 +977,6 @@ function NewLoanWizard() {
                 {submitting ? 'Sanctioning & Disbursing…' : 'Confirm & Sanction Loan'}
               </button>
             )}
-          </div>
           </div>
         </div>
 
