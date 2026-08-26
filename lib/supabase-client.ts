@@ -10,5 +10,9 @@ const DEDICATED_URL = 'http://144.24.99.155:8000'
 const DEDICATED_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE'
 
 export function createSupabaseBrowserClient() {
-  return createBrowserClient(DEDICATED_URL, DEDICATED_ANON_KEY)
+  const url = typeof window !== 'undefined'
+    ? `${window.location.origin}/supabase-api`
+    : DEDICATED_URL
+
+  return createBrowserClient(url, DEDICATED_ANON_KEY)
 }
