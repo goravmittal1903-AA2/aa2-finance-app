@@ -218,15 +218,47 @@ const FDATE = (d: string) => {
   try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) } catch { return d }
 }
 
-/** Opens a browser print window with styled HTML document */
-function printDocument(title: string, bodyHtml: string) {
-  const printWindow = window.open('', '_blank', 'width=900,height=1000')
-  if (!printWindow) {
-    const { toast } = require('@/lib/toast')
-    toast.warning('Popup Blocked', 'Please allow popups to view and print documents.')
-    return
-  }
+function buildFallbackScheduleRows(data: any) {
+  const amount = Number(data.loan_amount || 0)
+  const tenure = Math.max(1, Number(data.tenure || 12))
+  const rate = Number(data.interest_rate || 18)
+  const emi = Number(data.installment_amount || Math.round((amount * (1 + rate / 100)) / tenure))
+  const startDate = data.installment_start_date || data.disbursement_date || '2026-05-15'
+  
+  const schedule = []
+  let bal = amount
+  for (let i = 1; i <= tenure; i++) {
+    const interest = Math.round((bal * (rate / 100)) / 12)
+    const principal = Math.max(0, emi - interest)
+    const closing = Math.max(0, bal - principal)
+    
+    let estDate = startDate
+    const parts = startDate.slice(0, 10).split('-').map(Number)
+    if (parts.length === 3 && !parts.some(isNaN)) {
+      const [y, m, d] = parts
+      const dt = new Date(Date.UTC(y, m - 1 + (i - 1), d))
+      estDate = dt.toISOString().slice(0, 10)
+    }
 
+    schedule.push({
+      installment_no: i,
+      due_date: estDate,
+      opening_balance: bal,
+      principal_due: principal,
+      interest_due: interest,
+      emi_due: emi,
+      closing_balance: closing,
+      paid_amount: 0,
+      status: 'Pending',
+      dpd: 0,
+    })
+    bal = closing
+  }
+  return schedule
+}
+
+/** Opens a browser print window with styled HTML document (with popup-blocker in-page modal fallback) */
+function printDocument(title: string, bodyHtml: string) {
   const html = `
     <!DOCTYPE html>
     <html>
@@ -302,7 +334,7 @@ function printDocument(title: string, bodyHtml: string) {
             <button onclick="window.print()" style="background: #2563eb; color: #ffffff; border: none; padding: 8px 18px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.2);">
               Print Document
             </button>
-            <button onclick="window.close()" style="background: #475569; color: #ffffff; border: none; padding: 8px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
+            <button onclick="if(window.opener){window.close();}else{const m = parent.document.getElementById('aa2_doc_modal') || document.getElementById('aa2_doc_modal'); if(m) m.remove();}" style="background: #475569; color: #ffffff; border: none; padding: 8px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
               Close Preview
             </button>
           </div>
@@ -312,9 +344,41 @@ function printDocument(title: string, bodyHtml: string) {
     </html>
   `
 
-  printWindow.document.open()
-  printWindow.document.write(html)
-  printWindow.document.close()
+  let printWindow: Window | null = null
+  try {
+    printWindow = window.open('', '_blank', 'width=950,height=1000')
+  } catch {
+    printWindow = null
+  }
+
+  if (printWindow) {
+    printWindow.document.open()
+    printWindow.document.write(html)
+    printWindow.document.close()
+    printWindow.focus()
+  } else {
+    // Popup was blocked by browser — render in-page iframe modal overlay
+    if (typeof document !== 'undefined') {
+      const existing = document.getElementById('aa2_doc_modal')
+      if (existing) existing.remove()
+
+      const modal = document.createElement('div')
+      modal.id = 'aa2_doc_modal'
+      modal.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(15,23,42,0.85);display:flex;flex-direction:column;'
+
+      const iframe = document.createElement('iframe')
+      iframe.style.cssText = 'width:100%;height:100%;border:none;'
+      modal.appendChild(iframe)
+      document.body.appendChild(modal)
+
+      const doc = iframe.contentDocument || iframe.contentWindow?.document
+      if (doc) {
+        doc.open()
+        doc.write(html)
+        doc.close()
+      }
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -813,11 +877,15 @@ export function generateForeclosureNoc(data: ForeclosureNocData) {
 // 4. REPAYMENT SCHEDULE DOCUMENT
 // ═══════════════════════════════════════════════════════════════════════════════
 export function generateRepaymentSchedule(data: RepaymentScheduleData) {
-  const totalPrincipal = data.schedule.reduce((s, r) => s + r.principal_due, 0)
-  const totalInterest = data.schedule.reduce((s, r) => s + r.interest_due, 0)
-  const totalEmi = data.schedule.reduce((s, r) => s + r.emi_due, 0)
+  const schedList = (data.schedule && data.schedule.length > 0)
+    ? data.schedule
+    : buildFallbackScheduleRows(data)
 
-  const scheduleRows = data.schedule.map(r => `
+  const totalPrincipal = schedList.reduce((s, r) => s + r.principal_due, 0)
+  const totalInterest = schedList.reduce((s, r) => s + r.interest_due, 0)
+  const totalEmi = schedList.reduce((s, r) => s + r.emi_due, 0)
+
+  const scheduleRows = schedList.map(r => `
     <tr>
       <td>${r.installment_no}</td>
       <td>${FDATE(r.due_date)}</td>
@@ -893,7 +961,11 @@ export function generateRepaymentSchedule(data: RepaymentScheduleData) {
 // 5. STATEMENT OF ACCOUNT (SOA)
 // ═══════════════════════════════════════════════════════════════════════════════
 export function generateSOA(data: SOAData) {
-  const scheduleRows = data.schedule.map(r => {
+  const schedList = (data.schedule && data.schedule.length > 0)
+    ? data.schedule
+    : buildFallbackScheduleRows(data)
+
+  const scheduleRows = schedList.map(r => {
     const statusClass = r.status === 'Paid' ? 'badge-green' : r.status === 'Overdue' ? 'badge-red' : 'badge-slate'
     return `
       <tr>
