@@ -1,18 +1,22 @@
 'use client'
 
 import { useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
 
-/** Refreshes a screen when Supabase broadcasts a relevant database change. */
+/** Refreshes a screen when database changes occur. */
 export function useRealtimeInvalidation(table: string, onChange: () => void) {
   useEffect(() => {
-    const channel = supabase
-      .channel(`aa2-${table}-${crypto.randomUUID()}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table }, onChange)
-      .subscribe()
+    if (typeof window === 'undefined') return
 
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (!detail || !detail.stores || detail.stores.includes(table) || detail.store === table) {
+        onChange()
+      }
+    }
+
+    window.addEventListener('aa2_data_changed', handler)
     return () => {
-      void supabase.removeChannel(channel)
+      window.removeEventListener('aa2_data_changed', handler)
     }
   }, [onChange, table])
 }
