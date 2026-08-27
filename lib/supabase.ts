@@ -136,8 +136,12 @@ export async function getOne<T>(store: string, id: string | number, forceRefresh
     return cached.data
   }
 
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    return getOneViaServer<T>(store, id)
+  }
+
   const { data, error } = await supabase.from(tbl(store)).select('data').eq('id', String(id)).maybeSingle()
-  if (error) { console.warn(`getOne(${store}, ${id}):`, error.message); return null }
+  if (error) { console.warn(`getOne(${store}, ${id}):`, error.message); return getOneViaServer<T>(store, id) }
   const result = data ? (data as { data: T }).data : null
   memoryCache.set(cacheKey, { timestamp: now, data: result })
   return result
@@ -153,8 +157,12 @@ export async function getFiltered<T>(store: string, field: string, value: string
     return cached.data
   }
 
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    return getFilteredViaServer<T>(store, field, value)
+  }
+
   const { data, error } = await supabase.from(tbl(store)).select('data').eq(`data->>${field}`, String(value))
-  if (error) { console.warn(`getFiltered(${store}):`, error.message); return [] }
+  if (error) { console.warn(`getFiltered(${store}):`, error.message); return getFilteredViaServer<T>(store, field, value) }
   const result = (data || []).map((r: { data: T }) => r.data)
   memoryCache.set(cacheKey, { timestamp: now, data: result })
   return result
@@ -250,4 +258,22 @@ export async function getFilteredViaServer<T>(store: string, field: string, valu
   if (!res.ok) return []
   const json = await res.json()
   return json.records || []
+}
+
+export async function getOneViaServer<T>(store: string, id: string | number): Promise<T | null> {
+  const cacheKey = `getOne:${tbl(store)}:${id}`
+  const cached = memoryCache.get(cacheKey)
+  const now = Date.now()
+
+  if (cached && (now - cached.timestamp < CACHE_TTL_MS)) {
+    return cached.data
+  }
+
+  const res = await fetch(`/api/db?store=${encodeURIComponent(store)}&field=id&value=${encodeURIComponent(String(id))}`)
+  if (!res.ok) return null
+  const json = await res.json()
+  const list = json.records || []
+  const result = list.length > 0 ? list[0] : null
+  memoryCache.set(cacheKey, { timestamp: now, data: result })
+  return result
 }

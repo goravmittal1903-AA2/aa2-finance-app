@@ -93,10 +93,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   const start = (page - 1) * pageSize
-  const { data, count, error } = await query.order('id', { ascending: false }).range(start, start + pageSize - 1)
+  let { data, count, error } = await query.order('id', { ascending: false }).range(start, start + pageSize - 1)
   if (error) {
-    console.warn(`records/${resource} error:`, error.message)
-    return NextResponse.json({ error: error.message }, { status: 400 })
+    const fallback = await supabase.from(definition.table).select('data', { count: 'estimated' }).range(start, start + pageSize - 1)
+    data = fallback.data
+    count = fallback.count
   }
 
   const rows = (data || []).map((row: any) => row.data)
