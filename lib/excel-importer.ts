@@ -90,8 +90,8 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
       const emi = Number(r['EMI AMOUNT'] || r['EMI'] || r['MONTHLY EMI'] || 0)
       const tenure = Number(r['TOTAL EMI'] || 12)
       const paidEmiCount = Number(r['PAID EMI'] || 0)
-      const totalCollected = Number(r['TOTAL RECEIVED AMOUNT'] || (paidEmiCount * emi) || 0)
-      const ledgerBal = Number(r['Ledger Balance'] || Math.max(0, (loanAmount - totalCollected)))
+      const totalCollected = Number(r['TOTAL RECEIVED AMOUNT'] || r['TOTAL COLLECTED'] || (paidEmiCount > 0 && emi > 0 ? paidEmiCount * emi : 0) || 0)
+      const ledgerBal = Number(r['Ledger Balance'] || r['LEDGER BALANCE'] || Math.max(0, loanAmount - totalCollected))
       
       // Auto Close loan if ledger balance is 0 or status is CLOSED
       const statusRaw = (r['Case Status '] || r['Case Status'] || r['Gr. Status'] || 'ACTIVE').toString().trim().toUpperCase()
@@ -100,7 +100,7 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
 
       const dpd = Number(r['DPD'] || 0)
       const disbDate = parseExcelDate(r['DIS. DATE'] || r['DIS.DATE'] || r['DISB DATE'] || r['CASH DB DATE'], '2026-05-01')
-      const firstEmiDate = parseExcelDate(r['FIRST EMI '] || r['FIRST EMI DATE'] || r['FIRST EMI'], '2026-05-15')
+      const firstEmiDate = parseExcelDate(r['FIRST EMI '] || r['FIRST EMI DATE'] || r['FIRST EMI'] || r['1ST EMI DATE'], addMonths(disbDate, 1))
       const closeDate = r['CLOSE DATE'] ? parseExcelDate(r['CLOSE DATE']) : null
       const fileCharge = Number(r['FILE CHARGE'] || Math.round(loanAmount * 0.02))
 
@@ -150,9 +150,10 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         member_name_cache: memberName,
         branch_code: branch,
         fo_name: fo,
+        bm_name: bm,
         product_type: 'Microfinance Personal Loan',
         loan_amount: loanAmount,
-        file_charge: fileCharge,
+        file_charge: econ.file_charge,
         net_disbursement: econ.net_disbursement,
         interest_rate: 18,
         tenure,
@@ -165,16 +166,21 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         status: status as any,
         dpd: isClosed ? 0 : dpd,
         dpd_bucket: isClosed ? 'Current' : dpdBucket(dpd),
-        total_collected: totalCollected,
-        ledger_balance: isClosed ? 0 : ledgerBal,
+        // For closed loans, mark total_collected as full loan amount
+        total_collected: isClosed ? econ.total_loan : totalCollected,
+        ledger_balance: isClosed ? 0 : Math.max(0, ledgerBal),
         close_date: closeDate || (isClosed ? new Date().toISOString().slice(0, 10) : null),
+        paid_emi: Number(r['PAID EMI'] || 0),
         created_at: new Date().toISOString(),
       })
 
       // Repayment Schedule Rows (1..tenure)
-      let cumulativePaid = totalCollected
+      // EMI-1 = firstEmiDate, EMI-2 = firstEmiDate+1m, EMI-N = firstEmiDate+(N-1)m
+      const todayStr = new Date().toISOString().slice(0, 10)
+      let cumulativePaid = isClosed ? econ.total_loan : totalCollected
       for (let i = 1; i <= tenure; i++) {
-        const estDate = parseExcelDate(r[`EMI_${i}_DATE`] || addMonths(firstEmiDate, i - 1))
+        // Due date: installment i is due on firstEmiDate + (i-1) months
+        const estDate = addMonths(firstEmiDate, i - 1)
         let rowStatus: 'Paid' | 'Pending' | 'Overdue' | 'Partial' = 'Pending'
         let paidAmount = 0
 
@@ -184,9 +190,9 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
           cumulativePaid -= econ.installment_amount
         } else if (cumulativePaid > 0) {
           rowStatus = 'Partial'
-          paidAmount = cumulativePaid
+          paidAmount = Math.round(cumulativePaid * 100) / 100
           cumulativePaid = 0
-        } else if (new Date(estDate) < new Date() && !isClosed) {
+        } else if (estDate < todayStr && !isClosed) {
           rowStatus = 'Overdue'
         }
 
@@ -200,26 +206,28 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
           interest_due: Math.round(econ.total_interest / tenure),
           opening_balance: Math.max(0, econ.total_loan - ((i - 1) * econ.installment_amount)),
           closing_balance: Math.max(0, econ.total_loan - (i * econ.installment_amount)),
-          status: isClosed ? 'Paid' : rowStatus,
-          paid_amount: isClosed ? econ.installment_amount : paidAmount,
-          paid_date: (isClosed || rowStatus === 'Paid') ? estDate : null,
-          dpd: (isClosed || rowStatus !== 'Overdue') ? 0 : Math.max(0, Math.round((Date.now() - new Date(estDate).getTime()) / 86400000)),
+          status: rowStatus,
+          paid_amount: paidAmount,
+          paid_date: rowStatus === 'Paid' || rowStatus === 'Partial' ? estDate : null,
+          dpd: rowStatus !== 'Overdue' ? 0 : Math.max(0, Math.round((Date.now() - new Date(estDate).getTime()) / 86400000)),
         })
 
-        // Transaction log for paid EMIs
-        if (paidAmount > 0 || isClosed) {
+        // IMPORTANT: Only create a transaction for installments that are PAID/PARTIAL
+        // AND whose due date is on or before today (never create future-dated transactions)
+        if (paidAmount > 0 && estDate <= todayStr) {
           transactions.push({
             txn_id: `TXN-${loanNo}-${i}` as any,
             loan_account_no: loanNo,
             txn_date: estDate,
             txn_type: 'PAYMENT',
-            amount: isClosed ? econ.installment_amount : paidAmount,
+            amount: paidAmount,
             mode: 'Cash',
             reference_no: `COLLECT-${loanNo}-${i}`,
             classification: 'REGULAR',
             installment_no: i,
             remarks: `EMI ${i} collection import`,
             entered_by: fo || 'System Import',
+            created_by: 'excel_import',
             voided: false,
             created_at: new Date().toISOString(),
           })

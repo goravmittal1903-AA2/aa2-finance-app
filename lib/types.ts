@@ -74,6 +74,7 @@ export interface Loan {
   created_by: string
   updated_at: string
   updated_by: string
+  paid_emi?: number  // Number of EMIs paid (from Excel import)
 }
 
 export interface ScheduleRow {
@@ -126,6 +127,7 @@ export interface Transaction {
   advance_balance_after?: number
   arrears_balance_after?: number
   narration?: string
+  created_by?: string   // marks import-originated transactions
 }
 
 export interface AppUser {
