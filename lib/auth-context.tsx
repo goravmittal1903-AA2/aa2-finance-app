@@ -67,8 +67,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let alive = true
 
     const initialise = async () => {
+      const timeout = new Promise(resolve => setTimeout(resolve, 2500))
       try {
-        await refreshProfile()
+        await Promise.race([refreshProfile(), timeout])
+      } catch (err) {
+        console.warn('Auth init timeout/error:', err)
       } finally {
         if (alive) setIsLoading(false)
       }
