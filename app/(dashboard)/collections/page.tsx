@@ -179,7 +179,16 @@ export default function CollectionsPage() {
       const activeLoans = loans.filter(l => l.status === 'ACTIVE' || l.status === 'SANCTIONED')
       const newEntries: CollectionEntry[] = []
 
+      const selectedDateObj = new Date(date)
+      const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+      const dayName = daysOfWeek[selectedDateObj.getDay()] || 'Monday'
+      const dayShort = dayName.slice(0, 3).toLowerCase()
+
       for (const loan of activeLoans) {
+        const meetingDayStr = (loan.meeting_day || '').toLowerCase()
+        const isWeekly = loan.frequency === 'Weekly'
+        const isDayMatch = isWeekly && (meetingDayStr.includes(dayShort) || meetingDayStr === dayName.toLowerCase())
+
         // Accurately capture Pending, Overdue, and Partial dues on or before selected date
         const dueRows = schedule.filter(r =>
           r.loan_account_no === loan.loan_account_no &&
@@ -190,11 +199,11 @@ export default function CollectionsPage() {
         // Calculate exact remaining balance due (EMI minus already paid amount)
         const totalOverdue = dueRows.reduce((s, r) => s + Math.max(0, (r.emi_due || 0) - (r.paid_amount || 0)), 0)
 
-        if (totalOverdue > 0 || dueRows.length > 0) {
+        if (isDayMatch || totalOverdue > 0 || dueRows.length > 0) {
           newEntries.push({
             loan,
             emiAmt: loan.installment_amount || 0,
-            totalOverdue,
+            totalOverdue: totalOverdue || loan.installment_amount || 0,
             collectedAmount: '',
             mode: 'Cash',
             referenceNo: ''
@@ -441,6 +450,7 @@ export default function CollectionsPage() {
                     <th className="text-left px-4 py-3 font-semibold">Member</th>
                     <th className="text-left px-4 py-3 font-semibold">Loan A/C</th>
                     <th className="text-left px-4 py-3 font-semibold">Branch / FO</th>
+                    <th className="text-center px-4 py-3 font-semibold">Meeting Day</th>
                     <th className="text-right px-4 py-3 font-semibold">Installment EMI</th>
                     <th className="text-right px-4 py-3 font-semibold">Net Pending Due</th>
                     <th className="text-left px-4 py-3 w-40 font-semibold">Collected (₹)</th>
@@ -449,8 +459,8 @@ export default function CollectionsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {loading && <tr><td colSpan={8} className="py-10 text-center text-slate-400">Loading collection worksheet…</td></tr>}
-                  {!loading && filteredEntries.length === 0 && <tr><td colSpan={8} className="py-10 text-center text-slate-400">No pending dues for selected filters.</td></tr>}
+                  {loading && <tr><td colSpan={9} className="py-10 text-center text-slate-400">Loading collection worksheet…</td></tr>}
+                  {!loading && filteredEntries.length === 0 && <tr><td colSpan={9} className="py-10 text-center text-slate-400">No pending dues for selected filters.</td></tr>}
                   {!loading && filteredEntries.map(e => (
                     <tr key={e.loan.loan_account_no} className="hover:bg-slate-50/50 transition">
                       <td className="px-4 py-2.5 font-bold text-slate-800">
@@ -464,6 +474,7 @@ export default function CollectionsPage() {
                         </Link>
                       </td>
                       <td className="px-4 py-2.5 text-slate-500 text-[11px]">{e.loan.branch_code} / {e.loan.fo_name || '—'}</td>
+                      <td className="px-4 py-2.5 text-center font-semibold text-slate-700">{e.loan.meeting_day || '—'}</td>
                       <td className="px-4 py-2.5 text-right font-mono text-slate-600">{inr(e.emiAmt)}</td>
                       <td className="px-4 py-2.5 text-right font-mono font-bold text-amber-700">{inr(e.totalOverdue)}</td>
                       <td className="px-4 py-2">

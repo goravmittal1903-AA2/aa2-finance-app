@@ -101,14 +101,17 @@ export function computeLoanEconomics({
 
 export function generateSchedule(loan: any): ScheduleRow[] {
   const rows: ScheduleRow[] = []
-  const stepDays = FREQ_DAYS[loan.frequency] || 30
+  const stepDays = FREQ_DAYS[loan.frequency] || 7
   let opening = loan.total_loan
   let due = loan.installment_start_date
 
+  const total_int = Number(loan.total_interest) || Math.max(0, (Number(loan.installment_amount || 0) * Number(loan.tenure || 1)) - Number(loan.loan_amount || 0))
+  const per_int = Number(loan.per_installment_interest) || (loan.tenure > 0 ? total_int / loan.tenure : 0)
+
   for (let i = 1; i <= loan.tenure; i++) {
-    const interest_due = Math.round(loan.per_installment_interest * 100) / 100
-    const emi_due = loan.installment_amount
-    const principal_due = Math.round((emi_due - interest_due) * 100) / 100
+    const interest_due = Math.round(per_int * 100) / 100
+    const emi_due = Number(loan.installment_amount) || 0
+    const principal_due = Math.round(Math.max(0, emi_due - interest_due) * 100) / 100
     const closing = Math.max(0, Math.round((opening - emi_due) * 100) / 100)
     
     rows.push({

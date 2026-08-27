@@ -50,83 +50,103 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
   ) || wb.SheetNames[0]
 
   if (mfSheetName && wb.Sheets[mfSheetName]) {
-    const rows = xlsx.utils.sheet_to_json<Record<string, any>>(wb.Sheets[mfSheetName], { range: 1 })
+    const targetSheet = wb.Sheets[mfSheetName]
+    // Dynamically detect exact header row index to prevent 1-row offset shift
+    const rawGrid = xlsx.utils.sheet_to_json<any[]>(targetSheet, { header: 1 })
+    let headerRowIndex = 0
+    for (let i = 0; i < Math.min(rawGrid.length, 15); i++) {
+      const rowStr = (rawGrid[i] || []).map(c => String(c || '').toUpperCase()).join(' ')
+      if (rowStr.includes('MEMBER') || rowStr.includes('LOAN AMOUNT') || rowStr.includes('PL NO') || rowStr.includes('ACCOUNT NO')) {
+        headerRowIndex = i
+        break
+      }
+    }
+    const rows = xlsx.utils.sheet_to_json<Record<string, any>>(targetSheet, { range: headerRowIndex })
+
+    // Helper to fetch cell values matching keys (case-insensitive & whitespace agnostic)
+    const gv = (r: Record<string, any>, ...keys: string[]): string => {
+      for (const k of keys) {
+        if (r[k] !== undefined && r[k] !== null && String(r[k]).trim() !== '') return String(r[k]).trim()
+      }
+      const rKeys = Object.keys(r)
+      for (const k of keys) {
+        const target = k.trim().toUpperCase()
+        const foundKey = rKeys.find(rk => rk.trim().toUpperCase() === target)
+        if (foundKey && r[foundKey] !== undefined && r[foundKey] !== null && String(r[foundKey]).trim() !== '') {
+          return String(r[foundKey]).trim()
+        }
+      }
+      return ''
+    }
 
     rows.forEach((r, idx) => {
-      const memberName = (r['MEMBER'] || r['MemberName'] || r['MEMBER NAME'] || r['MEMBERS NAME'] || '').toString().trim()
-      if (!memberName || memberName.toLowerCase() === 'member name' || memberName.toLowerCase() === 'membername') return
+      const memberName = gv(r, 'MEMBER', 'MemberName', 'MEMBER NAME', 'MEMBERS NAME')
+      if (!memberName || ['member name', 'membername', 'total', 'grand total', '-'].includes(memberName.toLowerCase())) return
 
-      const loanAmount = Number(r['LOAN AMOUNT'] || r['LOAN  AMOUNT'] || 0)
-      if (!loanAmount) return
+      const loanAmount = Number(gv(r, 'LOAN AMOUNT', 'LOAN  AMOUNT') || 0)
+      if (!loanAmount || loanAmount <= 0) return
 
       // Comprehensive Member Relation (Father / Husband Name) parsing
-      const fatherHusband = (
-        r['Father/HUSBAND  Name'] ||
-        r['Father/HUSBAND Name'] ||
-        r['HUSBAND NAME/FATHER NAME'] ||
-        r['Father/Husband Name'] ||
-        r['FATHER/HUSBAND NAME'] ||
-        r['FATHER/HUSBAND'] ||
-        r['HUSBAND NAME'] ||
-        r['FATHER NAME'] ||
-        r['RELATION'] ||
-        r['GUARDIAN NAME'] ||
-        ''
-      ).toString().trim()
+      const fatherHusband = gv(
+        r,
+        'Father/HUSBAND  Name', 'Father/HUSBAND Name', 'HUSBAND NAME/FATHER NAME',
+        'Father/Husband Name', 'FATHER/HUSBAND NAME', 'FATHER/HUSBAND',
+        'HUSBAND NAME', 'FATHER NAME', 'RELATION', 'GUARDIAN NAME'
+      )
 
-      const mobileRaw = (r['MOBILE NO.'] || r['MOBILE'] || r['MOB.'] || r['MOBILE NAME '] || '').toString().replace(/\D/g, '')
+      const mobileRaw = gv(r, 'MOBILE NO.', 'MOBILE', 'MOB.', 'MOBILE NAME').replace(/\D/g, '')
       const mobile = mobileRaw.length >= 10 ? mobileRaw.slice(-10) : mobileRaw
-      const aadharRaw = (r['ADHAR NO'] || r['AADHAR NO.(LAST 4 DIGITS)'] || '').toString().replace(/\D/g, '')
+      const aadharRaw = gv(r, 'ADHAR NO', 'AADHAR NO.', 'AADHAR NO.(LAST 4 DIGITS)', 'AADHAR').replace(/\D/g, '')
       const aadhar_last4 = aadharRaw.slice(-4)
 
-      const branch = (r['Branch Name'] || branchName).toString().trim().toUpperCase()
+      const branch = (gv(r, 'Branch Name', 'BRANCH', 'BRANCH NAME') || branchName).toUpperCase()
       if (branch) branchName = branch
 
-      const bm = (r['BM Name'] || r['AM Name'] || '').toString().trim()
-      const fo = (r['FO Name'] || r['F0 Name'] || r['STAFF NAME'] || '').toString().trim()
-      const village = (r['VILLAGE'] || r['VILLAGE/ CITY'] || r['VILLAGE NAME'] || '').toString().trim()
-      const district = (r['Dist.'] || r['DISTRICT'] || 'HARYANA').toString().trim()
+      const bm = gv(r, 'BM Name', 'BM NAME', 'AM Name', 'BRANCH MANAGER')
+      const fo = gv(r, 'FO Name', 'F0 Name', 'STAFF NAME', 'FIELD OFFICER')
+      const village = gv(r, 'VILLAGE', 'VILLAGE/ CITY', 'VILLAGE NAME')
+      const district = gv(r, 'Dist.', 'DISTRICT', 'DIST') || 'HARYANA'
 
-      const emi = Number(r['EMI AMOUNT'] || r['EMI'] || r['MONTHLY EMI'] || 0)
-      const tenure = Number(r['TOTAL EMI'] || 12)
-      const paidEmiCount = Number(r['PAID EMI'] || 0)
-      const totalCollected = Number(r['TOTAL RECEIVED AMOUNT'] || r['TOTAL COLLECTED'] || (paidEmiCount > 0 && emi > 0 ? paidEmiCount * emi : 0) || 0)
-      const ledgerBal = Number(r['Ledger Balance'] || r['LEDGER BALANCE'] || Math.max(0, loanAmount - totalCollected))
-      
+      const emi = Number(gv(r, 'EMI AMOUNT', 'EMI', 'MONTHLY EMI') || 0)
+      const tenure = Math.max(1, Number(gv(r, 'TOTAL EMI') || 12))
+      const paidEmiCount = Number(gv(r, 'PAID EMI') || 0)
+      const totalCollected = Number(gv(r, 'TOTAL RECEIVED AMOUNT', 'TOTAL COLLECTED') || (paidEmiCount > 0 && emi > 0 ? paidEmiCount * emi : 0) || 0)
+      const ledgerBal = Number(gv(r, 'Ledger Balance', 'LEDGER BALANCE') || Math.max(0, loanAmount - totalCollected))
+
       // Auto Close loan if ledger balance is 0 or status is CLOSED
-      const statusRaw = (r['Case Status '] || r['Case Status'] || r['Gr. Status'] || 'ACTIVE').toString().trim().toUpperCase()
+      const statusRaw = gv(r, 'Case Status', 'Gr. Status', 'Case Status ', 'Gr. Status ').toUpperCase()
       const isClosed = statusRaw.startsWith('CLOS') || ledgerBal <= 0 || (totalCollected >= loanAmount && loanAmount > 0)
       const status = isClosed ? 'CLOSED' : 'ACTIVE'
 
-      const dpd = Number(r['DPD'] || 0)
-      const disbDate = parseExcelDate(r['DIS. DATE'] || r['DIS.DATE'] || r['DISB DATE'] || r['CASH DB DATE'], '2026-05-01')
-      const firstEmiDate = parseExcelDate(r['FIRST EMI '] || r['FIRST EMI DATE'] || r['FIRST EMI'] || r['1ST EMI DATE'], addDays(disbDate, 7))
-      const closeDate = r['CLOSE DATE'] ? parseExcelDate(r['CLOSE DATE']) : null
-      const fileCharge = Number(r['FILE CHARGE'] || Math.round(loanAmount * 0.02))
+      const dpd = Number(gv(r, 'DPD') || 0)
+      const disbDate = parseExcelDate(gv(r, 'DIS. DATE', 'DIS.DATE', 'DISB DATE', 'CASH DB DATE'), '2026-05-01')
+      const firstEmiDate = parseExcelDate(gv(r, 'FIRST EMI', 'FIRST EMI DATE', '1ST EMI DATE', 'FIRST EMI '), addDays(disbDate, 7))
+      const closeDate = gv(r, 'CLOSE DATE') ? parseExcelDate(gv(r, 'CLOSE DATE')) : null
+      const fileCharge = Number(gv(r, 'FILE CHARGE') || Math.round(loanAmount * 0.02))
 
-      const amName = (r['AM Name'] || r['AM NAME'] || '').toString().trim()
-      const rmName = (r['RM Name'] || r['RM NAME'] || '').toString().trim()
-      const rmStatus = (r['RM Status'] || r['RM STATUS'] || '').toString().trim()
-      const grStatus = (r['Gr. Status'] || r['Gr. Status '] || r['GROUP STATUS'] || '').toString().trim()
-      const clusterNo = (r['clustar no'] || r['CLUSTER NO'] || r['CLUSTER'] || '').toString().trim()
-      const centerNo = (r['center number'] || r['CENTER NO'] || r['CENTER NUMBER'] || '').toString().trim()
-      const monthStr = (r['MONTH'] || r['Month'] || '').toString().trim()
-      const meetingDay = (r['Instalment/Meeting Day'] || r['MEETING DAY'] || r['INSTALLMENT DAY'] || '').toString().trim()
-      const cashDbDate = r['CASH DB DATE'] ? parseExcelDate(r['CASH DB DATE']) : null
-      const advanceDate = r['ADVANCE DATE'] ? parseExcelDate(r['ADVANCE DATE']) : null
-      const pendingAmt = Number(r['PENDING AMT.'] || r['PENDING AMOUNT'] || 0)
-      const dueEmiCount = Number(r['DUE EMI'] || 0)
-      const pendingEmiCount = Number(r['PENDING EMI'] || Math.max(0, tenure - paidEmiCount))
-      const shortAmt = Number(r['SHORT AMT.'] || r['SHORT AMOUNT'] || 0)
-      const advanceBal = Number(r['ADVANCE'] || r['ADVANCE BAL'] || 0)
-      const penaltyDays = Number(r['PENTALITY OF NUMBERS/total days'] || r['PENALTY DAYS'] || 0)
-      const penaltyRate = Number(r['PER PENTALITY OF AMOUNT'] || r['PENALTY RATE'] || 0)
-      const totalPenalty = Number(r['TOTAL AMOUNT OF PENALITY'] || r['TOTAL PENALTY'] || 0)
-      const dpdBucketStr = (r['Days_Delinquent Bracket_At Ist'] || r['DPD BUCKET'] || '').toString().trim()
-      const npaRaw = (r['NPA'] || '').toString().trim()
-      const currentBalWithPenalty = Number(r['Current Ledger Bal of Gr.+Penalty'] || 0)
-      const totalMemOutstanding = Number(r['Total Mem. Outstanding'] || 0)
-      const pendingStatusStr = (r['PENDING'] || '').toString().trim()
+      const amName = gv(r, 'AM Name', 'AM NAME', 'AREA MANAGER')
+      const rmName = gv(r, 'RM Name', 'RM NAME', 'REGIONAL MANAGER')
+      const rmStatus = gv(r, 'RM Status', 'RM STATUS')
+      const grStatus = gv(r, 'Gr. Status', 'Group Status', 'GR STATUS')
+      const clusterNo = gv(r, 'clustar no', 'CLUSTER NO', 'CLUSTER')
+      const centerNo = gv(r, 'center number', 'CENTER NO', 'CENTER NUMBER', 'CENTER')
+      const monthStr = gv(r, 'MONTH', 'Month')
+      const meetingDay = gv(r, 'Instalment/Meeting Day', 'MEETING DAY', 'INSTALLMENT DAY', 'Meeting Day', 'DAY')
+      const cashDbDate = gv(r, 'CASH DB DATE') ? parseExcelDate(gv(r, 'CASH DB DATE')) : null
+      const advanceDate = gv(r, 'ADVANCE DATE') ? parseExcelDate(gv(r, 'ADVANCE DATE')) : null
+      const pendingAmt = Number(gv(r, 'PENDING AMT.', 'PENDING AMOUNT', 'ARREARS') || 0)
+      const dueEmiCount = Number(gv(r, 'DUE EMI') || 0)
+      const pendingEmiCount = Number(gv(r, 'PENDING EMI') || Math.max(0, tenure - paidEmiCount))
+      const shortAmt = Number(gv(r, 'SHORT AMT.', 'SHORT AMOUNT') || 0)
+      const advanceBal = Number(gv(r, 'ADVANCE', 'ADVANCE BAL') || 0)
+      const penaltyDays = Number(gv(r, 'PENTALITY OF NUMBERS/total days', 'PENALTY DAYS') || 0)
+      const penaltyRate = Number(gv(r, 'PER PENTALITY OF AMOUNT', 'PENALTY RATE', 'PER PENALTY AMOUNT') || 0)
+      const totalPenalty = Number(gv(r, 'TOTAL AMOUNT OF PENALITY', 'TOTAL PENALTY') || 0)
+      const dpdBucketStr = gv(r, 'Days_Delinquent Bracket_At Ist', 'DPD BUCKET', 'Days Delinquent Bracket')
+      const npaRaw = gv(r, 'NPA').toUpperCase()
+      const currentBalWithPenalty = Number(gv(r, 'Current Ledger Bal of Gr.+Penalty') || 0)
+      const totalMemOutstanding = Number(gv(r, 'Total Mem. Outstanding') || 0)
+      const pendingStatusStr = gv(r, 'PENDING')
 
       // 1. Permanent Member ID Format: MEM10001 (MEM + 5 numeric digits)
       const rawMemId = (r['MEMBER ID'] || r['CUST ID'] || r['CUSTOMER ID'] || r['MEM ID'] || r['MEMBER NO'] || '').toString().trim()
@@ -246,14 +266,18 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
           rowStatus = 'Overdue'
         }
 
+        const interestDueRow = Math.round((econ.per_installment_interest || (econ.total_interest / tenure)) * 100) / 100
+        const emiDueRow = econ.installment_amount
+        const principalDueRow = Math.round(Math.max(0, emiDueRow - interestDueRow) * 100) / 100
+
         schedules.push({
           id: `${loanNo}-${i}`,
           loan_account_no: loanNo,
           installment_no: i,
           due_date: estDate,
-          emi_due: econ.installment_amount,
-          principal_due: Math.round(loanAmount / tenure),
-          interest_due: Math.round(econ.total_interest / tenure),
+          emi_due: emiDueRow,
+          principal_due: principalDueRow,
+          interest_due: interestDueRow,
           opening_balance: Math.max(0, econ.total_loan - ((i - 1) * econ.installment_amount)),
           closing_balance: Math.max(0, econ.total_loan - (i * econ.installment_amount)),
           status: rowStatus,
