@@ -35,6 +35,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Clean up orphaned transactions and schedules whose loans no longer exist
+    const { count: activeLoanCount } = await supabase.from('loans').select('id', { count: 'exact', head: true })
+    if (activeLoanCount === 0) {
+      // System has 0 active loans -> purge all leftover transactions & schedules
+      await supabase.from('transactions').delete().neq('id', '___none___')
+      await supabase.from('repayment_schedule').delete().neq('id', '___none___')
+    } else {
+      // Fetch active loan account numbers
+      const { data: activeLoans } = await supabase.from('loans').select('id')
+      if (activeLoans && activeLoans.length > 0) {
+        const validLoanNos = new Set(activeLoans.map((l: any) => l.id))
+        const { data: allTxns } = await supabase.from('transactions').select('id, data')
+        if (allTxns && allTxns.length > 0) {
+          const orphanTxnIds = allTxns
+            .filter((t: any) => !t.data?.loan_account_no || !validLoanNos.has(String(t.data.loan_account_no)))
+            .map((t: any) => t.id)
+          if (orphanTxnIds.length > 0) {
+            await supabase.from('transactions').delete().in('id', orphanTxnIds)
+          }
+        }
+      }
+    }
+
     // Update batch log status in both audit_log and audit_logs tables
     const logTables = ['audit_log', 'audit_logs']
     for (const t of logTables) {

@@ -247,7 +247,9 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
       // Repayment Schedule Rows (1..tenure, Weekly 7-day frequency)
       // EMI-1 = firstEmiDate, EMI-2 = firstEmiDate+7d, EMI-N = firstEmiDate+(N-1)*7d
       const todayStr = new Date().toISOString().slice(0, 10)
-      let cumulativePaid = isClosed ? econ.total_loan : totalCollected
+      let cumulativePaid = totalCollected > 0
+        ? totalCollected
+        : (paidEmiCount > 0 ? paidEmiCount * econ.installment_amount : (isClosed ? econ.total_loan : 0))
       for (let i = 1; i <= tenure; i++) {
         // Due date: installment i is due on firstEmiDate + (i-1)*7 days
         const estDate = addDays(firstEmiDate, (i - 1) * 7)
