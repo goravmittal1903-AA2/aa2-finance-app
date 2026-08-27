@@ -104,6 +104,30 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
       const closeDate = r['CLOSE DATE'] ? parseExcelDate(r['CLOSE DATE']) : null
       const fileCharge = Number(r['FILE CHARGE'] || Math.round(loanAmount * 0.02))
 
+      const amName = (r['AM Name'] || r['AM NAME'] || '').toString().trim()
+      const rmName = (r['RM Name'] || r['RM NAME'] || '').toString().trim()
+      const rmStatus = (r['RM Status'] || r['RM STATUS'] || '').toString().trim()
+      const grStatus = (r['Gr. Status'] || r['Gr. Status '] || r['GROUP STATUS'] || '').toString().trim()
+      const clusterNo = (r['clustar no'] || r['CLUSTER NO'] || r['CLUSTER'] || '').toString().trim()
+      const centerNo = (r['center number'] || r['CENTER NO'] || r['CENTER NUMBER'] || '').toString().trim()
+      const monthStr = (r['MONTH'] || r['Month'] || '').toString().trim()
+      const meetingDay = (r['Instalment/Meeting Day'] || r['MEETING DAY'] || r['INSTALLMENT DAY'] || '').toString().trim()
+      const cashDbDate = r['CASH DB DATE'] ? parseExcelDate(r['CASH DB DATE']) : null
+      const advanceDate = r['ADVANCE DATE'] ? parseExcelDate(r['ADVANCE DATE']) : null
+      const pendingAmt = Number(r['PENDING AMT.'] || r['PENDING AMOUNT'] || 0)
+      const dueEmiCount = Number(r['DUE EMI'] || 0)
+      const pendingEmiCount = Number(r['PENDING EMI'] || Math.max(0, tenure - paidEmiCount))
+      const shortAmt = Number(r['SHORT AMT.'] || r['SHORT AMOUNT'] || 0)
+      const advanceBal = Number(r['ADVANCE'] || r['ADVANCE BAL'] || 0)
+      const penaltyDays = Number(r['PENTALITY OF NUMBERS/total days'] || r['PENALTY DAYS'] || 0)
+      const penaltyRate = Number(r['PER PENTALITY OF AMOUNT'] || r['PENALTY RATE'] || 0)
+      const totalPenalty = Number(r['TOTAL AMOUNT OF PENALITY'] || r['TOTAL PENALTY'] || 0)
+      const dpdBucketStr = (r['Days_Delinquent Bracket_At Ist'] || r['DPD BUCKET'] || '').toString().trim()
+      const npaRaw = (r['NPA'] || '').toString().trim()
+      const currentBalWithPenalty = Number(r['Current Ledger Bal of Gr.+Penalty'] || 0)
+      const totalMemOutstanding = Number(r['Total Mem. Outstanding'] || 0)
+      const pendingStatusStr = (r['PENDING'] || '').toString().trim()
+
       // 1. Permanent Member ID Format: MEM10001 (MEM + 5 numeric digits)
       const rawMemId = (r['MEMBER ID'] || r['CUST ID'] || r['CUSTOMER ID'] || r['MEM ID'] || r['MEMBER NO'] || '').toString().trim()
       const customerId = (/^MEM\d{5}$/i.test(rawMemId))
@@ -116,7 +140,7 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         ? rawLoanNo
         : String(1000000000 + idx + 1)
 
-      // Member Record (Relation updated correctly)
+      // Member Record (Relation & all hierarchy fields updated correctly)
       if (!customersMap.has(customerId)) {
         customersMap.set(customerId, {
           customer_id: customerId,
@@ -129,6 +153,10 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
           branch_code: branch,
           bm_name: bm,
           fo_name: fo,
+          am_name: amName,
+          rm_name: rmName,
+          cluster_no: clusterNo,
+          center_no: centerNo,
           created_at: new Date().toISOString(),
         })
       }
@@ -143,7 +171,7 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         installment_amount: emi > 0 ? emi : null,
       })
 
-      // Loan Record (Weekly frequency)
+      // Loan Record (Weekly frequency with all 48 Excel fields)
       loansMap.set(loanNo, {
         loan_account_no: loanNo,
         customer_id: customerId,
@@ -151,10 +179,13 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         branch_code: branch,
         fo_name: fo,
         bm_name: bm,
+        am_name: amName,
+        rm_name: rmName,
+        rm_status: rmStatus,
         product_type: 'Microfinance Personal Loan',
         loan_amount: loanAmount,
         file_charge: econ.file_charge,
-        net_disbursement: econ.net_disbursement,
+        net_disbursement: Number(r['FINAL DISBURSEMENT AMT.']) || econ.net_disbursement,
         interest_rate: 18,
         tenure,
         frequency: 'Weekly',
@@ -165,12 +196,31 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         installment_start_date: firstEmiDate,
         status: status as any,
         dpd: isClosed ? 0 : dpd,
-        dpd_bucket: isClosed ? 'Current' : dpdBucket(dpd),
+        dpd_bucket: isClosed ? 'Current' : (dpdBucketStr || dpdBucket(dpd)),
         // For closed loans, mark total_collected as full loan amount
         total_collected: isClosed ? econ.total_loan : totalCollected,
         ledger_balance: isClosed ? 0 : Math.max(0, ledgerBal),
         close_date: closeDate || (isClosed ? new Date().toISOString().slice(0, 10) : null),
-        paid_emi: Number(r['PAID EMI'] || 0),
+        paid_emi: paidEmiCount,
+        pending_emi: pendingEmiCount,
+        due_emi: dueEmiCount,
+        pending_amount: pendingAmt,
+        short_amount: shortAmt,
+        advance_balance: advanceBal,
+        advance_date: advanceDate,
+        meeting_day: meetingDay,
+        center_no: centerNo,
+        cluster_no: clusterNo,
+        month: monthStr,
+        cash_db_date: cashDbDate,
+        penalty_days: penaltyDays,
+        penalty_rate: penaltyRate,
+        total_penalty: totalPenalty,
+        current_bal_with_penalty: currentBalWithPenalty || (isClosed ? 0 : ledgerBal + totalPenalty),
+        total_outstanding: totalMemOutstanding || (isClosed ? 0 : ledgerBal),
+        gr_status: grStatus,
+        pending_status: pendingStatusStr,
+        npa_flag: npaRaw === 'YES' || npaRaw === '1' || dpd >= 90,
         created_at: new Date().toISOString(),
       })
 

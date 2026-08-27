@@ -1293,6 +1293,87 @@ export default function LoanDetailPage({ params }: PageProps) {
         </div>
       </div>
 
+      {/* Master Portfolio Parameters Card (All 48 Fields) */}
+      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2">
+            <Tag className="w-4 h-4 text-blue-600" />
+            <h3 className="text-sm font-bold text-slate-800">Master Portfolio Specifications (All 48 Excel Fields)</h3>
+          </div>
+          <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200">
+            Auto-Updated & Sync Verified
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 text-xs">
+          {/* Column 1: Financial & Collection Summary */}
+          <div className="space-y-2.5 bg-slate-50/70 p-4 rounded-xl border border-slate-100">
+            <h4 className="font-bold text-slate-700 text-[11px] uppercase tracking-wider text-blue-700 border-b border-slate-200 pb-1.5">
+              1. Financial & Balances
+            </h4>
+            <div className="flex justify-between"><span className="text-slate-500">Loan Amount</span><span className="font-bold text-slate-800">{inr(loan.loan_amount)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">File Charge</span><span className="font-medium text-slate-700">{inr(loan.file_charge)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Final Disbursement</span><span className="font-medium text-slate-700">{inr(loan.net_disbursement)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Total Interest</span><span className="font-medium text-slate-700">{inr(loan.total_interest)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Total Repayable</span><span className="font-bold text-slate-800">{inr(loan.total_loan)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">EMI Amount</span><span className="font-bold text-blue-600">{inr(loan.installment_amount)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Per EMI Interest</span><span className="font-medium text-slate-700">{inr(loan.per_installment_interest)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Total EMI</span><span className="font-semibold text-slate-700">{loan.tenure} EMIs</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Paid EMI</span><span className="font-bold text-emerald-600">{loan.paid_emi ?? schedule.filter(s => s.status === 'Paid').length}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Pending EMI</span><span className="font-semibold text-slate-700">{loan.pending_emi ?? Math.max(0, loan.tenure - (loan.paid_emi || 0))}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Due EMI</span><span className="font-semibold text-amber-600">{loan.due_emi ?? schedule.filter(s => s.status === 'Overdue').length}</span></div>
+          </div>
+
+          {/* Column 2: Collection & Arrears Metrics */}
+          <div className="space-y-2.5 bg-slate-50/70 p-4 rounded-xl border border-slate-100">
+            <h4 className="font-bold text-slate-700 text-[11px] uppercase tracking-wider text-blue-700 border-b border-slate-200 pb-1.5">
+              2. Collection & Balances
+            </h4>
+            <div className="flex justify-between"><span className="text-slate-500">Total Received Amount</span><span className="font-bold text-emerald-600">{inr(totalCollected)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Ledger Balance</span><span className="font-bold text-slate-800">{inr(outstanding)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Pending Amount</span><span className="font-semibold text-amber-600">{inr(loan.pending_amount || loan.arrears_balance || 0)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Short Amount</span><span className="font-medium text-slate-700">{inr(loan.short_amount || 0)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Advance Balance</span><span className="font-medium text-blue-600">{inr(loan.advance_balance || 0)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Advance Date</span><span className="font-medium text-slate-700">{loan.advance_date ? fdate(loan.advance_date) : '—'}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Bal + Penalty</span><span className="font-bold text-slate-800">{inr(loan.current_bal_with_penalty || (isClosed ? 0 : outstanding + (loan.total_penalty || 0)))}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Total Mem Outstanding</span><span className="font-bold text-slate-800">{inr(loan.total_outstanding || (isClosed ? 0 : outstanding))}</span></div>
+          </div>
+
+          {/* Column 3: Delinquency & Penalty Metrics */}
+          <div className="space-y-2.5 bg-slate-50/70 p-4 rounded-xl border border-slate-100">
+            <h4 className="font-bold text-slate-700 text-[11px] uppercase tracking-wider text-blue-700 border-b border-slate-200 pb-1.5">
+              3. Delinquency & Penalties
+            </h4>
+            <div className="flex justify-between"><span className="text-slate-500">DPD Days</span><span className={`font-bold ${maxDpd > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{maxDpd} Days</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">DPD Bracket (1st)</span><span className="font-semibold text-slate-700">{loan.dpd_bucket || 'Current'}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">NPA Flag</span><span className={`font-bold ${loan.npa_flag ? 'text-red-600' : 'text-emerald-600'}`}>{loan.npa_flag ? 'YES' : 'NO'}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Penalty Days / Count</span><span className="font-medium text-slate-700">{loan.penalty_days || 0}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Per Penalty Amount</span><span className="font-medium text-slate-700">{inr(loan.penalty_rate || loan.penalty_per_day || 0)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Total Penalty Amount</span><span className="font-bold text-red-600">{inr(loan.total_penalty || 0)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Meeting / Inst. Day</span><span className="font-semibold text-slate-700">{loan.meeting_day || 'Monday'}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Month</span><span className="font-medium text-slate-700">{loan.month || '—'}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Pending Status</span><span className="font-medium text-slate-700">{loan.pending_status || 'CLEAR'}</span></div>
+          </div>
+
+          {/* Column 4: Hierarchy & Dates */}
+          <div className="space-y-2.5 bg-slate-50/70 p-4 rounded-xl border border-slate-100">
+            <h4 className="font-bold text-slate-700 text-[11px] uppercase tracking-wider text-blue-700 border-b border-slate-200 pb-1.5">
+              4. Hierarchy & Key Dates
+            </h4>
+            <div className="flex justify-between"><span className="text-slate-500">Disbursement Date</span><span className="font-semibold text-slate-700">{fdate(loan.disbursement_date)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Cash DB Date</span><span className="font-medium text-slate-700">{loan.cash_db_date ? fdate(loan.cash_db_date) : '—'}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">First EMI Date</span><span className="font-semibold text-slate-700">{fdate(loan.installment_start_date)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Close Date</span><span className="font-medium text-slate-700">{loan.close_date ? fdate(loan.close_date) : '—'}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Case Status / Gr. Status</span><span className="font-bold text-slate-800">{loan.status} / {loan.gr_status || loan.status}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Center / Cluster No</span><span className="font-mono text-slate-700">{loan.center_no || '—'} / {loan.cluster_no || '—'}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Field Officer (FO)</span><span className="font-semibold text-slate-700">{loan.fo_name || '—'}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Branch Manager (BM)</span><span className="font-semibold text-slate-700">{loan.bm_name || '—'}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Area Manager (AM)</span><span className="font-semibold text-slate-700">{loan.am_name || '—'}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Regional Manager (RM)</span><span className="font-semibold text-slate-700">{loan.rm_name || '—'} ({loan.rm_status || 'APPROVED'})</span></div>
+          </div>
+        </div>
+      </div>
+
       {/* Main Content Layout Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Left Column: Payment Form */}

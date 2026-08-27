@@ -452,15 +452,19 @@ export default function MemberDetailPage({ params }: PageProps) {
 
           <div className="bg-white rounded-2xl p-6 shadow-xs border border-slate-100 space-y-4">
             <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-blue-500" /> Residential Location & Assignment
+              <MapPin className="w-4 h-4 text-blue-500" /> Residential Location & Organizational Hierarchy
             </h3>
             <div className="divide-y divide-slate-100 text-xs">
-              <div className="py-2.5 flex justify-between"><span className="text-slate-400">Village / City</span><span className="font-semibold text-slate-700">{customer.village_city || '—'}</span></div>
-              <div className="py-2.5 flex justify-between"><span className="text-slate-400">Pincode</span><span className="font-mono font-semibold text-slate-700">{customer.pincode || '—'}</span></div>
-              <div className="py-2.5 flex justify-between"><span className="text-slate-400">District / State</span><span className="font-semibold text-slate-700">{customer.district || '—'}, {customer.state || '—'}</span></div>
-              <div className="py-2.5 flex flex-col gap-1"><span className="text-slate-400">Full Address</span><span className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-slate-700">{customer.address_current || '—'}</span></div>
-              <div className="py-2.5 flex justify-between"><span className="text-slate-400">Branch Name</span><span className="font-bold text-slate-700">{customer.branch_code || 'Head Office'}</span></div>
-              <div className="py-2.5 flex justify-between"><span className="text-slate-400">Branch Manager / FO</span><span className="font-semibold text-slate-700">{customer.bm_name || '—'} / {customer.fo_name || '—'}</span></div>
+              <div className="py-2 flex justify-between"><span className="text-slate-400">Father / Husband Name</span><span className="font-semibold text-slate-700">{customer.father_husband_name || '—'}</span></div>
+              <div className="py-2 flex justify-between"><span className="text-slate-400">Village / City</span><span className="font-semibold text-slate-700">{customer.village_city || '—'}</span></div>
+              <div className="py-2 flex justify-between"><span className="text-slate-400">Pincode</span><span className="font-mono font-semibold text-slate-700">{customer.pincode || '—'}</span></div>
+              <div className="py-2 flex justify-between"><span className="text-slate-400">District / State</span><span className="font-semibold text-slate-700">{customer.district || '—'}, {customer.state || '—'}</span></div>
+              <div className="py-2 flex justify-between"><span className="text-slate-400">Center Number / Cluster</span><span className="font-mono font-semibold text-slate-700">{customer.center_no || '—'} / {customer.cluster_no || '—'}</span></div>
+              <div className="py-2 flex justify-between"><span className="text-slate-400">Branch Name</span><span className="font-bold text-slate-700">{customer.branch_code || 'Head Office'}</span></div>
+              <div className="py-2 flex justify-between"><span className="text-slate-400">Field Officer (FO)</span><span className="font-semibold text-slate-700">{customer.fo_name || '—'}</span></div>
+              <div className="py-2 flex justify-between"><span className="text-slate-400">Branch Manager (BM)</span><span className="font-semibold text-slate-700">{customer.bm_name || '—'}</span></div>
+              <div className="py-2 flex justify-between"><span className="text-slate-400">Area Manager (AM)</span><span className="font-semibold text-slate-700">{customer.am_name || '—'}</span></div>
+              <div className="py-2 flex justify-between"><span className="text-slate-400">Regional Manager (RM)</span><span className="font-semibold text-slate-700">{customer.rm_name || '—'}</span></div>
             </div>
           </div>
         </div>

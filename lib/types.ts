@@ -17,6 +17,10 @@ export interface Customer {
   branch_code: string
   bm_name: string
   fo_name: string
+  am_name?: string
+  rm_name?: string
+  cluster_no?: string
+  center_no?: string
   created_at: string
   created_by: string
   updated_at: string
@@ -53,6 +57,9 @@ export interface Loan {
   branch_code: string
   fo_name: string
   bm_name: string
+  am_name?: string
+  rm_name?: string
+  rm_status?: string
   district: string
   state: string
   penalty_per_day: number
@@ -74,7 +81,24 @@ export interface Loan {
   created_by: string
   updated_at: string
   updated_by: string
-  paid_emi?: number  // Number of EMIs paid (from Excel import)
+  paid_emi?: number          // PAID EMI
+  pending_emi?: number       // PENDING EMI
+  due_emi?: number           // DUE EMI
+  pending_amount?: number    // PENDING AMT.
+  short_amount?: number      // SHORT AMT.
+  advance_date?: string | null // ADVANCE DATE
+  meeting_day?: string       // Instalment/Meeting Day
+  center_no?: string         // center number
+  cluster_no?: string        // clustar no
+  month?: string             // MONTH
+  cash_db_date?: string | null // CASH DB DATE
+  penalty_days?: number      // PENTALITY OF NUMBERS/total days
+  penalty_rate?: number      // PER PENTALITY OF AMOUNT
+  total_penalty?: number     // TOTAL AMOUNT OF PENALITY
+  current_bal_with_penalty?: number // Current Ledger Bal of Gr.+Penalty
+  total_outstanding?: number // Total Mem. Outstanding
+  gr_status?: string         // Gr. Status
+  pending_status?: string    // PENDING
 }
 
 export interface ScheduleRow {
