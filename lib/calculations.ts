@@ -223,7 +223,10 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
   ])
 
   // Step 1: Sort and set baseline rows (respecting imported paid EMIs AND advance balance / total collected)
-  const rows = rawRows.sort((a, b) => a.installment_no - b.installment_no)
+  let rows = rawRows.sort((a, b) => a.installment_no - b.installment_no)
+  if (rows.length === 0 && loan) {
+    rows = generateSchedule(loan)
+  }
   const importedPaidEmi = Number((loan as any)?.paid_emi || (loan as any)?.data?.paid_emi || 0)
   const advanceBal = Number((loan as any)?.advance_balance || (loan as any)?.data?.advance_balance || (loan as any)?.data?.ADVANCE || 0)
   const totalRec = Number((loan as any)?.total_collected || (loan as any)?.data?.total_collected || (loan as any)?.data?.TOTAL_RECEIVED_AMOUNT || 0)

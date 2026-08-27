@@ -52,13 +52,32 @@ export async function GET(request: NextRequest) {
       let query = supabase.from(table).select('data').range(from, from + STEP - 1)
       if (field && value) {
         if (field === 'id') {
-          query = query.or(`id.eq.${value},data->>id.eq.${value},data->>loan_account_no.eq.${value},data->>customer_id.eq.${value}`) as any
+          query = query.or(`id.eq.${value}`) as any
         } else {
-          query = query.or(`data->>${field}.eq.${value},id.eq.${value}`) as any
+          query = query.eq(`data->>${field}`, value) as any
         }
       }
-      const { data, error } = await query
+      let { data, error } = await query
+      if (error && field !== 'id') {
+        // Fallback retry with id column directly
+        const fallback = await supabase.from(table).select('data').eq('id', value).range(from, from + STEP - 1)
+        if (!fallback.error) {
+          data = fallback.data
+          error = null
+        }
+      }
       if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+      if (!data || data.length === 0) {
+        if (field === 'id' && from === 0) {
+          // Retry matching data->>customer_id or data->>loan_account_no if native id didn't match
+          const alt = await supabase.from(table).select('data')
+            .or(`data->>loan_account_no.eq.${value},data->>customer_id.eq.${value},data->>id.eq.${value}`)
+            .range(from, from + STEP - 1)
+          if (!alt.error && alt.data && alt.data.length > 0) {
+            data = alt.data
+          }
+        }
+      }
       if (!data || data.length === 0) break
       allData = allData.concat(data)
       if (data.length < STEP) break

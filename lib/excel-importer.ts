@@ -1,7 +1,7 @@
 import * as xlsx from 'xlsx'
 import type { Customer, Loan, ScheduleRow, Transaction } from '@/lib/types'
 import { dpdBucket } from '@/lib/utils'
-import { computeLoanEconomics } from '@/lib/calculations'
+import { computeLoanEconomics, addDays } from '@/lib/calculations'
 
 export interface ParsedExcelData {
   branchName: string
@@ -100,7 +100,7 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
 
       const dpd = Number(r['DPD'] || 0)
       const disbDate = parseExcelDate(r['DIS. DATE'] || r['DIS.DATE'] || r['DISB DATE'] || r['CASH DB DATE'], '2026-05-01')
-      const firstEmiDate = parseExcelDate(r['FIRST EMI '] || r['FIRST EMI DATE'] || r['FIRST EMI'] || r['1ST EMI DATE'], addMonths(disbDate, 1))
+      const firstEmiDate = parseExcelDate(r['FIRST EMI '] || r['FIRST EMI DATE'] || r['FIRST EMI'] || r['1ST EMI DATE'], addDays(disbDate, 7))
       const closeDate = r['CLOSE DATE'] ? parseExcelDate(r['CLOSE DATE']) : null
       const fileCharge = Number(r['FILE CHARGE'] || Math.round(loanAmount * 0.02))
 
@@ -133,17 +133,17 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         })
       }
 
-      // Economics calculation using standard 17 formulas
+      // Economics calculation using standard 17 formulas (Weekly frequency)
       const econ = computeLoanEconomics({
         loan_amount: loanAmount,
         file_charge: fileCharge,
         interest_rate: 18,
         tenure,
-        frequency: 'Monthly',
+        frequency: 'Weekly',
         installment_amount: emi > 0 ? emi : null,
       })
 
-      // Loan Record
+      // Loan Record (Weekly frequency)
       loansMap.set(loanNo, {
         loan_account_no: loanNo,
         customer_id: customerId,
@@ -157,7 +157,7 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         net_disbursement: econ.net_disbursement,
         interest_rate: 18,
         tenure,
-        frequency: 'Monthly',
+        frequency: 'Weekly',
         installment_amount: econ.installment_amount,
         total_interest: econ.total_interest,
         total_loan: econ.total_loan,
@@ -174,13 +174,13 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         created_at: new Date().toISOString(),
       })
 
-      // Repayment Schedule Rows (1..tenure)
-      // EMI-1 = firstEmiDate, EMI-2 = firstEmiDate+1m, EMI-N = firstEmiDate+(N-1)m
+      // Repayment Schedule Rows (1..tenure, Weekly 7-day frequency)
+      // EMI-1 = firstEmiDate, EMI-2 = firstEmiDate+7d, EMI-N = firstEmiDate+(N-1)*7d
       const todayStr = new Date().toISOString().slice(0, 10)
       let cumulativePaid = isClosed ? econ.total_loan : totalCollected
       for (let i = 1; i <= tenure; i++) {
-        // Due date: installment i is due on firstEmiDate + (i-1) months
-        const estDate = addMonths(firstEmiDate, i - 1)
+        // Due date: installment i is due on firstEmiDate + (i-1)*7 days
+        const estDate = addDays(firstEmiDate, (i - 1) * 7)
         let rowStatus: 'Paid' | 'Pending' | 'Overdue' | 'Partial' = 'Pending'
         let paidAmount = 0
 
