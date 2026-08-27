@@ -494,9 +494,23 @@ function NewLoanWizard() {
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-blue-200/60 text-[11px]">
                     <div><span className="text-slate-500 block">Mobile</span><strong>{selectedMember.mobile || '—'}</strong></div>
                     <div><span className="text-slate-500 block">Branch</span><strong>{selectedMember.branch_code || 'Head Office'}</strong></div>
-                    <div><span className="text-slate-500 block">Active Loans</span><strong className={memberLoanHistory.active.length > 0 ? 'text-amber-700' : 'text-slate-700'}>{memberLoanHistory.active.length} active</strong></div>
-                    <div><span className="text-slate-500 block">Existing Outstanding</span><strong className="text-amber-700 font-mono">{inr(memberLoanHistory.totalOutstanding)}</strong></div>
+                    <div><span className="text-slate-500 block">Active Loans</span><strong className={memberLoanHistory.active.length > 0 ? 'text-amber-700 font-bold' : 'text-slate-700'}>{memberLoanHistory.active.length} active</strong></div>
+                    <div><span className="text-slate-500 block">Existing Outstanding</span><strong className="text-amber-700 font-mono font-bold">{inr(memberLoanHistory.totalOutstanding)}</strong></div>
                   </div>
+
+                  {memberLoanHistory.active.length > 0 && (
+                    <div className="bg-amber-50 border border-amber-300 text-amber-900 px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                        <span>
+                          <strong>CONCURRENT ACTIVE LOAN WARNING:</strong> Borrower {selectedMember.full_name} already has {memberLoanHistory.active.length} active loan(s) with an existing outstanding of <strong>{inr(memberLoanHistory.totalOutstanding)}</strong>.
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-bold uppercase bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full border border-amber-300 flex-shrink-0">
+                        Risk Alert
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 

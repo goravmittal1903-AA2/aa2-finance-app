@@ -152,6 +152,9 @@ export interface Transaction {
   advance_balance_after?: number
   arrears_balance_after?: number
   narration?: string
+  customer_id?: string
+  member_name?: string
+  receipt_no?: string
   created_by?: string   // marks import-originated transactions
 }
 

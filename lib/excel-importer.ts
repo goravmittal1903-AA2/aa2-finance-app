@@ -200,26 +200,97 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
       const totalMemOutstanding = Number(gv(r, 'Total Mem. Outstanding') || 0)
       const pendingStatusStr = gvStr(r, 'PENDING')
 
-      // 1. Permanent Member ID Format: MEM10001 (MEM + 5 numeric digits)
-      const rawMemId = (r['MEMBER ID'] || r['CUST ID'] || r['CUSTOMER ID'] || r['MEM ID'] || r['MEMBER NO'] || '').toString().trim()
-      const customerId = (/^MEM\d{5}$/i.test(rawMemId))
-        ? rawMemId.toUpperCase()
-        : `MEM${String(10001 + idx).padStart(5, '0')}`
+      // Multi-Field Member Identification & Deduplication Algorithm
+      const normName = memberName.trim().toUpperCase()
+      const normFather = fatherHusband.trim().toUpperCase()
+      const panNo = gvStr(r, 'PAN NO', 'PAN', 'PAN CARD').toUpperCase().trim()
 
-      // 2. Permanent Loan Account No Format: 10-digit numeric number ONLY (e.g. 1000000001)
+      let matchedCustomerId: string | null = null
+
+      // Rule 1: Explicit Member ID format MEM100XX
+      const rawMemId = (r['MEMBER ID'] || r['CUST ID'] || r['CUSTOMER ID'] || r['MEM ID'] || r['MEMBER NO'] || '').toString().trim().toUpperCase()
+      if (/^MEM\d{5}$/.test(rawMemId)) {
+        matchedCustomerId = rawMemId
+      }
+
+      // Rule 2: Hard Match on PAN Number
+      if (!matchedCustomerId && panNo && panNo.length === 10) {
+        for (const [id, c] of customersMap.entries()) {
+          if (c.pan_no && c.pan_no.toUpperCase() === panNo) {
+            matchedCustomerId = id
+            break
+          }
+        }
+      }
+
+      // Rule 3: Match on Aadhaar Last 4 + (Name or Relation Name)
+      if (!matchedCustomerId && aadhar_last4 && aadhar_last4.length === 4) {
+        for (const [id, c] of customersMap.entries()) {
+          const cName = (c.full_name || '').toUpperCase()
+          const cFather = (c.father_husband_name || '').toUpperCase()
+          if (c.aadhar_last4 === aadhar_last4 && (cName === normName || cFather === normFather || (normFather && cFather.includes(normFather)))) {
+            matchedCustomerId = id
+            break
+          }
+        }
+      }
+
+      // Rule 4: Match on Mobile Number + (Name or Relation or Aadhaar/PAN)
+      if (!matchedCustomerId && mobile && mobile.length === 10) {
+        for (const [id, c] of customersMap.entries()) {
+          const cName = (c.full_name || '').toUpperCase()
+          const cFather = (c.father_husband_name || '').toUpperCase()
+          if (c.mobile === mobile && (cName === normName || cFather === normFather || (aadhar_last4 && c.aadhar_last4 === aadhar_last4))) {
+            matchedCustomerId = id
+            break
+          }
+        }
+      }
+
+      // Rule 5: Exact Full Name + Exact Relation Name Match
+      if (!matchedCustomerId && normName && normFather) {
+        for (const [id, c] of customersMap.entries()) {
+          const cName = (c.full_name || '').toUpperCase()
+          const cFather = (c.father_husband_name || '').toUpperCase()
+          if (cName === normName && cFather === normFather) {
+            matchedCustomerId = id
+            break
+          }
+        }
+      }
+
+      const customerId = matchedCustomerId || (
+        /^MEM\d{5}$/i.test(rawMemId)
+          ? rawMemId.toUpperCase()
+          : `MEM${String(10001 + customersMap.size).padStart(5, '0')}`
+      )
+
+      // Permanent Loan Account No Format: 10-digit numeric number ONLY (e.g. 1000000001)
       const rawLoanNo = (r['PL NO.'] || r['PL NO'] || r['LOAN NO'] || r['LOAN ACCOUNT NO'] || r['ACCOUNT NO'] || r['PL.NO.'] || '').toString().replace(/\D/g, '')
       const loanNo = (rawLoanNo.length === 10)
         ? rawLoanNo
         : String(1000000000 + idx + 1)
 
-      // Member Record (Relation & all hierarchy fields updated correctly)
-      if (!customersMap.has(customerId)) {
+      // Update existing or insert new member record
+      if (customersMap.has(customerId)) {
+        const existing = customersMap.get(customerId)!
+        // Update profile fields with latest active loan values
+        if (mobile && !existing.mobile) existing.mobile = mobile
+        if (aadhar_last4 && !existing.aadhar_last4) existing.aadhar_last4 = aadhar_last4
+        if (fo && !existing.fo_name) existing.fo_name = fo
+        if (bm && !existing.bm_name) existing.bm_name = bm
+        if (amName && !existing.am_name) existing.am_name = amName
+        if (rmName && !existing.rm_name) existing.rm_name = rmName
+        if (centerNo && !existing.center_no) existing.center_no = centerNo
+        if (clusterNo && !existing.cluster_no) existing.cluster_no = clusterNo
+      } else {
         customersMap.set(customerId, {
           customer_id: customerId,
           full_name: memberName,
           father_husband_name: fatherHusband,
           mobile,
           aadhar_last4,
+          pan_no: panNo,
           village_city: village,
           district,
           branch_code: branch,
@@ -341,6 +412,9 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
           transactions.push({
             txn_id: `TXN-${loanNo}-${i}` as any,
             loan_account_no: loanNo,
+            customer_id: customerId,
+            member_name: memberName,
+            receipt_no: `REC-${loanNo}-${i}`,
             txn_date: estDate,
             txn_type: 'PAYMENT',
             amount: paidAmount,
