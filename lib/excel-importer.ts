@@ -14,13 +14,18 @@ export interface ParsedExcelData {
 export function parseExcelDate(val: any, fallback = '2026-05-01'): string {
   if (!val) return fallback
   if (val instanceof Date) {
-    const localDate = new Date(val.getTime() + (5.5 * 3600 * 1000))
-    return localDate.toISOString().slice(0, 10)
+    const d = new Date(val.getTime() + (12 * 3600 * 1000))
+    const y = d.getUTCFullYear()
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+    const day = String(d.getUTCDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
   }
   if (typeof val === 'number') {
-    const d = new Date((val - 25569) * 86400 * 1000)
-    const localDate = new Date(d.getTime() + (5.5 * 3600 * 1000))
-    return localDate.toISOString().slice(0, 10)
+    const d = new Date((val - 25569) * 86400 * 1000 + (12 * 3600 * 1000))
+    const y = d.getUTCFullYear()
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+    const day = String(d.getUTCDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
   }
   const s = String(val || '').trim()
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
@@ -47,8 +52,11 @@ export function parseExcelDate(val: any, fallback = '2026-05-01'): string {
 
   const dt = new Date(s)
   if (!isNaN(dt.getTime())) {
-    const localDate = new Date(dt.getTime() + (5.5 * 3600 * 1000))
-    return localDate.toISOString().slice(0, 10)
+    const d = new Date(dt.getTime() + (12 * 3600 * 1000))
+    const y = d.getUTCFullYear()
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+    const day = String(d.getUTCDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
   }
 
   return fallback
@@ -291,10 +299,11 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
       })
 
       // Target paid transactions for this loan (derived from explicit PAID EMI column or collected total)
+      const hasPaidEmiCol = gvStr(r, 'PAID EMI') !== ''
       let targetPaidCount = paidEmiCount
-      if (targetPaidCount <= 0 && totalCollected > 0 && emi > 0) {
+      if (!hasPaidEmiCol && totalCollected > 0 && emi > 0) {
         targetPaidCount = Math.round(totalCollected / emi)
-      } else if (targetPaidCount <= 0 && isClosed) {
+      } else if (!hasPaidEmiCol && isClosed) {
         targetPaidCount = tenure
       }
 

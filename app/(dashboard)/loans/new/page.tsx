@@ -54,24 +54,29 @@ function NewLoanWizard() {
   const [formData, setFormData] = useState({
     customer_id: preSelectedCustomerId,
     case_id: '',
-    product_type: 'Individual Loan (IL)',
+    product_type: 'Microfinance Personal Loan',
     frequency: 'Weekly',
-    loan_amount: '30000',
-    interest_rate: '24',
-    emi_amount: '670',
-    tenure: '50',
-    file_charge: '600',
+    loan_amount: '15000',
+    interest_rate: '18',
+    emi_amount: '820',
+    tenure: '25',
+    file_charge: '300',
     file_charge_pct: '2',
     insurance_fee: '0',
     repayment_mode: 'Cash Collection',
     disbursal_mode: 'Cash',
     disbursement_date: todayISO(),
+    cash_db_date: todayISO(),
     installment_start_date: addDays(todayISO(), 7),
     penalty_per_day: '0',
     broken_interest_collection_mode: 'UPFRONT_DEDUCTION' as 'UPFRONT_DEDUCTION' | 'ADD_TO_FIRST_EMI',
     branch_code: '',
     bm_name: '',
     fo_name: '',
+    am_name: '',
+    rm_name: '',
+    center_no: '',
+    cluster_no: '',
   })
 
   useEffect(() => {
@@ -213,6 +218,7 @@ function NewLoanWizard() {
   }, [formData, economics, selectedMember])
 
   const PRODUCT_DEFAULTS: Record<string, { frequency: string, loan_amount: string, interest_rate: string, tenure: string, file_charge: string }> = {
+    'Microfinance Personal Loan': { frequency: 'Weekly', loan_amount: '15000', interest_rate: '18', tenure: '25', file_charge: '300' },
     'Individual Loan (IL)': { frequency: 'Weekly', loan_amount: '30000', interest_rate: '24', tenure: '50', file_charge: '600' },
     'Joint Liability Group (JLG)': { frequency: 'Weekly', loan_amount: '20000', interest_rate: '24', tenure: '25', file_charge: '400' },
     'Micro Business Loan': { frequency: 'Monthly', loan_amount: '50000', interest_rate: '22', tenure: '12', file_charge: '1000' },
@@ -276,6 +282,9 @@ function NewLoanWizard() {
       const loan_account_no = await generateUniqueLoanAccountNo()
       const pct = Number(formData.loan_amount) ? (Number(formData.file_charge) / Number(formData.loan_amount) * 100) : 0
 
+      const calcCloseDate = addDays(formData.installment_start_date, Math.max(0, Number(formData.tenure) - 1) * 7)
+      const monthStr = new Date(formData.disbursement_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+
       // 2. Build Loan Record
       const newLoan: Loan = {
         loan_account_no,
@@ -285,6 +294,11 @@ function NewLoanWizard() {
         branch_code: formData.branch_code || selectedMember.branch_code || 'Head Office',
         fo_name: formData.fo_name || selectedMember.fo_name || '',
         bm_name: formData.bm_name || selectedMember.bm_name || '',
+        am_name: formData.am_name || selectedMember.am_name || '',
+        rm_name: formData.rm_name || selectedMember.rm_name || '',
+        center_no: formData.center_no || selectedMember.center_no || '',
+        cluster_no: formData.cluster_no || selectedMember.cluster_no || '',
+        month: monthStr,
         state: selectedMember.state || 'UTTARAKHAND',
         district: selectedMember.district || '',
         case_id: formData.case_id || '',
@@ -300,13 +314,15 @@ function NewLoanWizard() {
         total_interest: economics.total_interest,
         total_loan: economics.total_loan,
         per_installment_interest: economics.per_installment_interest,
+        per_emi_interest: Math.round(economics.total_interest / Number(formData.tenure)),
         disbursement_date: formData.disbursement_date,
+        cash_db_date: formData.cash_db_date || formData.disbursement_date,
         installment_start_date: formData.installment_start_date,
         penalty_per_day: Number(formData.penalty_per_day) || 0,
         repayment_mode: formData.repayment_mode,
         status: 'ACTIVE',
         disbursed: true,
-        close_date: null,
+        close_date: calcCloseDate,
         closure_amount: null,
         closure_type: null,
         imported: false,
@@ -559,6 +575,7 @@ function NewLoanWizard() {
                   }}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
+                  <option value="Microfinance Personal Loan">Microfinance Personal Loan</option>
                   <option value="Individual Loan (IL)">Individual Loan (IL)</option>
                   <option value="Joint Liability Group (JLG)">Joint Liability Group (JLG)</option>
                   <option value="Micro Business Loan">Micro Business Loan</option>
@@ -882,6 +899,16 @@ function NewLoanWizard() {
               </div>
 
               <div>
+                <label className="font-semibold text-slate-700 block mb-1">Cash DB Date (Disbursement Date)</label>
+                <input
+                  type="date"
+                  value={formData.cash_db_date}
+                  onChange={e => setFormData(prev => ({ ...prev, cash_db_date: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
                 <label className="font-semibold text-slate-700 block mb-1">Branch Name</label>
                 <input
                   type="text"
@@ -898,6 +925,58 @@ function NewLoanWizard() {
                   value={formData.fo_name}
                   onChange={e => setFormData(prev => ({ ...prev, fo_name: e.target.value }))}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Branch Manager (BM)</label>
+                <input
+                  type="text"
+                  value={formData.bm_name}
+                  onChange={e => setFormData(prev => ({ ...prev, bm_name: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Area Manager (AM)</label>
+                <input
+                  type="text"
+                  value={formData.am_name}
+                  onChange={e => setFormData(prev => ({ ...prev, am_name: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Regional Manager (RM)</label>
+                <input
+                  type="text"
+                  value={formData.rm_name}
+                  onChange={e => setFormData(prev => ({ ...prev, rm_name: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Center Number</label>
+                <input
+                  type="text"
+                  value={formData.center_no}
+                  onChange={e => setFormData(prev => ({ ...prev, center_no: e.target.value }))}
+                  placeholder="e.g. Center 12"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Cluster Number</label>
+                <input
+                  type="text"
+                  value={formData.cluster_no}
+                  onChange={e => setFormData(prev => ({ ...prev, cluster_no: e.target.value }))}
+                  placeholder="e.g. Cluster 04"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                 />
               </div>
             </div>

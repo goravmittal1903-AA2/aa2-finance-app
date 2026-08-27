@@ -39,6 +39,10 @@ interface MemberFormData {
   branch_code: string
   bm_name: string
   fo_name: string
+  am_name: string
+  rm_name: string
+  center_no: string
+  cluster_no: string
   address_current: string
 }
 
@@ -70,6 +74,10 @@ export default function NewMemberPage() {
       branch_code: '',
       bm_name: '',
       fo_name: '',
+      am_name: '',
+      rm_name: '',
+      center_no: '',
+      cluster_no: '',
       address_current: '',
     }
   })
@@ -131,6 +139,10 @@ export default function NewMemberPage() {
       branch_code: existing.branch_code || '',
       bm_name: existing.bm_name || '',
       fo_name: existing.fo_name || '',
+      am_name: existing.am_name || '',
+      rm_name: existing.rm_name || '',
+      center_no: existing.center_no || '',
+      cluster_no: existing.cluster_no || '',
       address_current: existing.address_current || '',
     })
     toast.success('Member Loaded', `Loaded details for ${existing.full_name} (${existing.customer_id}). You can now edit and save.`)
@@ -196,6 +208,10 @@ export default function NewMemberPage() {
       branch_code: '',
       bm_name: '',
       fo_name: '',
+      am_name: '',
+      rm_name: '',
+      center_no: '',
+      cluster_no: '',
       address_current: '',
     })
     setCurrentStep(1)
@@ -691,6 +707,54 @@ export default function NewMemberPage() {
                   onChange={handleChange}
                   placeholder="e.g. Rohit Verma"
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Area Manager (AM)</label>
+                <input
+                  type="text"
+                  name="am_name"
+                  value={formData.am_name}
+                  onChange={handleChange}
+                  placeholder="e.g. AM Name"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Regional Manager (RM)</label>
+                <input
+                  type="text"
+                  name="rm_name"
+                  value={formData.rm_name}
+                  onChange={handleChange}
+                  placeholder="e.g. RM Name"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Center Number</label>
+                <input
+                  type="text"
+                  name="center_no"
+                  value={formData.center_no}
+                  onChange={handleChange}
+                  placeholder="e.g. Center 12"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Cluster Number</label>
+                <input
+                  type="text"
+                  name="cluster_no"
+                  value={formData.cluster_no}
+                  onChange={handleChange}
+                  placeholder="e.g. Cluster 04"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                 />
               </div>
             </div>
