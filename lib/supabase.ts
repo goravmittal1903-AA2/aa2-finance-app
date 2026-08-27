@@ -90,6 +90,10 @@ export async function getAll<T>(store: string, forceRefresh = false): Promise<T[
     return cached.data
   }
 
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    return getAllViaServer<T>(store)
+  }
+
   let allData: any[] = []
   let from = 0
   const STEP = 1000

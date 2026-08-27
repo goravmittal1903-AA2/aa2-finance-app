@@ -36,50 +36,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  const refreshProfile = useCallback(async (nextSession?: Session | null) => {
-    const activeSession = nextSession === undefined
-      ? (await supabase.auth.getSession()).data.session
-      : nextSession
-
-    setSession(activeSession)
-    if (!activeSession?.user) {
+  const refreshProfile = useCallback(async () => {
+    try {
+      const res = await fetch('/api/auth/me', { cache: 'no-store' })
+      if (!res.ok) {
+        setUser(null)
+        setSession(null)
+        return null
+      }
+      const data = await res.json()
+      if (data.user) {
+        setUser(data.user)
+        setSession(data.session)
+        return data.user
+      } else {
+        setUser(null)
+        setSession(null)
+        return null
+      }
+    } catch {
       setUser(null)
+      setSession(null)
       return null
     }
-
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select('id, email, display_name, role, branch_code')
-      .eq('id', activeSession.user.id)
-      .maybeSingle()
-
-    if (error || !data) {
-      setUser(null)
-      return null
-    }
-
-    const profile = toSessionUser(data as Parameters<typeof toSessionUser>[0])
-    setUser(profile)
-    return profile
   }, [])
 
   useEffect(() => {
     let alive = true
 
     const initialise = async () => {
-      const timeout = new Promise(resolve => setTimeout(resolve, 2500))
       try {
-        await Promise.race([refreshProfile(), timeout])
+        await refreshProfile()
       } catch (err) {
-        console.warn('Auth init timeout/error:', err)
+        console.warn('Auth init error:', err)
       } finally {
         if (alive) setIsLoading(false)
       }
     }
 
     void initialise()
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      void refreshProfile(nextSession)
+    const { data: listener } = supabase.auth.onAuthStateChange((_event) => {
+      void refreshProfile()
     })
 
     return () => {

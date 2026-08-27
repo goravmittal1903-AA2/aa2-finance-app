@@ -49,22 +49,8 @@ function LoginForm() {
     setLoading(true)
     const cleanEmail = email.trim().toLowerCase()
     try {
-      // Direct browser sign in via Supabase client (instant)
-      const { data, error: sbErr } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password,
-      })
-
-      if (sbErr || !data.user) {
-        throw new Error(sbErr?.message || 'Invalid login credentials. Please check your email and password.')
-      }
-
-      const profile = await refreshProfile(data.session)
-      if (!profile) {
-        throw new Error('Your application profile is inactive or not found. Contact an administrator.')
-      }
-
-      // Immediate redirect to dashboard
+      await api('/api/auth/login/start', { email: cleanEmail, password })
+      await refreshProfile()
       window.location.assign('/dashboard')
     } catch (caught) {
       const failure = caught as Error
