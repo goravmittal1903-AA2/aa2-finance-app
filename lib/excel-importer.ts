@@ -108,8 +108,9 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
       const district = gv(r, 'Dist.', 'DISTRICT', 'DIST') || 'HARYANA'
 
       const emi = Number(gv(r, 'EMI AMOUNT', 'EMI', 'MONTHLY EMI') || 0)
-      const tenure = Math.max(1, Number(gv(r, 'TOTAL EMI') || 12))
       const paidEmiCount = Number(gv(r, 'PAID EMI') || 0)
+      const rawTenure = Number(gv(r, 'TOTAL EMI', 'TENURE', 'NO OF EMI', 'NO. OF EMI') || 0)
+      const tenure = Math.max(1, rawTenure || paidEmiCount || 12)
       const totalCollected = Number(gv(r, 'TOTAL RECEIVED AMOUNT', 'TOTAL COLLECTED') || (paidEmiCount > 0 && emi > 0 ? paidEmiCount * emi : 0) || 0)
       const ledgerBal = Number(gv(r, 'Ledger Balance', 'LEDGER BALANCE') || Math.max(0, loanAmount - totalCollected))
 
@@ -244,32 +245,26 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         created_at: new Date().toISOString(),
       })
 
+      // Target paid transactions for this loan (derived from explicit PAID EMI column or collected total)
+      let targetPaidCount = paidEmiCount
+      if (targetPaidCount <= 0 && totalCollected > 0 && emi > 0) {
+        targetPaidCount = Math.round(totalCollected / emi)
+      } else if (targetPaidCount <= 0 && isClosed) {
+        targetPaidCount = tenure
+      }
+
       // Repayment Schedule Rows (1..tenure, Weekly 7-day frequency)
-      // EMI-1 = firstEmiDate, EMI-2 = firstEmiDate+7d, EMI-N = firstEmiDate+(N-1)*7d
       const todayStr = new Date().toISOString().slice(0, 10)
-      let cumulativePaid = totalCollected > 0
-        ? totalCollected
-        : (paidEmiCount > 0 ? paidEmiCount * econ.installment_amount : (isClosed ? econ.total_loan : 0))
       for (let i = 1; i <= tenure; i++) {
-        // Due date: installment i is due on firstEmiDate + (i-1)*7 days
         const estDate = addDays(firstEmiDate, (i - 1) * 7)
-        let rowStatus: 'Paid' | 'Pending' | 'Overdue' | 'Partial' = 'Pending'
-        let paidAmount = 0
+        const isPaidInstallment = i <= targetPaidCount
+        const rowStatus: 'Paid' | 'Pending' | 'Overdue' | 'Partial' = isPaidInstallment
+          ? 'Paid'
+          : (estDate < todayStr && !isClosed ? 'Overdue' : 'Pending')
 
-        if (cumulativePaid >= econ.installment_amount) {
-          rowStatus = 'Paid'
-          paidAmount = econ.installment_amount
-          cumulativePaid -= econ.installment_amount
-        } else if (cumulativePaid > 0) {
-          rowStatus = 'Partial'
-          paidAmount = Math.round(cumulativePaid * 100) / 100
-          cumulativePaid = 0
-        } else if (estDate < todayStr && !isClosed) {
-          rowStatus = 'Overdue'
-        }
-
-        const interestDueRow = Math.round((econ.per_installment_interest || (econ.total_interest / tenure)) * 100) / 100
         const emiDueRow = econ.installment_amount
+        const paidAmount = isPaidInstallment ? (emi > 0 ? emi : emiDueRow) : 0
+        const interestDueRow = Math.round((econ.per_installment_interest || (econ.total_interest / tenure)) * 100) / 100
         const principalDueRow = Math.round(Math.max(0, emiDueRow - interestDueRow) * 100) / 100
 
         schedules.push({
@@ -280,17 +275,15 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
           emi_due: emiDueRow,
           principal_due: principalDueRow,
           interest_due: interestDueRow,
-          opening_balance: Math.max(0, econ.total_loan - ((i - 1) * econ.installment_amount)),
-          closing_balance: Math.max(0, econ.total_loan - (i * econ.installment_amount)),
+          opening_balance: Math.max(0, econ.total_loan - ((i - 1) * emiDueRow)),
+          closing_balance: Math.max(0, econ.total_loan - (i * emiDueRow)),
           status: rowStatus,
           paid_amount: paidAmount,
-          paid_date: rowStatus === 'Paid' || rowStatus === 'Partial' ? estDate : null,
+          paid_date: isPaidInstallment ? estDate : null,
           dpd: rowStatus !== 'Overdue' ? 0 : Math.max(0, Math.round((Date.now() - new Date(estDate).getTime()) / 86400000)),
         })
 
-        // IMPORTANT: Only create a transaction for installments that are PAID/PARTIAL
-        // AND whose due date is on or before today (never create future-dated transactions)
-        if (paidAmount > 0 && estDate <= todayStr) {
+        if (isPaidInstallment) {
           transactions.push({
             txn_id: `TXN-${loanNo}-${i}` as any,
             loan_account_no: loanNo,
