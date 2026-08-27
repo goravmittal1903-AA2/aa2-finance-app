@@ -43,6 +43,8 @@ interface BatchLog {
   rolled_back_at?: string
 }
 
+import { invalidateCache } from '@/lib/supabase'
+
 export default function DataToolsPage() {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState<Tab>('excel_import')
@@ -194,6 +196,7 @@ export default function DataToolsPage() {
       toast.success('Master Excel Import executed successfully!')
       setExcelFile(null)
       setParsedData(null)
+      invalidateCache()
       if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('aa2_data_changed', { detail: { stores: ['customers', 'loans'] } }))
       await loadBatchHistory()
     } catch (err: any) {
@@ -224,6 +227,7 @@ export default function DataToolsPage() {
       if (!res.ok) throw new Error(result.error || 'Rollback failed.')
 
       toast.success(`Batch ${batch.batch_id} successfully reversed! Deleted ${result.deletedCount} records.`)
+      invalidateCache()
       if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('aa2_data_changed', { detail: { stores: ['customers', 'loans'] } }))
       await loadBatchHistory()
     } catch (err: any) {

@@ -171,8 +171,14 @@ export default function DashboardPage() {
     const accumulatedDemandAmount = pendingDuesAsOfToday.reduce((sum, s) => sum + Math.max(0, (s.emi_due || 0) - (s.paid_amount || 0)), 0)
     const accumulatedAccountsCount = new Set(pendingDuesAsOfToday.map(s => s.loan_account_no)).size
 
-    // 3. Today Payments Collected
-    const todayPayments = transactions.filter(t => t.txn_date === today && t.txn_type === 'PAYMENT' && !t.voided)
+    // 3. Today Payments Collected (only for existing loans in current portfolio)
+    const validLoanNos = new Set(portfolio.map(p => p.loan_account_no))
+    const todayPayments = transactions.filter(t =>
+      t.txn_date === today &&
+      t.txn_type === 'PAYMENT' &&
+      !t.voided &&
+      validLoanNos.has(t.loan_account_no)
+    )
     const todayCollectedAmount = todayPayments.reduce((sum, t) => sum + (t.amount || 0), 0)
     const todayCollectedCount = todayPayments.length
 
