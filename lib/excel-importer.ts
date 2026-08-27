@@ -259,17 +259,27 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         }
       }
 
+      const bPrefixCode = ((): number => {
+        const b = (branch || branchName || '').toUpperCase()
+        if (b.includes('HARIDWAR')) return 100
+        if (b.includes('KHATAULI')) return 200
+        if (b.includes('PATAUDI')) return 300
+        let hash = 0
+        for (let i = 0; i < b.length; i++) hash = (hash + b.charCodeAt(i)) % 700
+        return 100 + hash
+      })()
+
       const customerId = matchedCustomerId || (
         /^MEM\d{5}$/i.test(rawMemId)
           ? rawMemId.toUpperCase()
-          : `MEM${String(10001 + customersMap.size).padStart(5, '0')}`
+          : `MEM${bPrefixCode}${String(idx + 1).padStart(3, '0')}`
       )
 
-      // Permanent Loan Account No Format: 10-digit numeric number ONLY (e.g. 1000000001)
+      // Permanent Loan Account No Format: 10-digit numeric number ONLY (e.g. 1000000001, 2000000001)
       const rawLoanNo = (r['PL NO.'] || r['PL NO'] || r['LOAN NO'] || r['LOAN ACCOUNT NO'] || r['ACCOUNT NO'] || r['PL.NO.'] || '').toString().replace(/\D/g, '')
       const loanNo = (rawLoanNo.length === 10)
         ? rawLoanNo
-        : String(1000000000 + idx + 1)
+        : String((bPrefixCode * 10000000) + idx + 1)
 
       // Update existing or insert new member record
       if (customersMap.has(customerId)) {
