@@ -1298,7 +1298,7 @@ export default function LoanDetailPage({ params }: PageProps) {
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
             <Tag className="w-4 h-4 text-blue-600" />
-            <h3 className="text-sm font-bold text-slate-800">Master Portfolio Specifications (All 48 Excel Fields)</h3>
+            <h3 className="text-sm font-bold text-slate-800">Master Portfolio Specifications</h3>
           </div>
           <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200">
             Auto-Updated & Sync Verified

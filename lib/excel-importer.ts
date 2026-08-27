@@ -12,13 +12,19 @@ export interface ParsedExcelData {
 }
 
 export function parseExcelDate(val: any, fallback = '2026-05-01'): string {
+  if (!val) return fallback
+  if (val instanceof Date) {
+    const localDate = new Date(val.getTime() + (5.5 * 3600 * 1000))
+    return localDate.toISOString().slice(0, 10)
+  }
   if (typeof val === 'number') {
     const d = new Date((val - 25569) * 86400 * 1000)
-    return d.toISOString().slice(0, 10)
+    const localDate = new Date(d.getTime() + (5.5 * 3600 * 1000))
+    return localDate.toISOString().slice(0, 10)
   }
-  if (val instanceof Date) return val.toISOString().slice(0, 10)
   const s = String(val || '').trim()
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
   if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}$/.test(s)) {
     const parts = s.split(/[\/-]/)
     if (parts.length === 3) {
@@ -27,11 +33,29 @@ export function parseExcelDate(val: any, fallback = '2026-05-01'): string {
       return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
     }
   }
+
+  const monthMap: Record<string, number> = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 }
+  const mMatch = s.match(/^(\d{1,2})[\/\s-]([a-zA-Z]{3,4})(?:[\/\s-](\d{2,4}))?$/)
+  if (mMatch) {
+    const day = mMatch[1].padStart(2, '0')
+    const monStr = mMatch[2].toLowerCase().slice(0, 3)
+    const month = monthMap[monStr] ? String(monthMap[monStr]).padStart(2, '0') : '05'
+    let year = mMatch[3] || '2026'
+    if (year.length === 2) year = '20' + year
+    return `${year}-${month}-${day}`
+  }
+
+  const dt = new Date(s)
+  if (!isNaN(dt.getTime())) {
+    const localDate = new Date(dt.getTime() + (5.5 * 3600 * 1000))
+    return localDate.toISOString().slice(0, 10)
+  }
+
   return fallback
 }
 
 export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string): ParsedExcelData {
-  const wb = xlsx.read(buffer, { type: 'array', cellFormula: true })
+  const wb = xlsx.read(buffer, { type: 'array', cellFormula: true, cellDates: true })
   
   let branchName = fileName.replace(/\.[^/.]+$/, '').replace(/_|\d+/g, ' ').trim().toUpperCase() || 'PATAUDI'
 
@@ -63,49 +87,54 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
     }
     const rows = xlsx.utils.sheet_to_json<Record<string, any>>(targetSheet, { range: headerRowIndex })
 
-    // Helper to fetch cell values matching keys (case-insensitive & whitespace agnostic)
-    const gv = (r: Record<string, any>, ...keys: string[]): string => {
+    // Helper to fetch cell values matching keys (case-insensitive & whitespace/symbol agnostic)
+    const gv = (r: Record<string, any>, ...keys: string[]): any => {
       for (const k of keys) {
-        if (r[k] !== undefined && r[k] !== null && String(r[k]).trim() !== '') return String(r[k]).trim()
+        if (r[k] !== undefined && r[k] !== null && String(r[k]).trim() !== '') return r[k]
       }
       const rKeys = Object.keys(r)
       for (const k of keys) {
-        const target = k.trim().toUpperCase()
-        const foundKey = rKeys.find(rk => rk.trim().toUpperCase() === target)
+        const target = k.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+        const foundKey = rKeys.find(rk => rk.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') === target)
         if (foundKey && r[foundKey] !== undefined && r[foundKey] !== null && String(r[foundKey]).trim() !== '') {
-          return String(r[foundKey]).trim()
+          return r[foundKey]
         }
       }
       return ''
     }
 
+    const gvStr = (r: Record<string, any>, ...keys: string[]): string => {
+      const val = gv(r, ...keys)
+      return val !== undefined && val !== null ? String(val).trim() : ''
+    }
+
     rows.forEach((r, idx) => {
-      const memberName = gv(r, 'MEMBER', 'MemberName', 'MEMBER NAME', 'MEMBERS NAME')
+      const memberName = gvStr(r, 'MEMBER', 'MemberName', 'MEMBER NAME', 'MEMBERS NAME')
       if (!memberName || ['member name', 'membername', 'total', 'grand total', '-'].includes(memberName.toLowerCase())) return
 
       const loanAmount = Number(gv(r, 'LOAN AMOUNT', 'LOAN  AMOUNT') || 0)
       if (!loanAmount || loanAmount <= 0) return
 
       // Comprehensive Member Relation (Father / Husband Name) parsing
-      const fatherHusband = gv(
+      const fatherHusband = gvStr(
         r,
         'Father/HUSBAND  Name', 'Father/HUSBAND Name', 'HUSBAND NAME/FATHER NAME',
         'Father/Husband Name', 'FATHER/HUSBAND NAME', 'FATHER/HUSBAND',
         'HUSBAND NAME', 'FATHER NAME', 'RELATION', 'GUARDIAN NAME'
       )
 
-      const mobileRaw = gv(r, 'MOBILE NO.', 'MOBILE', 'MOB.', 'MOBILE NAME').replace(/\D/g, '')
+      const mobileRaw = gvStr(r, 'MOBILE NO.', 'MOBILE', 'MOB.', 'MOBILE NAME').replace(/\D/g, '')
       const mobile = mobileRaw.length >= 10 ? mobileRaw.slice(-10) : mobileRaw
-      const aadharRaw = gv(r, 'ADHAR NO', 'AADHAR NO.', 'AADHAR NO.(LAST 4 DIGITS)', 'AADHAR').replace(/\D/g, '')
+      const aadharRaw = gvStr(r, 'ADHAR NO', 'AADHAR NO.', 'AADHAR NO.(LAST 4 DIGITS)', 'AADHAR').replace(/\D/g, '')
       const aadhar_last4 = aadharRaw.slice(-4)
 
-      const branch = (gv(r, 'Branch Name', 'BRANCH', 'BRANCH NAME') || branchName).toUpperCase()
+      const branch = (gvStr(r, 'Branch Name', 'BRANCH', 'BRANCH NAME') || branchName).toUpperCase()
       if (branch) branchName = branch
 
-      const bm = gv(r, 'BM Name', 'BM NAME', 'AM Name', 'BRANCH MANAGER')
-      const fo = gv(r, 'FO Name', 'F0 Name', 'STAFF NAME', 'FIELD OFFICER')
-      const village = gv(r, 'VILLAGE', 'VILLAGE/ CITY', 'VILLAGE NAME')
-      const district = gv(r, 'Dist.', 'DISTRICT', 'DIST') || 'HARYANA'
+      const bm = gvStr(r, 'BM Name', 'BM NAME', 'AM Name', 'BRANCH MANAGER')
+      const fo = gvStr(r, 'FO Name', 'F0 Name', 'STAFF NAME', 'FIELD OFFICER')
+      const village = gvStr(r, 'VILLAGE', 'VILLAGE/ CITY', 'VILLAGE NAME')
+      const district = gvStr(r, 'Dist.', 'DISTRICT', 'DIST') || 'HARYANA'
 
       const emi = Number(gv(r, 'EMI AMOUNT', 'EMI', 'MONTHLY EMI') || 0)
       const paidEmiCount = Number(gv(r, 'PAID EMI') || 0)
@@ -115,26 +144,40 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
       const ledgerBal = Number(gv(r, 'Ledger Balance', 'LEDGER BALANCE') || Math.max(0, loanAmount - totalCollected))
 
       // Auto Close loan if ledger balance is 0 or status is CLOSED
-      const statusRaw = gv(r, 'Case Status', 'Gr. Status', 'Case Status ', 'Gr. Status ').toUpperCase()
+      const statusRaw = gvStr(r, 'Case Status', 'Gr. Status', 'Case Status ', 'Gr. Status ').toUpperCase()
       const isClosed = statusRaw.startsWith('CLOS') || ledgerBal <= 0 || (totalCollected >= loanAmount && loanAmount > 0)
       const status = isClosed ? 'CLOSED' : 'ACTIVE'
 
       const dpd = Number(gv(r, 'DPD') || 0)
-      const disbDate = parseExcelDate(gv(r, 'DIS. DATE', 'DIS.DATE', 'DISB DATE', 'CASH DB DATE'), '2026-05-01')
-      const firstEmiDate = parseExcelDate(gv(r, 'FIRST EMI', 'FIRST EMI DATE', '1ST EMI DATE', 'FIRST EMI '), addDays(disbDate, 7))
-      const closeDate = gv(r, 'CLOSE DATE') ? parseExcelDate(gv(r, 'CLOSE DATE')) : null
+      const disbDateRaw = gv(r, 'DIS. DATE', 'DIS DATE', 'DISB DATE', 'CASH DB DATE')
+      const disbDate = parseExcelDate(disbDateRaw, '2026-05-01')
+
+      const cashDbDateRaw = gv(r, 'CASH DB DATE', 'CASH DISB DATE', 'DIS. DATE')
+      const cashDbDate = cashDbDateRaw ? parseExcelDate(cashDbDateRaw, disbDate) : disbDate
+
+      const firstEmiDateRaw = gv(r, 'FIRST EMI', 'FIRST EMI DATE', '1ST EMI DATE', 'FIRST EMI ')
+      const firstEmiDate = parseExcelDate(firstEmiDateRaw, addDays(disbDate, 7))
+
+      const calculatedCloseDate = addDays(firstEmiDate, Math.max(0, tenure - 1) * 7)
+      const closeDateRaw = gv(r, 'CLOSE DATE', 'CLOSING DATE')
+      const closeDate = closeDateRaw ? parseExcelDate(closeDateRaw) : (isClosed ? new Date().toISOString().slice(0, 10) : calculatedCloseDate)
+
+      const perEmiInt = Number(gv(r, 'PER EMI INTEREST', 'PRE EMI INTEREST', 'PER INTEREST', 'INTEREST PER EMI') || 0)
+      const totalInterestRaw = Number(gv(r, 'TOTAL INTEREST') || (perEmiInt > 0 ? perEmiInt * tenure : 0))
+
       const fileCharge = Number(gv(r, 'FILE CHARGE') || Math.round(loanAmount * 0.02))
 
-      const amName = gv(r, 'AM Name', 'AM NAME', 'AREA MANAGER')
-      const rmName = gv(r, 'RM Name', 'RM NAME', 'REGIONAL MANAGER')
-      const rmStatus = gv(r, 'RM Status', 'RM STATUS')
-      const grStatus = gv(r, 'Gr. Status', 'Group Status', 'GR STATUS')
-      const clusterNo = gv(r, 'clustar no', 'CLUSTER NO', 'CLUSTER')
-      const centerNo = gv(r, 'center number', 'CENTER NO', 'CENTER NUMBER', 'CENTER')
-      const monthStr = gv(r, 'MONTH', 'Month')
-      const meetingDay = gv(r, 'Instalment/Meeting Day', 'MEETING DAY', 'INSTALLMENT DAY', 'Meeting Day', 'DAY')
-      const cashDbDate = gv(r, 'CASH DB DATE') ? parseExcelDate(gv(r, 'CASH DB DATE')) : null
-      const advanceDate = gv(r, 'ADVANCE DATE') ? parseExcelDate(gv(r, 'ADVANCE DATE')) : null
+      const amName = gvStr(r, 'AM Name', 'AM NAME', 'AREA MANAGER')
+      const rmName = gvStr(r, 'RM Name', 'RM NAME', 'REGIONAL MANAGER')
+      const rmStatus = gvStr(r, 'RM Status', 'RM STATUS')
+      const grStatus = gvStr(r, 'Gr. Status', 'Group Status', 'GR STATUS')
+      const clusterNo = gvStr(r, 'clustar no', 'CLUSTER NO', 'CLUSTER')
+      const centerNo = gvStr(r, 'center number', 'CENTER NO', 'CENTER NUMBER', 'CENTER')
+      const monthStr = gvStr(r, 'MONTH', 'Month')
+      const meetingDay = gvStr(r, 'Instalment/Meeting Day', 'MEETING DAY', 'INSTALLMENT DAY', 'Meeting Day', 'DAY')
+      const advanceDateRaw = gv(r, 'ADVANCE DATE', 'ADVANCE DISB DATE')
+      const advanceDate = advanceDateRaw ? parseExcelDate(advanceDateRaw) : null
+
       const pendingAmt = Number(gv(r, 'PENDING AMT.', 'PENDING AMOUNT', 'ARREARS') || 0)
       const dueEmiCount = Number(gv(r, 'DUE EMI') || 0)
       const pendingEmiCount = Number(gv(r, 'PENDING EMI') || Math.max(0, tenure - paidEmiCount))
@@ -143,11 +186,11 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
       const penaltyDays = Number(gv(r, 'PENTALITY OF NUMBERS/total days', 'PENALTY DAYS') || 0)
       const penaltyRate = Number(gv(r, 'PER PENTALITY OF AMOUNT', 'PENALTY RATE', 'PER PENALTY AMOUNT') || 0)
       const totalPenalty = Number(gv(r, 'TOTAL AMOUNT OF PENALITY', 'TOTAL PENALTY') || 0)
-      const dpdBucketStr = gv(r, 'Days_Delinquent Bracket_At Ist', 'DPD BUCKET', 'Days Delinquent Bracket')
-      const npaRaw = gv(r, 'NPA').toUpperCase()
+      const dpdBucketStr = gvStr(r, 'Days_Delinquent Bracket_At Ist', 'DPD BUCKET', 'Days Delinquent Bracket')
+      const npaRaw = gvStr(r, 'NPA').toUpperCase()
       const currentBalWithPenalty = Number(gv(r, 'Current Ledger Bal of Gr.+Penalty') || 0)
       const totalMemOutstanding = Number(gv(r, 'Total Mem. Outstanding') || 0)
-      const pendingStatusStr = gv(r, 'PENDING')
+      const pendingStatusStr = gvStr(r, 'PENDING')
 
       // 1. Permanent Member ID Format: MEM10001 (MEM + 5 numeric digits)
       const rawMemId = (r['MEMBER ID'] || r['CUST ID'] || r['CUSTOMER ID'] || r['MEM ID'] || r['MEMBER NO'] || '').toString().trim()
@@ -211,9 +254,12 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         tenure,
         frequency: 'Weekly',
         installment_amount: econ.installment_amount,
-        total_interest: econ.total_interest,
+        per_installment_interest: perEmiInt > 0 ? perEmiInt : (econ.per_installment_interest || Math.round(econ.total_interest / tenure)),
+        per_emi_interest: perEmiInt > 0 ? perEmiInt : Math.round(econ.total_interest / tenure),
+        total_interest: totalInterestRaw || econ.total_interest,
         total_loan: econ.total_loan,
         disbursement_date: disbDate,
+        cash_db_date: cashDbDate,
         installment_start_date: firstEmiDate,
         status: status as any,
         dpd: isClosed ? 0 : dpd,
@@ -221,7 +267,7 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         // For closed loans, mark total_collected as full loan amount
         total_collected: isClosed ? econ.total_loan : totalCollected,
         ledger_balance: isClosed ? 0 : Math.max(0, ledgerBal),
-        close_date: closeDate || (isClosed ? new Date().toISOString().slice(0, 10) : null),
+        close_date: closeDate,
         paid_emi: paidEmiCount,
         pending_emi: pendingEmiCount,
         due_emi: dueEmiCount,
@@ -233,7 +279,6 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         center_no: centerNo,
         cluster_no: clusterNo,
         month: monthStr,
-        cash_db_date: cashDbDate,
         penalty_days: penaltyDays,
         penalty_rate: penaltyRate,
         total_penalty: totalPenalty,

@@ -113,6 +113,17 @@ export async function POST(request: NextRequest) {
       }
       await supabase.from('audit_log').upsert(batchLog)
       await supabase.from('audit_logs').upsert(batchLog)
+
+      await supabase.from('audit_events').insert({
+        actor_id: auth.profile.id,
+        actor_email: auth.profile.email,
+        action: 'MASTER_EXCEL_IMPORT',
+        entity_type: 'IMPORT_BATCH',
+        entity_id: batchId,
+        branch_code: branchName || 'ALL',
+        after_data: batchLog.data,
+        event_hash: `HASH-${Date.now()}-${batchId}`
+      })
     }
 
     return NextResponse.json({

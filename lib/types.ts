@@ -44,6 +44,7 @@ export interface Loan {
   interest_rate: number
   installment_amount: number
   per_installment_interest: number
+  per_emi_interest?: number
   tenure: number
   frequency: 'Weekly' | 'Monthly' | 'Bi-Monthly' | 'Quarterly'
   product_type: string
