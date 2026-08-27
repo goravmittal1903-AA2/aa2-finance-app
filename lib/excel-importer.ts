@@ -86,8 +86,13 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
       const closeDate = r['CLOSE DATE'] ? parseExcelDate(r['CLOSE DATE']) : null
       const fileCharge = Number(r['FILE CHARGE'] || Math.round(loanAmount * 0.02))
 
-      const customerId = mobile ? `CUST-${branch.slice(0,3)}-${mobile.slice(-6)}` : `CUST-${branch.slice(0,3)}-${(idx+1).toString().padStart(4, '0')}`
-      const loanNo = `LN-${branch.slice(0,3)}-${(idx+1).toString().padStart(4, '0')}`
+      // 1. Permanent Member ID Resolution
+      const rawMemId = (r['MEMBER ID'] || r['CUST ID'] || r['CUSTOMER ID'] || r['MEM ID'] || r['MEMBER NO'] || '').toString().trim()
+      const customerId = rawMemId ? rawMemId : `MEM${String(10001 + idx).padStart(5, '0')}`
+
+      // 2. Permanent Loan Account No Resolution
+      const rawLoanNo = (r['PL NO.'] || r['PL NO'] || r['LOAN NO'] || r['LOAN ACCOUNT NO'] || r['ACCOUNT NO'] || r['PL.NO.'] || '').toString().trim()
+      const loanNo = rawLoanNo ? rawLoanNo : `LN-${branch.slice(0,3)}-${String(1001 + idx).padStart(4, '0')}`
 
       // Member Record
       if (!customersMap.has(customerId)) {

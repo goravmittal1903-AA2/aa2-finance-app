@@ -23,8 +23,6 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = adminClient()
-
-    // Delete batch records from transactions, repayment_schedule, loans, customers
     let deletedCount = 0
 
     const tables = ['transactions', 'repayment_schedule', 'loans', 'customers']
@@ -37,19 +35,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Update batch log status in audit_logs
-    const { data: batchLog } = await supabase.from('audit_logs').select('data').eq('id', batchId).maybeSingle()
-    if (batchLog && batchLog.data) {
-      const updatedLog = {
-        id: batchId,
-        data: {
-          ...batchLog.data,
-          status: 'ROLLED_BACK',
-          rolled_back_by: auth.profile.email,
-          rolled_back_at: new Date().toISOString(),
-        },
+    // Update batch log status in both audit_log and audit_logs tables
+    const logTables = ['audit_log', 'audit_logs']
+    for (const t of logTables) {
+      const { data: batchLog } = await supabase.from(t).select('data').eq('id', batchId).maybeSingle()
+      if (batchLog && batchLog.data) {
+        const updatedLog = {
+          id: batchId,
+          data: {
+            ...batchLog.data,
+            status: 'ROLLED_BACK',
+            rolled_back_by: auth.profile.email,
+            rolled_back_at: new Date().toISOString(),
+          },
+        }
+        await supabase.from(t).upsert(updatedLog)
       }
-      await supabase.from('audit_logs').upsert(updatedLog)
     }
 
     return NextResponse.json({

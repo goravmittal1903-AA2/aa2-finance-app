@@ -74,12 +74,23 @@ export default function DataToolsPage() {
   async function loadBatchHistory() {
     setBatchLoading(true)
     try {
-      const logs = await getAll<any>('audit_log')
-      const parsed: BatchLog[] = logs
+      const [logs1, logs2] = await Promise.all([
+        getAll<any>('audit_log').catch(() => []),
+        getAll<any>('audit_logs').catch(() => []),
+      ])
+      const combined = [...logs1, ...logs2]
+      const parsed: BatchLog[] = combined
         .filter(l => l.batch_id || (l.data && l.data.batch_id))
         .map(l => (l.data ? l.data : l) as BatchLog)
-        .sort((a, b) => new Date(b.uploaded_at || 0).getTime() - new Date(a.uploaded_at || 0).getTime())
-      setBatches(parsed)
+
+      const map = new Map<string, BatchLog>()
+      parsed.forEach(b => {
+        const id = b.batch_id || b.id
+        if (id) map.set(id, b)
+      })
+
+      const list = Array.from(map.values()).sort((a, b) => new Date(b.uploaded_at || 0).getTime() - new Date(a.uploaded_at || 0).getTime())
+      setBatches(list)
     } catch {
       setBatches([])
     } finally {

@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     const supabase = adminClient()
     const batchId = clientBatchId || `BATCH-${Date.now()}`
 
-    // 1. Process Customers Chunk
+    // 1. Process Customers Chunk (Reuse existing permanent customer_id if matched)
     let membersCreated = 0
     let membersUpdated = 0
     if (customers.length > 0) {
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
       await supabase.from('customers').upsert(customerPayloads)
     }
 
-    // 2. Process Loans Chunk
+    // 2. Process Loans Chunk (Reuse existing permanent loan_account_no if matched)
     let loansCreated = 0
     let loansUpdated = 0
     if (loans.length > 0) {
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
       await supabase.from('transactions').upsert(transactionPayloads)
     }
 
-    // 5. Final Batch Log Entry
+    // 5. Final Batch Log Entry (Write to both audit_log & audit_logs tables)
     if (isLastChunk) {
       const batchLog = {
         id: batchId,
@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
           status: 'COMPLETED',
         },
       }
+      await supabase.from('audit_log').upsert(batchLog)
       await supabase.from('audit_logs').upsert(batchLog)
     }
 
