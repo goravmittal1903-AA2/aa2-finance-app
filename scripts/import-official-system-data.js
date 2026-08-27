@@ -1,8 +1,8 @@
 const { createClient } = require('@supabase/supabase-js');
 const xlsx = require('xlsx');
 
-const SUPABASE_URL = 'https://eslqcwvaulnuewglptyx.supabase.co';
-const SUPABASE_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVzbHFjd3ZhdWxudWV3Z2xwdHl4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjkwNTY0OSwiZXhwIjoyMDk4NDgxNjQ5fQ.UwFyWcb9OZtv_TnpTN4DT-geo7vIJKgmxzNIG4uxjQI';
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://eslqcwvaulnuewglptyx.supabase.co';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVzbHFjd3ZhdWxudWV3Z2xwdHl4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjkwNTY0OSwiZXhwIjoyMDk4NDgxNjQ5fQ.UwFyWcb9OZtv_TnpTN4DT-geo7vIJKgmxzNIG4uxjQI';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
 
