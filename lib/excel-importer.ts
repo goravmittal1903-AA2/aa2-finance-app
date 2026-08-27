@@ -72,14 +72,21 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
   const schedules: Partial<ScheduleRow>[] = []
   const transactions: Partial<Transaction>[] = []
 
-  // Find portfolio/MF sheet
-  const mfSheetName = wb.SheetNames.find(s => 
-    s.toUpperCase().includes('M.F') || 
-    s.toUpperCase().includes('MF') || 
-    s.toUpperCase() === 'KHATAULI' || 
-    s.toUpperCase() === 'HARIDWAR' ||
-    s.toUpperCase() === 'PATAUDI'
-  ) || wb.SheetNames[0]
+  // Dynamically find portfolio sheet containing member/loan headers across any workbook layout
+  let mfSheetName = wb.SheetNames[0]
+  for (const sName of wb.SheetNames) {
+    const s = wb.Sheets[sName]
+    if (!s) continue
+    const grid = xlsx.utils.sheet_to_json<any[]>(s, { header: 1 })
+    const hasHeader = grid.slice(0, 15).some(row => {
+      const str = (row || []).map(c => String(c || '').toUpperCase()).join(' ')
+      return str.includes('MEMBER') || str.includes('LOAN AMOUNT') || str.includes('PL NO') || str.includes('ACCOUNT NO')
+    })
+    if (hasHeader) {
+      mfSheetName = sName
+      break
+    }
+  }
 
   if (mfSheetName && wb.Sheets[mfSheetName]) {
     const targetSheet = wb.Sheets[mfSheetName]
@@ -260,13 +267,15 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
       }
 
       const bPrefixCode = ((): number => {
-        const b = (branch || branchName || '').toUpperCase()
-        if (b.includes('HARIDWAR')) return 100
-        if (b.includes('KHATAULI')) return 200
-        if (b.includes('PATAUDI')) return 300
+        const clean = (branch || branchName || 'HEAD_OFFICE').trim().toUpperCase()
+        if (clean.includes('HARIDWAR')) return 100
+        if (clean.includes('KHATAULI')) return 200
+        if (clean.includes('PATAUDI')) return 300
         let hash = 0
-        for (let i = 0; i < b.length; i++) hash = (hash + b.charCodeAt(i)) % 700
-        return 100 + hash
+        for (let i = 0; i < clean.length; i++) {
+          hash = (hash * 31 + clean.charCodeAt(i)) % 880
+        }
+        return 110 + hash
       })()
 
       const customerId = matchedCustomerId || (
