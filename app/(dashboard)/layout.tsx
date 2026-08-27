@@ -32,7 +32,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     localStorage.setItem('sidebar_collapsed', String(next))
   }
 
-  if (isLoading) {
+  if (isLoading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900">
         <div className="flex flex-col items-center gap-3">
@@ -44,8 +44,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
     )
   }
-
-  if (!user) return null
 
   return (
     <InactivityGuard>
