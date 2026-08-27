@@ -6,7 +6,7 @@
  * These MUST match what is in ~/supabase/docker/.env on the Oracle VM.
  */
 
-export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://144.24.99.155:8000'
+export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://144.24.99.155.sslip.io'
 
 export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNjQxNzY5MjAwLCJleHAiOjE3OTk1MzU2MDB9.AfRC3aXbHgpk2zziemysIrFmwVVCF9SvQD4673bWMMg'
 
