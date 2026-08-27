@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from 'react'
 import { getAll, putOne } from '@/lib/supabase'
-import { Download, Upload, Trash2, RefreshCw, CheckCircle, AlertCircle, Database, RotateCcw, Shield } from 'lucide-react'
+import { useAuth } from '@/lib/auth-context'
+import { parseBranchExcelWorkbook, type ParsedExcelData } from '@/lib/excel-importer'
+import { Download, Upload, Trash2, RefreshCw, CheckCircle, AlertCircle, Database, RotateCcw, Shield, FileSpreadsheet, History, Layers, FileCheck } from 'lucide-react'
 import { confirmAction } from '@/lib/confirm'
+import { toast } from '@/lib/toast'
 
-// All data stores in the system
 const STORES = [
   'customers', 'loans', 'schedule', 'transactions',
   'investors', 'investor_txns', 'borrowings', 'borrowing_txns',
@@ -21,426 +23,430 @@ const PRIMARY_KEYS: Record<string, string> = {
   documents: 'doc_id', grievances: 'ticket_id', products: 'product_id', audit_log: 'id'
 }
 
-type Tab = 'backup' | 'restore' | 'trash' | 'migration'
-type BackupStatus = 'idle' | 'running' | 'done' | 'error'
+type Tab = 'excel_import' | 'backup' | 'restore' | 'trash'
+type StatusState = 'idle' | 'running' | 'done' | 'error'
 
-// Soft-delete: items with deleted_at field set
-interface DeletedRecord {
-  store: string
+interface BatchLog {
   id: string
-  label: string
-  deleted_at: string
-  data: Record<string, unknown>
+  batch_id: string
+  file_name: string
+  branch_name: string
+  uploaded_by: string
+  uploaded_at: string
+  members_created: number
+  members_updated: number
+  loans_created: number
+  loans_updated: number
+  total_records: number
+  status: 'COMPLETED' | 'ROLLED_BACK'
+  rolled_back_by?: string
+  rolled_back_at?: string
 }
 
 export default function DataToolsPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('backup')
-  const [backupStatus, setBackupStatus] = useState<BackupStatus>('idle')
+  const { user } = useAuth()
+  const [activeTab, setActiveTab] = useState<Tab>('excel_import')
+  const isIT = user?.role === 'it'
+
+  // Excel Import state
+  const [excelFile, setExcelFile] = useState<File | null>(null)
+  const [parsedData, setParsedData] = useState<ParsedExcelData | null>(null)
+  const [importStatus, setImportStatus] = useState<StatusState>('idle')
+  const [importLog, setImportLog] = useState<string[]>([])
+  const [batches, setBatches] = useState<BatchLog[]>([])
+  const [batchLoading, setBatchLoading] = useState(false)
+  const [rollingBackId, setRollingBackId] = useState<string | null>(null)
+
+  // Backup & Restore state
+  const [backupStatus, setBackupStatus] = useState<StatusState>('idle')
   const [backupProgress, setBackupProgress] = useState(0)
   const [restoreFile, setRestoreFile] = useState<File | null>(null)
-  const [restoreStatus, setRestoreStatus] = useState<BackupStatus>('idle')
+  const [restoreStatus, setRestoreStatus] = useState<StatusState>('idle')
   const [restoreLog, setRestoreLog] = useState<string[]>([])
-  const [deletedItems, setDeletedItems] = useState<DeletedRecord[]>([])
-  const [trashLoading, setTrashLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
 
   useEffect(() => {
-    if (activeTab === 'trash') loadDeletedItems()
+    if (activeTab === 'excel_import') loadBatchHistory()
   }, [activeTab])
 
-  // ── BACKUP ────────────────────────────────────────────────────────────────
-  async function handleBackup() {
-    setBackupStatus('running')
-    setBackupProgress(0)
+  async function loadBatchHistory() {
+    setBatchLoading(true)
+    try {
+      const logs = await getAll<any>('audit_log')
+      const parsed: BatchLog[] = logs
+        .filter(l => l.batch_id || (l.data && l.data.batch_id))
+        .map(l => (l.data ? l.data : l) as BatchLog)
+        .sort((a, b) => new Date(b.uploaded_at || 0).getTime() - new Date(a.uploaded_at || 0).getTime())
+      setBatches(parsed)
+    } catch {
+      setBatches([])
+    } finally {
+      setBatchLoading(false)
+    }
+  }
+
+  // Handle Excel Parsing
+  async function handleExcelFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setExcelFile(file)
     setMessage('')
     setErrorMessage('')
     try {
-      const backup: Record<string, unknown[]> = {
-        _meta: [{
-          version: '1.0',
-          created_at: new Date().toISOString(),
-          app: 'AA2 Finance MFI Platform',
-          stores: STORES
-        }]
-      }
+      const buffer = await file.arrayBuffer()
+      const parsed = parseBranchExcelWorkbook(buffer, file.name)
+      setParsedData(parsed)
+      toast.success(`Excel file "${file.name}" parsed successfully.`)
+    } catch (err: any) {
+      setParsedData(null)
+      setErrorMessage(`Could not parse Excel file: ${err.message}`)
+      toast.error('Failed to parse Excel file.')
+    }
+  }
+
+  // Execute Excel Master Import
+  async function executeMasterImport() {
+    if (!parsedData || !excelFile) return
+    setImportStatus('running')
+    setImportLog(['Starting Master Excel Import…'])
+    setMessage('')
+    setErrorMessage('')
+
+    try {
+      const res = await fetch('/api/admin/import-excel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: excelFile.name,
+          branchName: parsedData.branchName,
+          customers: parsedData.customers,
+          loans: parsedData.loans,
+          schedules: parsedData.schedules,
+          transactions: parsedData.transactions,
+        }),
+      })
+
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Import failed.')
+
+      setImportStatus('done')
+      setMessage(`Import successful! Batch ID: ${result.batchId}. Members created: ${result.membersCreated}, updated: ${result.membersUpdated}. Loans created: ${result.loansCreated}, updated: ${result.loansUpdated}.`)
+      toast.success('Master Excel Import executed successfully!')
+      setExcelFile(null)
+      setParsedData(null)
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('aa2_data_changed', { detail: { stores: ['customers', 'loans'] } }))
+      await loadBatchHistory()
+    } catch (err: any) {
+      setImportStatus('error')
+      setErrorMessage(err.message || 'Import failed.')
+      toast.error(err.message || 'Import failed.')
+    }
+  }
+
+  // Execute Rollback Reversal
+  async function handleRollbackBatch(batch: BatchLog) {
+    const ok = await confirmAction({
+      title: `Reverse Upload Batch ${batch.batch_id}?`,
+      message: `Are you sure you want to ROLLBACK and DELETE all records created from "${batch.file_name}" uploaded on ${new Date(batch.uploaded_at).toLocaleString('en-IN')}? This cannot be undone.`,
+      confirmText: 'Reverse & Rollback',
+      variant: 'danger',
+    })
+    if (!ok) return
+
+    setRollingBackId(batch.batch_id)
+    try {
+      const res = await fetch('/api/admin/rollback-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batchId: batch.batch_id }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Rollback failed.')
+
+      toast.success(`Batch ${batch.batch_id} successfully reversed! Deleted ${result.deletedCount} records.`)
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('aa2_data_changed', { detail: { stores: ['customers', 'loans'] } }))
+      await loadBatchHistory()
+    } catch (err: any) {
+      toast.error(err.message || 'Rollback failed.')
+    } finally {
+      setRollingBackId(null)
+    }
+  }
+
+  // Backup & Restore Handlers
+  async function handleBackup() {
+    setBackupStatus('running')
+    setBackupProgress(0)
+    try {
+      const backup: Record<string, unknown[]> = { _meta: [{ version: '1.0', created_at: new Date().toISOString(), app: 'AA2 Platform', stores: STORES }] }
       for (let i = 0; i < STORES.length; i++) {
         const store = STORES[i]
-        try {
-          const data = await getAll<Record<string, unknown>>(store)
-          backup[store] = data
-        } catch {
-          backup[store] = []
-        }
+        try { backup[store] = await getAll<Record<string, unknown>>(store) } catch { backup[store] = [] }
         setBackupProgress(Math.round(((i + 1) / STORES.length) * 100))
       }
-
       const json = JSON.stringify(backup, null, 2)
       const blob = new Blob([json], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      const date = new Date().toISOString().slice(0, 10)
       a.href = url
-      a.download = `aa2_finance_backup_${date}.json`
+      a.download = `aa2_finance_backup_${new Date().toISOString().slice(0, 10)}.json`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-
       setBackupStatus('done')
-      const totalRecords = Object.values(backup).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0)
-      setMessage(`Backup complete! ${totalRecords} records exported across ${STORES.length} tables.`)
+      setMessage('JSON Backup download complete!')
     } catch (err: any) {
       setBackupStatus('error')
       setErrorMessage(err.message || 'Backup failed.')
     }
   }
 
-  // ── RESTORE ────────────────────────────────────────────────────────────────
-  async function handleRestore() {
-    if (!restoreFile) return
-    const ok = await confirmAction({
-      title: 'Confirm Database Restore',
-      message: 'This will OVERWRITE existing data in the database with the backup file contents. Are you sure?',
-      confirmText: 'Overwrite & Restore',
-      variant: 'danger',
-    })
-    if (!ok) return
-
-    setRestoreStatus('running')
-    setRestoreLog([])
-    const log: string[] = []
-
-    try {
-      const text = await restoreFile.text()
-      const backup = JSON.parse(text) as Record<string, Record<string, unknown>[]>
-
-      for (const store of STORES) {
-        if (!backup[store] || !Array.isArray(backup[store])) {
-          log.push(`[SKIPPED] ${store}: no data found in backup.`)
-          setRestoreLog([...log])
-          continue
-        }
-        const records = backup[store]
-        const pk = PRIMARY_KEYS[store] || 'id'
-        let count = 0
-        for (const record of records) {
-          try {
-            await putOne(store, record, pk)
-            count++
-          } catch (e: any) {
-            log.push(`✗  ${store} [${record[pk]}]: ${e.message}`)
-          }
-        }
-        log.push(`✓  ${store}: ${count} of ${records.length} records restored.`)
-        setRestoreLog([...log])
-      }
-
-      setRestoreStatus('done')
-      setMessage('Restore complete!')
-    } catch (err: any) {
-      setRestoreStatus('error')
-      setErrorMessage(err.message || 'Restore failed. Ensure the file is a valid AA2 backup JSON.')
-    }
-  }
-
-  // ── TRASH CAN ──────────────────────────────────────────────────────────────
-  async function loadDeletedItems() {
-    setTrashLoading(true)
-    try {
-      const { getTrashItems } = await import('@/lib/trash')
-      const items = await getTrashItems()
-      const formatted: DeletedRecord[] = items.map(item => ({
-        store: item.store_name,
-        id: item.record_id,
-        label: item.title || item.record_id,
-        deleted_at: item.deleted_at,
-        trash_id: item.trash_id,
-        data: item.data,
-      }))
-      setDeletedItems(formatted)
-    } catch (err) {
-      console.warn('Failed to load trash items:', err)
-      setDeletedItems([])
-    } finally {
-      setTrashLoading(false)
-    }
-  }
-
-  async function handleRestore_item(item: DeletedRecord) {
-    try {
-      const { restoreFromTrash } = await import('@/lib/trash')
-      const trashId = (item as any).trash_id || item.id
-      await restoreFromTrash(trashId)
-      setMessage(`Restored: ${item.label}`)
-      await loadDeletedItems()
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Restore failed.')
-    }
-  }
-
-  // ── MIGRATION ─────────────────────────────────────────────────────────────
-  const [migrating, setMigrating] = useState(false)
-  const [migrationResult, setMigrationResult] = useState<any>(null)
-
-  async function handleRunMigration() {
-    const ok = await confirmAction({
-      title: 'Run Member ID Migration',
-      message: 'Run Member ID Format Migration now? This will convert non-standard Member IDs (like MEM-1D8KJ0JNOW) to standard MEM12345 format and update all related loans, documents, and grievances.',
-      confirmText: 'Run Migration',
-      variant: 'warning',
-    })
-    if (!ok) return
-    setMigrating(true)
-    setMessage('')
-    setErrorMessage('')
-    try {
-      const { runMemberIdMigration } = await import('@/lib/migration')
-      const result = await runMemberIdMigration()
-      setMigrationResult(result)
-      setMessage(`Migration complete! ${result.totalMigrated} member ID(s) updated to standard MEM12345 format.`)
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Migration failed.')
-    } finally {
-      setMigrating(false)
-    }
-  }
-
-  async function handleRunDeduplication() {
-    const ok = await confirmAction({
-      title: 'Purge Duplicate Transactions',
-      message: 'Scan all payment transactions and purge any duplicate entries (same account, date, amount, mode) across all loan accounts?',
-      confirmText: 'Clean Duplicates',
-      variant: 'warning',
-    })
-    if (!ok) return
-    setMigrating(true)
-    setMessage('')
-    setErrorMessage('')
-    try {
-      const { cleanupAllDuplicateTransactions } = await import('@/lib/calculations')
-      const res = await cleanupAllDuplicateTransactions()
-      setMessage(`Cleanup complete! Purged ${res.cleaned} duplicate transaction(s) across ${res.loansAffected} loan account(s). All ledgers recalculated.`)
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Cleanup failed.')
-    } finally {
-      setMigrating(false)
-    }
-  }
-
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Data Management Tools</h1>
-        <p className="text-slate-500 text-sm mt-0.5">Database backup, restore, and soft-deleted record recovery.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Database className="w-7 h-7 text-blue-600" /> System Data Tools & Master Excel Sync
+          </h1>
+          <p className="text-slate-500 text-sm mt-1">
+            Import branch Excel workbooks, execute incremental updates, review batch history, or rollback uploads.
+          </p>
+        </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-slate-200">
-        {([
-          { id: 'backup', label: 'Backup Database', icon: Download },
-          { id: 'restore', label: 'Restore from Backup', icon: Upload },
-          { id: 'trash', label: 'Trash Can / Recovery', icon: Trash2 },
-        ] as { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[]).map(tab => (
-          <button key={tab.id} onClick={() => { setActiveTab(tab.id); setMessage(''); setErrorMessage('') }}
-            className={`px-4 py-3 text-xs font-bold border-b-2 flex items-center gap-2 transition ${activeTab === tab.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
-            <tab.icon className="w-3.5 h-3.5" /> {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Alerts */}
-      {message && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4" /> {message}</div>}
-      {errorMessage && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2"><AlertCircle className="w-4 h-4" /> {errorMessage}</div>}
-
-      {/* ── TAB 1: Backup ── */}
-      {activeTab === 'backup' && (
-        <div className="bg-white p-8 rounded-2xl border border-slate-100 space-y-6 max-w-xl">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-blue-100 flex items-center justify-center">
-              <Database className="w-7 h-7 text-blue-600" />
-            </div>
-            <div>
-              <h2 className="font-bold text-slate-800">Backup All Data</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Downloads a complete JSON snapshot of all {STORES.length} data tables. Keep this file safe.</p>
-            </div>
-          </div>
-
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-800 flex gap-2">
-            <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" />
-            <p>Perform regular backups — at least weekly — and store the backup file in a secure location. This file contains all customer and financial data.</p>
-          </div>
-
-          <div className="space-y-2 text-xs text-slate-600">
-            <p className="font-bold text-slate-700 mb-2">Includes these tables:</p>
-            <div className="grid grid-cols-2 gap-1">
-              {STORES.map(s => (
-                <div key={s} className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0" /><span className="font-mono">{s}</span></div>
-              ))}
-            </div>
-          </div>
-
-          {backupStatus === 'running' && (
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs text-slate-600"><span>Backing up…</span><span>{backupProgress}%</span></div>
-              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-500 rounded-full transition-all duration-300" style={{ width: `${backupProgress}%` }} />
-              </div>
-            </div>
-          )}
-
-          <button onClick={handleBackup} disabled={backupStatus === 'running'}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl transition text-sm shadow-lg shadow-blue-500/20">
-            <Download className="w-4 h-4" />
-            {backupStatus === 'running' ? 'Backing up…' : 'Download Database Backup (JSON)'}
-          </button>
+      {/* Role Notice */}
+      {!isIT && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex items-center gap-3 text-amber-600 dark:text-amber-400 text-sm">
+          <Shield className="w-5 h-5 flex-shrink-0" />
+          <span>Notice: Master Excel Import & Batch Reversals are restricted to <strong>IT Role</strong> users only. Logged in as: {user?.role || 'Guest'}.</span>
         </div>
       )}
 
-      {/* ── TAB 2: Restore ── */}
-      {activeTab === 'restore' && (
-        <div className="bg-white p-8 rounded-2xl border border-slate-100 space-y-6 max-w-xl">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-amber-100 flex items-center justify-center">
-              <RotateCcw className="w-7 h-7 text-amber-600" />
-            </div>
-            <div>
-              <h2 className="font-bold text-slate-800">Restore from Backup</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Upload a previously downloaded AA2 backup JSON file to restore the database.</p>
-            </div>
-          </div>
-
-          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-xs text-red-800 flex gap-2">
-            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-            <p><strong>Warning:</strong> Restoring will overwrite existing records with the data from the backup file. This action cannot be undone. Back up current data first.</p>
-          </div>
-
-          <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center">
-            <Upload className="w-8 h-8 text-slate-400 mx-auto mb-3" />
-            <label className="cursor-pointer">
-              <span className="text-sm text-slate-600 font-medium">{restoreFile ? restoreFile.name : 'Click to select backup JSON file'}</span>
-              <input type="file" accept=".json" onChange={e => { setRestoreFile(e.target.files?.[0] || null); setRestoreStatus('idle'); setRestoreLog([]) }} className="hidden" />
-            </label>
-          </div>
-
-          {restoreLog.length > 0 && (
-            <div className="bg-slate-900 rounded-xl p-4 font-mono text-xs text-slate-300 max-h-48 overflow-y-auto space-y-1">
-              {restoreLog.map((line, i) => (
-                <div key={i} className={line.startsWith('✓') ? 'text-emerald-400' : line.startsWith('✗') ? 'text-red-400' : 'text-amber-400'}>{line}</div>
-              ))}
-            </div>
-          )}
-
-          <button onClick={handleRestore} disabled={!restoreFile || restoreStatus === 'running'}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold rounded-xl transition text-sm">
-            <RotateCcw className="w-4 h-4" />
-            {restoreStatus === 'running' ? 'Restoring…' : 'Restore Database from Backup'}
-          </button>
+      {/* Alert Messages */}
+      {message && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 p-4 rounded-2xl flex items-center gap-3 text-sm">
+          <CheckCircle className="w-5 h-5 flex-shrink-0" />
+          <span>{message}</span>
+        </div>
+      )}
+      {errorMessage && (
+        <div className="bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 p-4 rounded-2xl flex items-center gap-3 text-sm">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          <span>{errorMessage}</span>
         </div>
       )}
 
-      {/* ── TAB: Member ID Migration ── */}
-      {activeTab === 'migration' && (
-        <div className="bg-white p-8 rounded-2xl border border-slate-100 space-y-6 max-w-xl">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-purple-100 flex items-center justify-center">
-              <Database className="w-7 h-7 text-purple-600" />
-            </div>
-            <div>
-              <h2 className="font-bold text-slate-800">Standardize Member IDs</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Converts legacy member IDs (like MEM-1D8KJ0JNOW) to standard MEM12345 format and updates all linked loans, documents & grievances.</p>
-            </div>
-          </div>
+      {/* Navigation Tabs */}
+      <div className="flex border-b border-slate-200 dark:border-slate-800 gap-2">
+        <button
+          onClick={() => setActiveTab('excel_import')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
+            activeTab === 'excel_import'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          }`}
+        >
+          <FileSpreadsheet className="w-4 h-4" /> Master Excel Sync & History
+        </button>
+        <button
+          onClick={() => setActiveTab('backup')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
+            activeTab === 'backup'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          }`}
+        >
+          <Download className="w-4 h-4" /> System JSON Backup
+        </button>
+      </div>
 
-          <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 text-xs text-purple-900 space-y-1">
-            <p className="font-bold">What this migration does:</p>
-            <p>1. Finds all member records with old non-standard ID formats.</p>
-            <p>2. Assigns new sequential member IDs: <code className="bg-purple-100 px-1 font-mono rounded">MEM10001</code>, <code className="bg-purple-100 px-1 font-mono rounded">MEM10002</code>, etc.</p>
-            <p>3. Automatically updates all associated loans, repayment schedules, documents, and grievances so no records are disconnected.</p>
-          </div>
+      {/* TAB 1: MASTER EXCEL SYNC & ROLLBACK HISTORY */}
+      {activeTab === 'excel_import' && (
+        <div className="space-y-6">
+          {/* Excel Upload Card */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-2">
+              <Upload className="w-5 h-5 text-blue-600" /> Upload Branch Master Excel File
+            </h2>
+            <p className="text-slate-500 text-sm mb-4">
+              Select branch Excel workbook (e.g. <code>PATAUDI DATA_22082026.xlsx</code>, <code>KHATAULI_22082026.xlsx</code>, <code>Haridwar.xlsx</code>). The system will dynamically parse members, loans, EMIs, collections, and DPD buckets.
+            </p>
 
-          {migrationResult && (
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-2 max-h-48 overflow-y-auto">
-              <p className="font-bold text-slate-800">Migration Results ({migrationResult.totalMigrated} updated):</p>
-              {migrationResult.details.map((d: any, idx: number) => (
-                <div key={idx} className="flex justify-between text-slate-600 font-mono">
-                  <span>{d.name}</span>
-                  <span><span className="text-red-500 line-through">{d.oldId}</span> → <strong className="text-emerald-600">{d.newId}</strong></span>
-                </div>
-              ))}
-              {migrationResult.totalMigrated === 0 && (
-                <p className="text-emerald-600 font-semibold">All member IDs are already in standard MEM12345 format.</p>
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                disabled={!isIT || importStatus === 'running'}
+                onChange={handleExcelFileSelect}
+                className="file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 text-sm text-slate-500 cursor-pointer disabled:opacity-50"
+              />
+
+              {parsedData && (
+                <button
+                  onClick={executeMasterImport}
+                  disabled={!isIT || importStatus === 'running'}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm rounded-xl transition-all shadow-md shadow-blue-500/20 flex items-center gap-2 disabled:opacity-50"
+                >
+                  {importStatus === 'running' ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Executing Sync…
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="w-4 h-4" /> Execute Master Sync
+                    </>
+                  )}
+                </button>
               )}
             </div>
-          )}
 
-          <button onClick={handleRunMigration} disabled={migrating}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold rounded-xl transition text-sm shadow-lg shadow-purple-500/20">
-            <RefreshCw className={`w-4 h-4 ${migrating ? 'animate-spin' : ''}`} />
-            {migrating ? 'Running Migration…' : 'Run Member ID Format Migration'}
-          </button>
+            {/* Parsed Preview Box */}
+            {parsedData && (
+              <div className="mt-6 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                    <FileCheck className="w-4 h-4" /> File Preview Summary
+                  </span>
+                  <span className="text-xs font-semibold px-2.5 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full">
+                    Branch: {parsedData.branchName}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                  <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div className="text-xs text-slate-500">Members Found</div>
+                    <div className="text-lg font-bold text-slate-900 dark:text-white">{parsedData.customers.length}</div>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div className="text-xs text-slate-500">Loans Parsed</div>
+                    <div className="text-lg font-bold text-slate-900 dark:text-white">{parsedData.loans.length}</div>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div className="text-xs text-slate-500">Schedules Generated</div>
+                    <div className="text-lg font-bold text-slate-900 dark:text-white">{parsedData.schedules.length}</div>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div className="text-xs text-slate-500">Paid Installment Txns</div>
+                    <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{parsedData.transactions.length}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
-          <div className="pt-4 border-t border-slate-100 space-y-3">
-            <div className="flex items-center gap-2">
-              <Shield className="w-5 h-5 text-amber-600" />
-              <h3 className="font-bold text-slate-800 text-sm">Purge Duplicate Payment Transactions</h3>
+          {/* Upload Batch History & Step-by-Step Rollback Table */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <History className="w-5 h-5 text-blue-600" /> Upload Batch History & Step-by-Step Reversal
+                </h3>
+                <p className="text-slate-500 text-xs mt-0.5">
+                  Review all past Excel imports. IT users can reverse/rollback any upload batch to restore database state.
+                </p>
+              </div>
+              <button
+                onClick={loadBatchHistory}
+                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                title="Refresh History"
+              >
+                <RefreshCw className={`w-4 h-4 ${batchLoading ? 'animate-spin' : ''}`} />
+              </button>
             </div>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Scans the entire database for any duplicate payment entries (posted twice due to double click or multi-upload) and automatically voids duplicates while recalculating loan ledgers.
-            </p>
-            <button onClick={handleRunDeduplication} disabled={migrating}
-              className="w-full flex items-center justify-center gap-2 py-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold rounded-xl transition text-sm shadow-lg shadow-amber-500/20">
-              <Trash2 className={`w-4 h-4 ${migrating ? 'animate-spin' : ''}`} />
-              {migrating ? 'Cleaning Duplicates…' : 'Purge Duplicate Payment Transactions'}
-            </button>
+
+            {batches.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-sm">
+                No past upload batches found. Upload an Excel file above to log your first batch.
+              </div>
+            ) : (
+              <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 uppercase tracking-wider">
+                    <tr>
+                      <th className="p-3">Batch ID</th>
+                      <th className="p-3">File Name</th>
+                      <th className="p-3">Branch</th>
+                      <th className="p-3">Uploaded At</th>
+                      <th className="p-3">Uploaded By</th>
+                      <th className="p-3 text-right">Created / Updated</th>
+                      <th className="p-3 text-center">Status</th>
+                      <th className="p-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                    {batches.map(b => (
+                      <tr key={b.id || b.batch_id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                        <td className="p-3 font-mono font-bold text-blue-600 dark:text-blue-400">{b.batch_id}</td>
+                        <td className="p-3 text-slate-900 dark:text-white font-semibold">{b.file_name}</td>
+                        <td className="p-3 text-slate-600 dark:text-slate-400">{b.branch_name}</td>
+                        <td className="p-3 text-slate-500">{new Date(b.uploaded_at).toLocaleString('en-IN')}</td>
+                        <td className="p-3 text-slate-500">{b.uploaded_by}</td>
+                        <td className="p-3 text-right">
+                          <span className="text-emerald-600 font-bold">+{b.members_created || 0}</span> / <span className="text-blue-600">{b.members_updated || 0}</span>
+                        </td>
+                        <td className="p-3 text-center">
+                          {b.status === 'ROLLED_BACK' ? (
+                            <span className="px-2 py-0.5 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 rounded-full font-bold">
+                              ROLLED BACK
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-full font-bold">
+                              COMPLETED
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3 text-right">
+                          {b.status !== 'ROLLED_BACK' && (
+                            <button
+                              onClick={() => handleRollbackBatch(b)}
+                              disabled={!isIT || rollingBackId === b.batch_id}
+                              className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 font-bold rounded-lg transition-colors flex items-center gap-1.5 ml-auto disabled:opacity-50 text-xs"
+                            >
+                              {rollingBackId === b.batch_id ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              )}
+                              Reverse Upload
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* ── TAB 3: Trash Can ── */}
-      {activeTab === 'trash' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-600">Records marked as deleted (soft-delete). Click Restore to recover them.</p>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
-            <table className="w-full text-xs">
-              <thead><tr className="bg-slate-50 text-slate-500 text-[10px] uppercase">
-                <th className="px-5 py-3 text-left">Store</th>
-                <th className="px-5 py-3 text-left">Record</th>
-                <th className="px-5 py-3 text-left">ID</th>
-                <th className="px-5 py-3 text-left">Deleted At</th>
-                <th className="px-5 py-3 text-center">Action</th>
-              </tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {trashLoading && <tr><td colSpan={5} className="py-10 text-center text-slate-400">Loading trash can…</td></tr>}
-                {!trashLoading && deletedItems.length === 0 && (
-                  <tr><td colSpan={5} className="py-10 text-center text-slate-400">
-                    <div className="flex flex-col items-center gap-2">
-                      <Trash2 className="w-8 h-8 text-slate-300" />
-                      <p>Trash can is empty. No soft-deleted records found.</p>
-                    </div>
-                  </td></tr>
-                )}
-                {deletedItems.map((item, i) => (
-                  <tr key={i} className="hover:bg-slate-50/50">
-                    <td className="px-5 py-3"><span className="badge bg-slate-100 text-slate-600 text-[9px] font-mono">{item.store}</span></td>
-                    <td className="px-5 py-3 font-semibold text-slate-800">{item.label}</td>
-                    <td className="px-5 py-3 font-mono text-slate-500 text-[10px]">{item.id}</td>
-                    <td className="px-5 py-3 text-slate-500">{new Date(item.deleted_at).toLocaleString('en-IN')}</td>
-                    <td className="px-5 py-3 text-center">
-                      <button onClick={() => handleRestore_item(item)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-lg transition mx-auto">
-                        <RotateCcw className="w-3 h-3" /> Restore
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {/* TAB 2: SYSTEM JSON BACKUP */}
+      {activeTab === 'backup' && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Download className="w-5 h-5 text-blue-600" /> Export System JSON Backup
+          </h2>
+          <p className="text-slate-500 text-sm">
+            Download a full database snapshot containing customers, loans, repayment schedules, transactions, products, and audit logs.
+          </p>
+          <button
+            onClick={handleBackup}
+            disabled={backupStatus === 'running'}
+            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm rounded-xl transition-all shadow-md shadow-blue-500/20 flex items-center gap-2 disabled:opacity-50"
+          >
+            {backupStatus === 'running' ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" /> Exporting ({backupProgress}%)
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4" /> Export Backup File (.json)
+              </>
+            )}
+          </button>
         </div>
       )}
     </div>
