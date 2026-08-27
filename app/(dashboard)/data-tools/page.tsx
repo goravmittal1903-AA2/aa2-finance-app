@@ -52,6 +52,7 @@ export default function DataToolsPage() {
   const [excelFile, setExcelFile] = useState<File | null>(null)
   const [parsedData, setParsedData] = useState<ParsedExcelData | null>(null)
   const [importStatus, setImportStatus] = useState<StatusState>('idle')
+  const [importProgress, setImportProgress] = useState(0)
   const [importLog, setImportLog] = useState<string[]>([])
   const [batches, setBatches] = useState<BatchLog[]>([])
   const [batchLoading, setBatchLoading] = useState(false)
@@ -105,33 +106,80 @@ export default function DataToolsPage() {
     }
   }
 
-  // Execute Excel Master Import
+  // Execute Excel Master Import in Chunked Payloads
   async function executeMasterImport() {
     if (!parsedData || !excelFile) return
     setImportStatus('running')
+    setImportProgress(0)
     setImportLog(['Starting Master Excel Import…'])
     setMessage('')
     setErrorMessage('')
 
-    try {
-      const res = await fetch('/api/admin/import-excel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileName: excelFile.name,
-          branchName: parsedData.branchName,
-          customers: parsedData.customers,
-          loans: parsedData.loans,
-          schedules: parsedData.schedules,
-          transactions: parsedData.transactions,
-        }),
-      })
+    const batchId = `BATCH-${Date.now()}`
+    const CHUNK_SIZE = 40
 
-      const result = await res.json()
-      if (!res.ok) throw new Error(result.error || 'Import failed.')
+    try {
+      const customers = parsedData.customers
+      const totalChunks = Math.ceil(customers.length / CHUNK_SIZE) || 1
+      let totalCreatedM = 0
+      let totalUpdatedM = 0
+      let totalCreatedL = 0
+      let totalUpdatedL = 0
+
+      for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+        const start = chunkIdx * CHUNK_SIZE
+        const end = start + CHUNK_SIZE
+        const cChunk = customers.slice(start, end)
+        
+        const customerIds = new Set(cChunk.map(c => c.customer_id))
+        const lChunk = parsedData.loans.filter(l => customerIds.has(l.customer_id))
+        
+        const loanNos = new Set(lChunk.map(l => l.loan_account_no))
+        const sChunk = parsedData.schedules.filter(s => loanNos.has(s.loan_account_no))
+        const tChunk = parsedData.transactions.filter(t => loanNos.has(t.loan_account_no))
+
+        const isLastChunk = chunkIdx === totalChunks - 1
+
+        const res = await fetch('/api/admin/import-excel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            batchId,
+            fileName: excelFile.name,
+            branchName: parsedData.branchName,
+            customers: cChunk,
+            loans: lChunk,
+            schedules: sChunk,
+            transactions: tChunk,
+            isLastChunk,
+            totalMembers: customers.length,
+          }),
+        })
+
+        if (!res.ok) {
+          const text = await res.text()
+          let errMsg = 'Chunk upload failed.'
+          try {
+            const errJson = JSON.parse(text)
+            errMsg = errJson.error || errMsg
+          } catch {
+            errMsg = `Server returned HTTP ${res.status}: ${text.slice(0, 100)}`
+          }
+          throw new Error(errMsg)
+        }
+
+        const result = await res.json()
+        totalCreatedM += result.membersCreated || 0
+        totalUpdatedM += result.membersUpdated || 0
+        totalCreatedL += result.loansCreated || 0
+        totalUpdatedL += result.loansUpdated || 0
+
+        const pct = Math.round(((chunkIdx + 1) / totalChunks) * 100)
+        setImportProgress(pct)
+      }
 
       setImportStatus('done')
-      setMessage(`Import successful! Batch ID: ${result.batchId}. Members created: ${result.membersCreated}, updated: ${result.membersUpdated}. Loans created: ${result.loansCreated}, updated: ${result.loansUpdated}.`)
+      setMessage(`Import successful! Batch ID: ${batchId}. Members created: ${totalCreatedM}, updated: ${totalUpdatedM}. Loans created: ${totalCreatedL}, updated: ${totalUpdatedL}.`)
       toast.success('Master Excel Import executed successfully!')
       setExcelFile(null)
       setParsedData(null)
@@ -292,7 +340,7 @@ export default function DataToolsPage() {
                 >
                   {importStatus === 'running' ? (
                     <>
-                      <RefreshCw className="w-4 h-4 animate-spin" /> Executing Sync…
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Executing Sync ({importProgress}%)
                     </>
                   ) : (
                     <>

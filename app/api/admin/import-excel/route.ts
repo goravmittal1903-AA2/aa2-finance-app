@@ -18,99 +18,101 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { fileName, branchName, customers = [], loans = [], schedules = [], transactions = [] } = body
-
-    if (!Array.isArray(customers) || customers.length === 0) {
-      return NextResponse.json({ error: 'No valid customer/loan records found in Excel file.' }, { status: 400 })
-    }
+    const {
+      batchId: clientBatchId,
+      fileName,
+      branchName,
+      customers = [],
+      loans = [],
+      schedules = [],
+      transactions = [],
+      isLastChunk = false,
+      totalMembers = 0,
+    } = body
 
     const supabase = adminClient()
-    const batchId = `BATCH-${Date.now()}`
+    const batchId = clientBatchId || `BATCH-${Date.now()}`
 
-    // 1. Process Customers (Check existing vs new)
+    // 1. Process Customers Chunk
     let membersCreated = 0
     let membersUpdated = 0
-    const customerPayloads = customers.map((c: any) => ({
-      id: c.customer_id,
-      data: { ...c, batch_id: batchId },
-    }))
+    if (customers.length > 0) {
+      const customerPayloads = customers.map((c: any) => ({
+        id: c.customer_id,
+        data: { ...c, batch_id: batchId },
+      }))
 
-    for (let i = 0; i < customerPayloads.length; i += 100) {
-      const chunk = customerPayloads.slice(i, i + 100)
-      const ids = chunk.map((item: any) => item.id)
+      const ids = customerPayloads.map((item: any) => item.id)
       const { data: existing } = await supabase.from('customers').select('id').in('id', ids)
       const existingSet = new Set((existing || []).map((e: any) => e.id))
 
-      chunk.forEach((item: any) => {
+      customerPayloads.forEach((item: any) => {
         if (existingSet.has(item.id)) membersUpdated++
         else membersCreated++
       })
 
-      await supabase.from('customers').upsert(chunk)
+      await supabase.from('customers').upsert(customerPayloads)
     }
 
-    // 2. Process Loans (Check existing vs new)
+    // 2. Process Loans Chunk
     let loansCreated = 0
     let loansUpdated = 0
-    const loanPayloads = loans.map((l: any) => ({
-      id: l.loan_account_no,
-      data: { ...l, batch_id: batchId },
-    }))
+    if (loans.length > 0) {
+      const loanPayloads = loans.map((l: any) => ({
+        id: l.loan_account_no,
+        data: { ...l, batch_id: batchId },
+      }))
 
-    for (let i = 0; i < loanPayloads.length; i += 100) {
-      const chunk = loanPayloads.slice(i, i + 100)
-      const ids = chunk.map((item: any) => item.id)
+      const ids = loanPayloads.map((item: any) => item.id)
       const { data: existing } = await supabase.from('loans').select('id').in('id', ids)
       const existingSet = new Set((existing || []).map((e: any) => e.id))
 
-      chunk.forEach((item: any) => {
+      loanPayloads.forEach((item: any) => {
         if (existingSet.has(item.id)) loansUpdated++
         else loansCreated++
       })
 
-      await supabase.from('loans').upsert(chunk)
+      await supabase.from('loans').upsert(loanPayloads)
     }
 
-    // 3. Process Repayment Schedules
-    const schedulePayloads = schedules.map((s: any) => ({
-      id: `${s.loan_account_no}-${s.installment_no}`,
-      data: { ...s, batch_id: batchId },
-    }))
-
-    for (let i = 0; i < schedulePayloads.length; i += 200) {
-      const chunk = schedulePayloads.slice(i, i + 200)
-      await supabase.from('repayment_schedule').upsert(chunk)
+    // 3. Process Repayment Schedules Chunk
+    if (schedules.length > 0) {
+      const schedulePayloads = schedules.map((s: any) => ({
+        id: `${s.loan_account_no}-${s.installment_no}`,
+        data: { ...s, batch_id: batchId },
+      }))
+      await supabase.from('repayment_schedule').upsert(schedulePayloads)
     }
 
-    // 4. Process Transactions
-    const transactionPayloads = transactions.map((t: any) => ({
-      id: t.txn_id,
-      data: { ...t, batch_id: batchId },
-    }))
-
-    for (let i = 0; i < transactionPayloads.length; i += 200) {
-      const chunk = transactionPayloads.slice(i, i + 200)
-      await supabase.from('transactions').upsert(chunk)
+    // 4. Process Transactions Chunk
+    if (transactions.length > 0) {
+      const transactionPayloads = transactions.map((t: any) => ({
+        id: String(t.txn_id),
+        data: { ...t, batch_id: batchId },
+      }))
+      await supabase.from('transactions').upsert(transactionPayloads)
     }
 
-    // 5. Log Batch History
-    const batchLog = {
-      id: batchId,
-      data: {
-        batch_id: batchId,
-        file_name: fileName || 'Branch_Master.xlsx',
-        branch_name: branchName || 'ALL',
-        uploaded_by: auth.profile.email,
-        uploaded_at: new Date().toISOString(),
-        members_created: membersCreated,
-        members_updated: membersUpdated,
-        loans_created: loansCreated,
-        loans_updated: loansUpdated,
-        total_records: customers.length,
-        status: 'COMPLETED',
-      },
+    // 5. Final Batch Log Entry
+    if (isLastChunk) {
+      const batchLog = {
+        id: batchId,
+        data: {
+          batch_id: batchId,
+          file_name: fileName || 'Branch_Master.xlsx',
+          branch_name: branchName || 'ALL',
+          uploaded_by: auth.profile.email,
+          uploaded_at: new Date().toISOString(),
+          members_created: membersCreated,
+          members_updated: membersUpdated,
+          loans_created: loansCreated,
+          loans_updated: loansUpdated,
+          total_records: totalMembers || customers.length,
+          status: 'COMPLETED',
+        },
+      }
+      await supabase.from('audit_logs').upsert(batchLog)
     }
-    await supabase.from('audit_logs').upsert(batchLog)
 
     return NextResponse.json({
       ok: true,
