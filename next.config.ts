@@ -21,14 +21,6 @@ const nextConfig: NextConfig = {
       },
     ]
   },
-  async rewrites() {
-    return [
-      {
-        source: '/api/supabase-proxy/:path*',
-        destination: `${process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://144.24.99.155:8000'}/:path*`,
-      },
-    ]
-  },
 };
 
 export default nextConfig;

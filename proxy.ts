@@ -18,7 +18,14 @@ export async function proxy(request: NextRequest) {
     },
   })
 
-  const { data: { user } } = await supabase.auth.getUser()
+  let user = null
+  try {
+    const timeout = new Promise(resolve => setTimeout(() => resolve({ data: { user: null } }), 1000))
+    const res = (await Promise.race([supabase.auth.getUser(), timeout])) as any
+    user = res?.data?.user || null
+  } catch (err) {
+    console.warn('Proxy auth error:', err)
+  }
   const pathname = request.nextUrl.pathname
 
   const isPublic =
