@@ -59,7 +59,21 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
       const loanAmount = Number(r['LOAN AMOUNT'] || r['LOAN  AMOUNT'] || 0)
       if (!loanAmount) return
 
-      const fatherHusband = (r['Father/HUSBAND  Name'] || r['Father/HUSBAND Name'] || r['HUSBAND NAME/FATHER NAME'] || r['Father/Husband Name'] || '').toString().trim()
+      // Comprehensive Member Relation (Father / Husband Name) parsing
+      const fatherHusband = (
+        r['Father/HUSBAND  Name'] ||
+        r['Father/HUSBAND Name'] ||
+        r['HUSBAND NAME/FATHER NAME'] ||
+        r['Father/Husband Name'] ||
+        r['FATHER/HUSBAND NAME'] ||
+        r['FATHER/HUSBAND'] ||
+        r['HUSBAND NAME'] ||
+        r['FATHER NAME'] ||
+        r['RELATION'] ||
+        r['GUARDIAN NAME'] ||
+        ''
+      ).toString().trim()
+
       const mobileRaw = (r['MOBILE NO.'] || r['MOBILE'] || r['MOB.'] || r['MOBILE NAME '] || '').toString().replace(/\D/g, '')
       const mobile = mobileRaw.length >= 10 ? mobileRaw.slice(-10) : mobileRaw
       const aadharRaw = (r['ADHAR NO'] || r['AADHAR NO.(LAST 4 DIGITS)'] || '').toString().replace(/\D/g, '')
@@ -78,23 +92,31 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
       const paidEmiCount = Number(r['PAID EMI'] || 0)
       const totalCollected = Number(r['TOTAL RECEIVED AMOUNT'] || (paidEmiCount * emi) || 0)
       const ledgerBal = Number(r['Ledger Balance'] || Math.max(0, (loanAmount - totalCollected)))
+      
+      // Auto Close loan if ledger balance is 0 or status is CLOSED
       const statusRaw = (r['Case Status '] || r['Case Status'] || r['Gr. Status'] || 'ACTIVE').toString().trim().toUpperCase()
-      const status = statusRaw.startsWith('CLOS') ? 'CLOSE' : 'ACTIVE'
+      const isClosed = statusRaw.startsWith('CLOS') || ledgerBal <= 0 || (totalCollected >= loanAmount && loanAmount > 0)
+      const status = isClosed ? 'CLOSED' : 'ACTIVE'
+
       const dpd = Number(r['DPD'] || 0)
       const disbDate = parseExcelDate(r['DIS. DATE'] || r['DIS.DATE'] || r['DISB DATE'] || r['CASH DB DATE'], '2026-05-01')
       const firstEmiDate = parseExcelDate(r['FIRST EMI '] || r['FIRST EMI DATE'] || r['FIRST EMI'], '2026-05-15')
       const closeDate = r['CLOSE DATE'] ? parseExcelDate(r['CLOSE DATE']) : null
       const fileCharge = Number(r['FILE CHARGE'] || Math.round(loanAmount * 0.02))
 
-      // 1. Permanent Member ID Resolution
+      // 1. Permanent Member ID Format: MEM10001 (MEM + 5 numeric digits)
       const rawMemId = (r['MEMBER ID'] || r['CUST ID'] || r['CUSTOMER ID'] || r['MEM ID'] || r['MEMBER NO'] || '').toString().trim()
-      const customerId = rawMemId ? rawMemId : `MEM${String(10001 + idx).padStart(5, '0')}`
+      const customerId = (/^MEM\d{5}$/i.test(rawMemId))
+        ? rawMemId.toUpperCase()
+        : `MEM${String(10001 + idx).padStart(5, '0')}`
 
-      // 2. Permanent Loan Account No Resolution
-      const rawLoanNo = (r['PL NO.'] || r['PL NO'] || r['LOAN NO'] || r['LOAN ACCOUNT NO'] || r['ACCOUNT NO'] || r['PL.NO.'] || '').toString().trim()
-      const loanNo = rawLoanNo ? rawLoanNo : `LN-${branch.slice(0,3)}-${String(1001 + idx).padStart(4, '0')}`
+      // 2. Permanent Loan Account No Format: 10-digit numeric number ONLY (e.g. 1000000001)
+      const rawLoanNo = (r['PL NO.'] || r['PL NO'] || r['LOAN NO'] || r['LOAN ACCOUNT NO'] || r['ACCOUNT NO'] || r['PL.NO.'] || '').toString().replace(/\D/g, '')
+      const loanNo = (rawLoanNo.length === 10)
+        ? rawLoanNo
+        : String(1000000000 + idx + 1)
 
-      // Member Record
+      // Member Record (Relation updated correctly)
       if (!customersMap.has(customerId)) {
         customersMap.set(customerId, {
           customer_id: customerId,
@@ -140,12 +162,12 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         total_loan: econ.total_loan,
         disbursement_date: disbDate,
         installment_start_date: firstEmiDate,
-        status: status === 'CLOSE' ? 'CLOSED' : 'ACTIVE',
-        dpd,
-        dpd_bucket: dpdBucket(dpd),
+        status: status as any,
+        dpd: isClosed ? 0 : dpd,
+        dpd_bucket: isClosed ? 'Current' : dpdBucket(dpd),
         total_collected: totalCollected,
-        ledger_balance: ledgerBal,
-        close_date: closeDate || null,
+        ledger_balance: isClosed ? 0 : ledgerBal,
+        close_date: closeDate || (isClosed ? new Date().toISOString().slice(0, 10) : null),
         created_at: new Date().toISOString(),
       })
 
@@ -164,7 +186,7 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
           rowStatus = 'Partial'
           paidAmount = cumulativePaid
           cumulativePaid = 0
-        } else if (new Date(estDate) < new Date() && status !== 'CLOSE') {
+        } else if (new Date(estDate) < new Date() && !isClosed) {
           rowStatus = 'Overdue'
         }
 
@@ -178,20 +200,20 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
           interest_due: Math.round(econ.total_interest / tenure),
           opening_balance: Math.max(0, econ.total_loan - ((i - 1) * econ.installment_amount)),
           closing_balance: Math.max(0, econ.total_loan - (i * econ.installment_amount)),
-          status: rowStatus,
-          paid_amount: paidAmount,
-          paid_date: rowStatus === 'Paid' ? estDate : null,
-          dpd: rowStatus === 'Overdue' ? Math.max(0, Math.round((Date.now() - new Date(estDate).getTime()) / 86400000)) : 0,
+          status: isClosed ? 'Paid' : rowStatus,
+          paid_amount: isClosed ? econ.installment_amount : paidAmount,
+          paid_date: (isClosed || rowStatus === 'Paid') ? estDate : null,
+          dpd: (isClosed || rowStatus !== 'Overdue') ? 0 : Math.max(0, Math.round((Date.now() - new Date(estDate).getTime()) / 86400000)),
         })
 
         // Transaction log for paid EMIs
-        if (paidAmount > 0) {
+        if (paidAmount > 0 || isClosed) {
           transactions.push({
             txn_id: `TXN-${loanNo}-${i}` as any,
             loan_account_no: loanNo,
             txn_date: estDate,
             txn_type: 'PAYMENT',
-            amount: paidAmount,
+            amount: isClosed ? econ.installment_amount : paidAmount,
             mode: 'Cash',
             reference_no: `COLLECT-${loanNo}-${i}`,
             classification: 'REGULAR',

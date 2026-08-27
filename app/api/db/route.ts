@@ -51,7 +51,11 @@ export async function GET(request: NextRequest) {
     while (true) {
       let query = supabase.from(table).select('data').range(from, from + STEP - 1)
       if (field && value) {
-        query = query.eq(`data->>${field}`, value) as any
+        if (field === 'id') {
+          query = query.or(`id.eq.${value},data->>id.eq.${value},data->>loan_account_no.eq.${value},data->>customer_id.eq.${value}`) as any
+        } else {
+          query = query.or(`data->>${field}.eq.${value},id.eq.${value}`) as any
+        }
       }
       const { data, error } = await query
       if (error) return NextResponse.json({ error: error.message }, { status: 400 })
