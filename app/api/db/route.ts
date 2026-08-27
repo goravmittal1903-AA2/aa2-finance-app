@@ -44,6 +44,15 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = adminClient()
+
+    // If querying transactions or schedules when system has 0 active loans, return empty immediately
+    if (table === 'transactions' || table === 'repayment_schedule') {
+      const { count: activeLoanCount } = await supabase.from('loans').select('id', { count: 'exact', head: true })
+      if (!activeLoanCount || activeLoanCount === 0) {
+        return NextResponse.json({ records: [] })
+      }
+    }
+
     let allData: any[] = []
     let from = 0
     const STEP = 1000
