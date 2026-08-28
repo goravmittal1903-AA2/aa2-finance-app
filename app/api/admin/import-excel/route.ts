@@ -57,6 +57,7 @@ export async function POST(request: NextRequest) {
     // 2. Process Loans Chunk (Reuse existing permanent loan_account_no if matched)
     let loansCreated = 0
     let loansUpdated = 0
+    const newlyCreatedLoanIds: string[] = []
     if (loans.length > 0) {
       const loanPayloads = loans.map((l: any) => ({
         id: l.loan_account_no,
@@ -69,10 +70,43 @@ export async function POST(request: NextRequest) {
 
       loanPayloads.forEach((item: any) => {
         if (existingSet.has(item.id)) loansUpdated++
-        else loansCreated++
+        else { loansCreated++; newlyCreatedLoanIds.push(item.id) }
       })
 
       await supabase.from('loans').upsert(loanPayloads)
+
+      // Write per-loan audit_events for NEWLY created loans so audit trail shows import entry
+      if (newlyCreatedLoanIds.length > 0) {
+        const loanAuditEvents = loans
+          .filter((l: any) => newlyCreatedLoanIds.includes(l.loan_account_no))
+          .map((l: any) => ({
+            actor_id: auth.profile.id,
+            actor_email: auth.profile.email,
+            action: 'LOAN_CREATED',
+            entity_type: 'LOAN',
+            entity_id: l.loan_account_no,
+            branch_code: l.branch_code || branchName || 'ALL',
+            after_data: {
+              loan_account_no: l.loan_account_no,
+              customer_id: l.customer_id,
+              member_name: l.member_name_cache || l.member_name,
+              loan_amount: l.loan_amount,
+              tenure: l.tenure,
+              frequency: l.frequency || 'Weekly',
+              installment_amount: l.installment_amount,
+              disbursement_date: l.disbursement_date,
+              status: l.status,
+              source: 'EXCEL_IMPORT',
+              batch_id: batchId,
+            },
+            narration: `Loan Account ${l.loan_account_no} created via Excel Import (Batch: ${batchId}) for ${l.member_name_cache || l.member_name}`,
+            event_hash: `HASH-LOAN-${l.loan_account_no}-${batchId}`,
+          }))
+        // Insert in chunks to avoid payload size limit
+        for (let i = 0; i < loanAuditEvents.length; i += 50) {
+          await supabase.from('audit_events').insert(loanAuditEvents.slice(i, i + 50))
+        }
+      }
     }
 
     // 3. Process Repayment Schedules Chunk
@@ -122,6 +156,7 @@ export async function POST(request: NextRequest) {
         entity_id: batchId,
         branch_code: branchName || 'ALL',
         after_data: batchLog.data,
+        narration: `Master Excel Import completed: ${loansCreated} loans created, ${membersCreated} members created from ${fileName || 'Branch_Master.xlsx'}`,
         event_hash: `HASH-${Date.now()}-${batchId}`
       })
     }

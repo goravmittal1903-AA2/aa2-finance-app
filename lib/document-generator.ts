@@ -224,20 +224,30 @@ function buildFallbackScheduleRows(data: any) {
   const rate = Number(data.interest_rate || 18)
   const emi = Number(data.installment_amount || Math.round((amount * (1 + rate / 100)) / tenure))
   const startDate = data.installment_start_date || data.disbursement_date || '2026-05-15'
-  
+  const freq = (data.frequency || 'Weekly').toLowerCase()
+  // Days between installments based on frequency
+  const daysPerInstallment = freq.includes('week') ? 7 : freq.includes('bi') || freq.includes('fort') ? 15 : 30
+  // Installments per year for interest calculation
+  const installmentsPerYear = freq.includes('week') ? 52 : freq.includes('bi') || freq.includes('fort') ? 26 : 12
+
+  // Parse start date components
+  const parts = startDate.slice(0, 10).split('-').map(Number)
+  const hasValidDate = parts.length === 3 && !parts.some(isNaN)
+
   const schedule = []
   let bal = amount
   for (let i = 1; i <= tenure; i++) {
-    const interest = Math.round((bal * (rate / 100)) / 12)
+    const interest = Math.round((bal * (rate / 100)) / installmentsPerYear)
     const principal = Math.max(0, emi - interest)
     const closing = Math.max(0, bal - principal)
-    
+
+    // Compute due date: add (i-1) * daysPerInstallment days to start date
     let estDate = startDate
-    const parts = startDate.slice(0, 10).split('-').map(Number)
-    if (parts.length === 3 && !parts.some(isNaN)) {
+    if (hasValidDate) {
       const [y, m, d] = parts
-      const dt = new Date(Date.UTC(y, m - 1 + (i - 1), d))
-      estDate = dt.toISOString().slice(0, 10)
+      const baseMs = Date.UTC(y, m - 1, d)
+      const offsetMs = (i - 1) * daysPerInstallment * 86400 * 1000
+      estDate = new Date(baseMs + offsetMs).toISOString().slice(0, 10)
     }
 
     schedule.push({
@@ -256,6 +266,7 @@ function buildFallbackScheduleRows(data: any) {
   }
   return schedule
 }
+
 
 /** Opens a browser print window with styled HTML document (with popup-blocker in-page modal fallback) */
 function printDocument(title: string, bodyHtml: string) {

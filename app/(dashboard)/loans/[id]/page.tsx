@@ -182,14 +182,43 @@ export default function LoanDetailPage({ params }: PageProps) {
       setSchedule(sched.sort((a, b) => a.installment_no - b.installment_no))
       setTransactions(cleanTxs.sort((a, b) => (b.txn_date || '').localeCompare(a.txn_date || '') || Number(b.txn_id || 0) - Number(a.txn_id || 0)))
       setDocuments(mergedDocs)
+
+      // Load audit trail: combine audit_logs (local events) + audit_events (server-side import events)
       const { getAuditLogs } = await import('@/lib/audit')
       const allLogs = await getAuditLogs()
-      const loanLogs = allLogs.filter(l =>
+      const localLoanLogs = allLogs.filter(l =>
         l.entity_id === id ||
         (l.narration && l.narration.includes(id)) ||
         (l.entity_type === 'LOAN' && l.entity_id === id)
       )
-      setAuditLogs(loanLogs)
+      // Also fetch audit_events for this loan from server (covers Excel import entries)
+      let serverAuditEvents: any[] = []
+      try {
+        const evtRes = await fetch(`/api/db?store=audit_events&field=entity_id&value=${encodeURIComponent(id)}`)
+        if (evtRes.ok) {
+          const evtJson = await evtRes.json()
+          serverAuditEvents = (evtJson.records || []).map((e: any) => ({
+            log_id: e.event_hash || `EVT-${e.entity_id}-${e.action}`,
+            timestamp: e.created_at || new Date().toISOString(),
+            event_type: e.action || 'LOAN_CREATED',
+            entity_type: e.entity_type || 'LOAN',
+            entity_id: e.entity_id || id,
+            actor_email: e.actor_email || 'system',
+            actor_name: (e.actor_email || 'system').split('@')[0],
+            actor_role: e.actor_role || 'it',
+            branch_code: e.branch_code || '',
+            narration: e.narration || `${e.action} on Loan ${id}`,
+          }))
+        }
+      } catch { /* silently skip if audit_events fetch fails */ }
+
+      // Merge and deduplicate by log_id
+      const mergedLogsMap = new Map<string, any>()
+      localLoanLogs.forEach(l => mergedLogsMap.set(l.log_id, l))
+      serverAuditEvents.forEach(l => { if (!mergedLogsMap.has(l.log_id)) mergedLogsMap.set(l.log_id, l) })
+      const mergedAuditLogs = Array.from(mergedLogsMap.values())
+        .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+      setAuditLogs(mergedAuditLogs)
       if (l.installment_amount) setPayAmount(String(l.installment_amount))
     } catch (err) {
       console.error('Error fetching loan detail:', err)
