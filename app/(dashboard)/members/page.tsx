@@ -261,6 +261,8 @@ export default function MembersPage() {
     }
   }
 
+  const [merging, setMerging] = useState(false)
+
   async function handleCheckDuplicates() {
     setShowDupModal(true)
     setDupLoading(true)
@@ -271,6 +273,84 @@ export default function MembersPage() {
       console.error(e)
     } finally {
       setDupLoading(false)
+    }
+  }
+
+  async function handleMergeDuplicates(group: DuplicateGroup) {
+    if (!group.members || group.members.length < 2) return
+
+    // Identify primary member (earliest created or lowest ID numeric value)
+    const sorted = [...group.members].sort((a, b) => {
+      const numA = parseInt((a.customer_id || '').replace(/\D/g, ''), 10) || 0
+      const numB = parseInt((b.customer_id || '').replace(/\D/g, ''), 10) || 0
+      return numA - numB
+    })
+
+    const primary = sorted[0]
+    const duplicates = sorted.slice(1)
+
+    const confirmMsg =
+      `Merge duplicate profiles:\n` +
+      duplicates.map(d => `• ${d.full_name} (${d.customer_id})`).join('\n') +
+      `\n\ninto Primary Profile:\n• ${primary.full_name} (${primary.customer_id})\n\n` +
+      `All loan facilities associated with duplicate profiles will be re-linked under Primary Member ID ${primary.customer_id}.`
+
+    const ok = await confirmAction({
+      title: `Merge ${duplicates.length} Duplicate Profiles`,
+      message: confirmMsg,
+      confirmText: `Yes, Merge into ${primary.customer_id}`,
+      variant: 'danger'
+    })
+    if (!ok) return
+
+    setMerging(true)
+    try {
+      const { putOne } = await import('@/lib/supabase')
+      const { logAuditEvent } = await import('@/lib/audit')
+      const { moveToTrash } = await import('@/lib/trash')
+
+      let relinkedCount = 0
+      for (const dup of duplicates) {
+        // Re-link all loans owned by duplicate member
+        const dupLoans = allLoans.filter(l => l.customer_id === dup.customer_id)
+        for (const loan of dupLoans) {
+          const updatedLoan = {
+            ...loan,
+            customer_id: primary.customer_id,
+            member_name: primary.full_name,
+            member_name_cache: primary.full_name,
+            updated_at: new Date().toISOString(),
+          }
+          await putOne('loans', updatedLoan, 'loan_account_no')
+          relinkedCount++
+        }
+
+        // Soft delete duplicate profile to trash
+        await moveToTrash('customers', dup.customer_id, dup, dup.full_name, 'system')
+
+        // Record audit log
+        await logAuditEvent({
+          event_type: 'MEMBER_MERGED',
+          entity_type: 'MEMBER',
+          entity_id: primary.customer_id,
+          actor_email: 'system',
+          actor_name: 'system',
+          actor_role: 'staff',
+          branch_code: primary.branch_code,
+          narration: `Merged duplicate profile ${dup.full_name} (${dup.customer_id}) into primary profile ${primary.full_name} (${primary.customer_id}). Re-linked ${dupLoans.length} loan accounts.`,
+          old_values: dup,
+          new_values: primary,
+        })
+      }
+
+      toast.success('Members Consolidated', `Merged profiles into ${primary.customer_id}. Re-linked ${relinkedCount} loan facility(ies).`)
+      setShowDupModal(false)
+      window.dispatchEvent(new Event('aa2_data_changed'))
+      loadData()
+    } catch (err: any) {
+      toast.error('Merge Failed', err.message || 'Could not complete member merge.')
+    } finally {
+      setMerging(false)
     }
   }
 
@@ -619,10 +699,19 @@ export default function MembersPage() {
                   </div>
                   {dupGroups.map((group, i) => (
                     <div key={i} className="border border-amber-200 bg-amber-50/30 rounded-xl overflow-hidden">
-                      <div className="px-4 py-2.5 bg-amber-100/60 flex items-center gap-2 text-xs font-bold text-amber-800 uppercase tracking-wider">
-                        <AlertTriangle className="w-3.5 h-3.5" />
-                        Duplicate {group.type === 'mobile' ? 'Mobile' : 'Aadhaar Suffix'}: {group.value}
-                        <span className="ml-auto font-normal text-amber-600">{group.members.length} records</span>
+                      <div className="px-4 py-2.5 bg-amber-100/60 flex items-center justify-between gap-2 text-xs font-bold text-amber-800 uppercase tracking-wider">
+                        <div className="flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                          Duplicate {group.type === 'mobile' ? 'Mobile' : 'Aadhaar Suffix'}: {group.value}
+                          <span className="font-normal text-amber-600">({group.members.length} records)</span>
+                        </div>
+                        <button
+                          onClick={() => handleMergeDuplicates(group)}
+                          disabled={merging}
+                          className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold transition shadow-xs disabled:opacity-50"
+                        >
+                          {merging ? 'Merging...' : '⚡ Merge into Primary Member'}
+                        </button>
                       </div>
                       <div className="divide-y divide-amber-100">
                         {group.members.map(m => (
@@ -632,7 +721,7 @@ export default function MembersPage() {
                               <p className="text-slate-500 text-[11px]">{m.village_city || '—'}, {m.district || '—'} · Branch: {m.branch_code || '—'}</p>
                             </div>
                             <Link href={`/members/${m.customer_id}`} className="px-2.5 py-1 bg-white border border-amber-300 text-amber-800 hover:bg-amber-50 rounded-lg text-xs font-bold">
-                              View
+                              View Profile →
                             </Link>
                           </div>
                         ))}

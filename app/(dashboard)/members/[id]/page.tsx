@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { getOne, getFiltered, putOne } from '@/lib/supabase'
 import { logAuditEvent, getAuditLogs, type AuditLogEntry } from '@/lib/audit'
 import type { Customer, Loan } from '@/lib/types'
-import { inr, fdate, statusColor, maskPAN } from '@/lib/utils'
+import { inr, fdate, statusColor, maskPAN, calculateAgeInYearsMonths } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
 import { confirmAction } from '@/lib/confirm'
 import { toast } from '@/lib/toast'
@@ -88,15 +88,59 @@ export default function MemberDetailPage({ params }: PageProps) {
     }
   }, [customer])
 
+  async function handlePincodeChange(pinRaw: string) {
+    const pin = pinRaw.replace(/\D/g, '').slice(0, 6)
+    const nextForm = { ...editFormData, pincode: pin }
+    if (pin.length === 6) {
+      const { lookupPincode } = await import('@/lib/pincode')
+      const res = await lookupPincode(pin)
+      if (res) {
+        nextForm.district = res.district
+        nextForm.state = res.state
+        toast.info('Location Auto-Filled', `${res.district}, ${res.state}`)
+      }
+    }
+    setEditFormData(nextForm)
+  }
+
   async function handleSaveMemberEdit(e: React.FormEvent) {
     e.preventDefault()
     if (!customer) return
 
+    // Strict Validations
+    if (editFormData.mobile && !/^\d{10}$/.test(editFormData.mobile.trim())) {
+      toast.error('Invalid Mobile', 'Mobile number must be exactly 10 numeric digits.')
+      return
+    }
+    if (editFormData.aadhar_last4 && !/^\d{4}$/.test(editFormData.aadhar_last4.trim())) {
+      toast.error('Invalid Aadhaar', 'Aadhaar suffix must be exactly 4 numeric digits.')
+      return
+    }
     const { validatePAN } = await import('@/lib/utils')
     if (editFormData.pan_no && !validatePAN(editFormData.pan_no)) {
       toast.error('Invalid PAN Format', 'Please enter a valid 10-character PAN (e.g. ABCDE1234F)')
       return
     }
+    if (editFormData.pincode && !/^\d{6}$/.test(editFormData.pincode.trim())) {
+      toast.error('Invalid Pincode', 'Pincode must be exactly 6 numeric digits.')
+      return
+    }
+
+    // Build diff for audit narration
+    const changedFields: string[] = []
+    const keys: (keyof Customer)[] = [
+      'full_name', 'father_husband_name', 'mobile', 'dob', 'gender',
+      'aadhar_last4', 'pan_no', 'village_city', 'pincode', 'district',
+      'state', 'branch_code', 'bm_name', 'fo_name', 'am_name', 'rm_name',
+      'center_no', 'cluster_no', 'address_current'
+    ]
+    keys.forEach(k => {
+      const oldVal = customer[k] || ''
+      const newVal = editFormData[k] || ''
+      if (String(oldVal).trim() !== String(newVal).trim()) {
+        changedFields.push(`${String(k)} ("${oldVal}" → "${newVal}")`)
+      }
+    })
 
     setSavingEdit(true)
     try {
@@ -108,7 +152,11 @@ export default function MemberDetailPage({ params }: PageProps) {
       }
       await putOne('customers', updated, 'customer_id')
 
-      // Record immutable audit log for member profile edit
+      // Record detailed immutable audit log for member profile edit
+      const narration = changedFields.length > 0
+        ? `Updated ${customer.full_name} (${customer.customer_id}): Changed ${changedFields.join(', ')}`
+        : `Member profile verified for ${updated.full_name} (${customer.customer_id})`
+
       await logAuditEvent({
         event_type: 'KYC_UPDATED',
         entity_type: 'MEMBER',
@@ -117,14 +165,14 @@ export default function MemberDetailPage({ params }: PageProps) {
         actor_name: (user?.email || 'system').split('@')[0],
         actor_role: 'staff',
         branch_code: updated.branch_code,
-        narration: `Member profile updated for ${updated.full_name} (${customer.customer_id})`,
+        narration,
         old_values: customer,
         new_values: updated,
       })
 
       setCustomer(updated)
       setIsEditing(false)
-      toast.success('Member Updated', 'Member details saved and logged successfully.')
+      toast.success('Member Updated', 'Member details saved and audit trail updated successfully.')
       window.dispatchEvent(new Event('aa2_data_changed'))
       loadData()
     } catch (err: any) {
@@ -258,6 +306,11 @@ export default function MemberDetailPage({ params }: PageProps) {
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Date of Birth *</label>
                   <input type="date" required value={editFormData.dob || ''} onChange={e => setEditFormData({ ...editFormData, dob: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
+                  {editFormData.dob && calculateAgeInYearsMonths(editFormData.dob) && (
+                    <p className="text-[10.5px] font-semibold text-blue-600 mt-1">
+                      Age: {calculateAgeInYearsMonths(editFormData.dob)?.label}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Gender *</label>
@@ -291,8 +344,9 @@ export default function MemberDetailPage({ params }: PageProps) {
                   <input type="text" value={editFormData.village_city || ''} onChange={e => setEditFormData({ ...editFormData, village_city: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
                 </div>
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Pincode</label>
-                  <input type="text" value={editFormData.pincode || ''} onChange={e => setEditFormData({ ...editFormData, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) })} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs font-mono" />
+                  <label className="font-semibold text-slate-700 block mb-1">Pincode (6 digits)</label>
+                  <input type="text" value={editFormData.pincode || ''} onChange={e => handlePincodeChange(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs font-mono" placeholder="249401" />
+                  <p className="text-[10px] text-slate-400 mt-0.5">Auto-fills District & State on 6 digits</p>
                 </div>
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">District</label>
