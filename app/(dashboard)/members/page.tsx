@@ -47,12 +47,13 @@ async function findDuplicates(): Promise<DuplicateGroup[]> {
 
 export default function MembersPage() {
   const [search, setSearch] = useState('')
-  const { data: customers, page, setPage, total, totalPages, loading, error, resetToFirstPage, refresh } =
-    usePaginatedResource<Customer>('customers', search)
-  useRealtimeInvalidation('customers', refresh)
-
-  // Extra context data for member badges and filters
+  const [allCustomers, setAllCustomers] = useState<Customer[]>([])
   const [allLoans, setAllLoans] = useState<Loan[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [page, setPage] = useState(1)
+  const pageSize = 50
+
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'CLOSED' | 'PROSPECTIVE'>('ALL')
   const [selectedBranch, setSelectedBranch] = useState('ALL')
   const [selectedFO, setSelectedFO] = useState('ALL')
@@ -69,9 +70,29 @@ export default function MembersPage() {
   const [dupLoading, setDupLoading] = useState(false)
   const [dupGroups, setDupGroups] = useState<DuplicateGroup[]>([])
 
+  const loadData = () => {
+    setLoading(true)
+    Promise.all([
+      getAll<Customer>('customers'),
+      getAll<Loan>('loans'),
+    ]).then(([custs, lns]) => {
+      setAllCustomers(custs)
+      setAllLoans(lns)
+      setLoading(false)
+    }).catch(err => {
+      setError(err?.message || 'Could not load members.')
+      setLoading(false)
+    })
+  }
+
   useEffect(() => {
-    getAll<Loan>('loans').then(setAllLoans).catch(console.error)
+    loadData()
+    const handler = () => loadData()
+    window.addEventListener('aa2_data_changed', handler)
+    return () => window.removeEventListener('aa2_data_changed', handler)
   }, [])
+
+  useRealtimeInvalidation('customers', loadData)
 
   // Build member loan status map
   const memberLoanStatusMap = useMemo(() => {
@@ -90,27 +111,47 @@ export default function MembersPage() {
     return map
   }, [allLoans])
 
-  // Extract filter options
+  // Extract filter options from 100% of records
   const branchOptions = useMemo(() => {
     const set = new Set<string>()
-    customers.forEach(c => { if (c.branch_code) set.add(c.branch_code) })
+    allCustomers.forEach(c => { if (c.branch_code) set.add(c.branch_code) })
     allLoans.forEach(l => { if (l.branch_code) set.add(l.branch_code) })
     return Array.from(set).sort()
-  }, [customers, allLoans])
+  }, [allCustomers, allLoans])
 
   const foOptions = useMemo(() => {
     const set = new Set<string>()
-    customers.forEach(c => { if (c.fo_name) set.add(c.fo_name) })
+    allCustomers.forEach(c => { if (c.fo_name) set.add(c.fo_name) })
     allLoans.forEach(l => { if (l.fo_name) set.add(l.fo_name) })
     return Array.from(set).sort()
-  }, [customers, allLoans])
+  }, [allCustomers, allLoans])
 
-  // Filtered customers display
-  const displayedCustomers = useMemo(() => {
-    return customers.filter(c => {
+  // Filtered customers list (Omni-search + Multi-criteria)
+  const filteredCustomers = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return allCustomers.filter(c => {
+      // Omni-search
+      if (q) {
+        const matchSearch =
+          (c.full_name || '').toLowerCase().includes(q) ||
+          (c.customer_id || '').toLowerCase().includes(q) ||
+          (c.mobile || '').includes(q) ||
+          (c.aadhar_last4 || '').includes(q) ||
+          (c.father_husband_name || '').toLowerCase().includes(q) ||
+          (c.village_city || '').toLowerCase().includes(q) ||
+          (c.district || '').toLowerCase().includes(q) ||
+          (c.branch_code || '').toLowerCase().includes(q) ||
+          (c.fo_name || '').toLowerCase().includes(q)
+        if (!matchSearch) return false
+      }
+
+      // Branch Filter
       if (selectedBranch !== 'ALL' && (c.branch_code || '') !== selectedBranch) return false
+
+      // FO Filter
       if (selectedFO !== 'ALL' && (c.fo_name || '') !== selectedFO) return false
 
+      // Loan Status Filter
       const stat = memberLoanStatusMap.get(c.customer_id)
       const activeCount = stat?.activeCount || 0
       const closedCount = stat?.closedCount || 0
@@ -121,7 +162,20 @@ export default function MembersPage() {
 
       return true
     })
-  }, [customers, selectedBranch, selectedFO, statusFilter, memberLoanStatusMap])
+  }, [allCustomers, search, selectedBranch, selectedFO, statusFilter, memberLoanStatusMap])
+
+  // Client-side pagination over filtered dataset
+  const total = filteredCustomers.length
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  useEffect(() => {
+    setPage(1)
+  }, [search, selectedBranch, selectedFO, statusFilter])
+
+  const displayedCustomers = useMemo(() => {
+    const start = (page - 1) * pageSize
+    return filteredCustomers.slice(start, start + pageSize)
+  }, [filteredCustomers, page, pageSize])
 
   // Select all visible
   const handleToggleSelectAll = () => {
@@ -143,7 +197,7 @@ export default function MembersPage() {
 
   // Bulk Export Selected
   const handleExportSelected = () => {
-    const toExport = customers.filter(c => selectedMemberIds.has(c.customer_id))
+    const toExport = allCustomers.filter(c => selectedMemberIds.has(c.customer_id))
     if (toExport.length === 0) return
     exportToExcel(
       toExport.map(c => ({
@@ -198,7 +252,7 @@ export default function MembersPage() {
       toast.success('Members Reassigned', `Successfully updated ${targetCusts.length} members.`)
       setSelectedMemberIds(new Set())
       setShowReassignModal(false)
-      refresh()
+      loadData()
       window.dispatchEvent(new Event('aa2_data_changed'))
     } catch (err: any) {
       toast.error('Reassignment Failed', err.message || 'Could not complete bulk update.')
@@ -231,7 +285,7 @@ export default function MembersPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => exportToExcel(
-              customers.map(c => ({
+              filteredCustomers.map(c => ({
                 'Member ID': c.customer_id,
                 'Full Name': c.full_name,
                 'Father/Husband Name': c.father_husband_name || '',
@@ -328,7 +382,7 @@ export default function MembersPage() {
                 setSelectedFO('ALL')
                 setStatusFilter('ALL')
                 setSearch('')
-                resetToFirstPage()
+                setPage(1)
               }}
               className="text-blue-600 hover:underline font-bold text-[11px] ml-auto"
             >
@@ -344,7 +398,7 @@ export default function MembersPage() {
             type="text"
             placeholder="Search by member name, Member ID (MEM-XXXXX), mobile number, Aadhaar suffix, PAN, or village…"
             value={search}
-            onChange={e => { setSearch(e.target.value); resetToFirstPage() }}
+            onChange={e => { setSearch(e.target.value); setPage(1) }}
             className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
           />
         </div>
