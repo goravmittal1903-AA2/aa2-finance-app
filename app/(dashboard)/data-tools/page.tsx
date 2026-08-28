@@ -216,19 +216,20 @@ export default function DataToolsPage() {
     })
     if (!ok) return
 
-    setRollingBackId(batch.batch_id)
+    const targetBatchId = batch.batch_id || batch.id
+    setRollingBackId(targetBatchId)
     try {
       const res = await fetch('/api/admin/rollback-import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batchId: batch.batch_id }),
+        body: JSON.stringify({ batchId: targetBatchId }),
       })
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || 'Rollback failed.')
 
-      toast.success(`Batch ${batch.batch_id} successfully reversed! Deleted ${result.deletedCount} records.`)
+      toast.success(`Batch ${targetBatchId} successfully reversed! Deleted ${result.deletedCount} records.`)
       invalidateCache()
-      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('aa2_data_changed', { detail: { stores: ['customers', 'loans'] } }))
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('aa2_data_changed', { detail: { stores: ['customers', 'loans', 'schedule', 'transactions'] } }))
       await loadBatchHistory()
     } catch (err: any) {
       toast.error(err.message || 'Rollback failed.')

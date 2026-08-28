@@ -13,11 +13,12 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuthenticatedUser()
     if ('error' in auth) return auth.error
-    if (auth.profile.role !== 'it') {
-      return NextResponse.json({ error: 'Only IT role users can execute Import Rollbacks.' }, { status: 403 })
+    if (auth.profile.role !== 'it' && auth.profile.role !== 'admin') {
+      return NextResponse.json({ error: 'Only Admin or IT role users can execute Import Rollbacks.' }, { status: 403 })
     }
 
-    const { batchId } = await request.json()
+    const body = await request.json()
+    const batchId = body.batchId || body.batch_id || body.id
     if (!batchId) {
       return NextResponse.json({ error: 'Batch ID is required for rollback.' }, { status: 400 })
     }
@@ -27,18 +28,33 @@ export async function POST(request: NextRequest) {
 
     const tables = ['transactions', 'repayment_schedule', 'loans', 'customers']
     for (const table of tables) {
-      const { data: matched } = await supabase.from(table).select('id').eq('data->>batch_id', batchId)
-      if (matched && matched.length > 0) {
+      while (true) {
+        const { data: matched, error: selErr } = await supabase
+          .from(table)
+          .select('id')
+          .eq('data->>batch_id', String(batchId))
+          .limit(500)
+
+        if (selErr || !matched || matched.length === 0) break
         const ids = matched.map((r: any) => r.id)
-        const { error } = await supabase.from(table).delete().in('id', ids)
-        if (!error) deletedCount += ids.length
+        const { error: delErr } = await supabase.from(table).delete().in('id', ids)
+        if (delErr) {
+          console.warn(`Error deleting batch ${batchId} from ${table}:`, delErr.message)
+          break
+        }
+        deletedCount += ids.length
+        if (matched.length < 500) break
       }
     }
 
-    // Clean up orphaned transactions and schedules whose loans no longer exist via RPC
-    const { data: purgeStats } = await supabase.rpc('purge_orphaned_records')
-    if (purgeStats) {
-      deletedCount += (purgeStats.deleted_txns || 0) + (purgeStats.deleted_scheds || 0)
+    // Clean up orphaned transactions and schedules whose loans no longer exist via RPC if available
+    try {
+      const { data: purgeStats } = await supabase.rpc('purge_orphaned_records')
+      if (purgeStats) {
+        deletedCount += (purgeStats.deleted_txns || 0) + (purgeStats.deleted_scheds || 0)
+      }
+    } catch {
+      // Gracefully continue if RPC does not exist
     }
 
     const { count: activeLoanCount } = await supabase.from('loans').select('id', { count: 'exact', head: true })
@@ -50,18 +66,22 @@ export async function POST(request: NextRequest) {
     // Update batch log status in both audit_log and audit_logs tables
     const logTables = ['audit_log', 'audit_logs']
     for (const t of logTables) {
-      const { data: batchLog } = await supabase.from(t).select('data').eq('id', batchId).maybeSingle()
-      if (batchLog && batchLog.data) {
-        const updatedLog = {
-          id: batchId,
-          data: {
-            ...batchLog.data,
-            status: 'ROLLED_BACK',
-            rolled_back_by: auth.profile.email,
-            rolled_back_at: new Date().toISOString(),
-          },
+      try {
+        const { data: batchLog } = await supabase.from(t).select('data').eq('id', batchId).maybeSingle()
+        if (batchLog && batchLog.data) {
+          const updatedLog = {
+            id: batchId,
+            data: {
+              ...batchLog.data,
+              status: 'ROLLED_BACK',
+              rolled_back_by: auth.profile.email,
+              rolled_back_at: new Date().toISOString(),
+            },
+          }
+          await supabase.from(t).upsert(updatedLog)
         }
-        await supabase.from(t).upsert(updatedLog)
+      } catch {
+        // Continue
       }
     }
 
