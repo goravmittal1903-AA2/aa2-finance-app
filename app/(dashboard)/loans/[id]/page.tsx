@@ -7,7 +7,7 @@ import { getOne, getFiltered, putOne, putMany, delOne, getAll, supabase } from '
 import { recalcLoanLedger, applyPayment, computeForeclosure, addDays, addMonthsLike, daysBetween, computeLoanEconomics, generateSchedule, classifyAndAllocatePayment, processOTSSettlement, generateUniqueLoanAccountNo, FREQ_PER_YEAR } from '@/lib/calculations'
 import type { Loan, ScheduleRow, Transaction, Customer } from '@/lib/types'
 import { inr, fdate, fdatetime, todayISO, statusColor, username } from '@/lib/utils'
-import { generateSanctionLetter, generatePassbook, generateLoanAgreement, generatePaymentReceipt, generateThermalPaymentReceipt, generateForeclosureNoc, generateRepaymentSchedule, generateSOA, generateTopUpLetter, generateRestructureAgreement, generateOTSSettlementLetter } from '@/lib/document-generator'
+import { generateSanctionLetter, generatePaymentReceipt, generateThermalPaymentReceipt, generateForeclosureNoc, generateRepaymentSchedule, generateSOA, generateTopUpLetter, generateRestructureAgreement, generateOTSSettlementLetter } from '@/lib/document-generator'
 import { logAuditEvent } from '@/lib/audit'
 import { useAuth } from '@/lib/auth-context'
 import { confirmAction } from '@/lib/confirm'
@@ -1091,66 +1091,6 @@ export default function LoanDetailPage({ params }: PageProps) {
           </button>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => generatePassbook({
-              loan_account_no: loan.loan_account_no,
-              member_name: loan.member_name_cache || loan.member_name,
-              customer_id: loan.customer_id,
-              father_husband_name: member?.father_husband_name || '',
-              mobile: member?.mobile || '',
-              address: member ? `${member.address_current || ''}, ${member.village_city || ''}` : '',
-              branch_code: loan.branch_code,
-              fo_name: loan.fo_name || member?.fo_name || '',
-              loan_amount: loan.loan_amount,
-              installment_amount: loan.installment_amount,
-              tenure: loan.tenure,
-              frequency: loan.frequency,
-              disbursement_date: loan.disbursement_date,
-              ledger_balance: loan.ledger_balance || 0,
-              total_collected: loan.total_collected || 0,
-              schedule: schedule.map(s => ({
-                installment_no: s.installment_no,
-                due_date: s.due_date,
-                emi_due: s.emi_due,
-                principal_due: s.principal_due,
-                interest_due: s.interest_due,
-                paid_amount: s.paid_amount,
-                paid_date: s.paid_date,
-                status: s.status,
-                closing_balance: s.closing_balance,
-              })),
-            })}
-            className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold rounded-xl transition border border-blue-200"
-          >
-            <FileText className="w-3.5 h-3.5" /> Passbook
-          </button>
-
-          <button
-            onClick={() => generateLoanAgreement({
-              loan_account_no: loan.loan_account_no,
-              member_name: loan.member_name_cache || loan.member_name,
-              customer_id: loan.customer_id,
-              father_husband_name: member?.father_husband_name || '',
-              mobile: member?.mobile || '',
-              address: member ? `${member.address_current || ''}, ${member.village_city || ''}` : '',
-              branch_code: loan.branch_code,
-              fo_name: loan.fo_name || member?.fo_name || '',
-              bm_name: loan.bm_name || member?.bm_name || '',
-              loan_amount: loan.loan_amount,
-              net_disbursement: loan.net_disbursement,
-              interest_rate: loan.interest_rate,
-              tenure: loan.tenure,
-              frequency: loan.frequency,
-              installment_amount: loan.installment_amount,
-              disbursement_date: loan.disbursement_date,
-              installment_start_date: loan.installment_start_date,
-              product_type: loan.product_type,
-            })}
-            className="flex items-center gap-1.5 px-3 py-2 bg-purple-50 text-purple-700 hover:bg-purple-100 text-xs font-bold rounded-xl transition border border-purple-200"
-          >
-            <Landmark className="w-3.5 h-3.5" /> Agreement (DPN)
-          </button>
-
           <button
             onClick={() => generateSanctionLetter({
               loan_account_no: loan.loan_account_no,

@@ -265,7 +265,7 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
 
   // Step 2: Filter, sort, and physically purge duplicate post-import payment transactions
   const sortedRaw = rawTxns
-    .filter(t => (t.txn_type === 'PAYMENT' || t.txn_type === 'FORECLOSURE') && !t.voided && (t as any).created_by !== 'excel_import')
+    .filter(t => (t.txn_type === 'PAYMENT' || t.txn_type === 'FORECLOSURE' || !t.txn_type) && !t.voided)
     .sort((a, b) => a.txn_date.localeCompare(b.txn_date) || (a.txn_id || 0) - (b.txn_id || 0))
 
   const txns: Transaction[] = []

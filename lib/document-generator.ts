@@ -911,9 +911,6 @@ export function generateRepaymentSchedule(data: RepaymentScheduleData) {
       <div class="box">
         <div class="box-title">Loan Summary</div>
         <div class="row"><span class="label">Loan Account No:</span> <span class="value">${data.loan_account_no}</span></div>
-        <div class="row"><span class="label">Product:</span> <span class="value">${data.product_type}</span></div>
-        <div class="row"><span class="label">Loan Amount:</span> <span class="value">${INR(data.loan_amount)}</span></div>
-        <div class="row"><span class="label">Interest Rate:</span> <span class="value">${data.interest_rate}% p.a.</span></div>
         <div class="row"><span class="label">EMI Amount:</span> <span class="value">${INR(data.installment_amount)}</span></div>
         <div class="row"><span class="label">Tenure:</span> <span class="value">${data.tenure} ${data.frequency} installments</span></div>
       </div>
@@ -1022,8 +1019,6 @@ export function generateSOA(data: SOAData) {
         <div class="box-title">Loan Account Summary</div>
         <div class="row"><span class="label">Loan A/C No:</span> <span class="value font-mono"><strong>${data.loan_account_no}</strong></span></div>
         <div class="row"><span class="label">Product:</span> <span class="value">${data.product_type}</span></div>
-        <div class="row"><span class="label">Sanctioned:</span> <span class="value">${INR(data.loan_amount)}</span></div>
-        <div class="row"><span class="label">Rate:</span> <span class="value">${data.interest_rate}% p.a.</span></div>
         <div class="row"><span class="label">EMI Amount:</span> <span class="value">${INR(data.installment_amount)} × ${data.tenure}</span></div>
         <div class="row"><span class="label">Disbursement:</span> <span class="value">${FDATE(data.disbursement_date)}</span></div>
         <div class="row"><span class="label">Status:</span> <span class="badge ${statusClass}">${data.status}</span></div>
@@ -1117,10 +1112,7 @@ export function generateTopUpLetter(data: TopUpLetterData) {
     <div class="box mb-4">
       <div class="box-title">Revised Repayment Structure</div>
       <div class="grid" style="margin-bottom: 0;">
-        <div>
-          <div class="row"><span class="label">Interest Rate:</span> <span class="value">${data.interest_rate}% p.a.</span></div>
           <div class="row"><span class="label">New Tenure:</span> <span class="value">${data.new_tenure} Installments (${data.frequency})</span></div>
-        </div>
         <div>
           <div class="row"><span class="label">New EMI Amount:</span> <span class="value">${INR(data.new_installment_amount)}</span></div>
           <div class="row"><span class="label">First EMI Date:</span> <span class="value">${FDATE(data.first_emi_date)}</span></div>
@@ -1410,7 +1402,6 @@ export function generateLoanAgreement(data: LoanAgreementData) {
         <tr><td class="left font-bold">Product Scheme</td><td>${data.product_type}</td></tr>
         <tr><td class="left font-bold">Sanctioned Principal Amount</td><td class="font-bold">${INR(data.loan_amount)}</td></tr>
         <tr><td class="left font-bold">Net Disbursed Amount</td><td class="font-bold font-mono">${INR(data.net_disbursement)}</td></tr>
-        <tr><td class="left font-bold">Annual Flat Interest Rate</td><td>${data.interest_rate}% p.a.</td></tr>
         <tr><td class="left font-bold">Repayment Tenure &amp; Frequency</td><td>${data.tenure} ${data.frequency} Installments</td></tr>
         <tr><td class="left font-bold">Equated Installment Amount (EMI)</td><td class="font-bold text-emerald">${INR(data.installment_amount)} per ${data.frequency}</td></tr>
         <tr><td class="left font-bold">First Repayment Due Date</td><td class="font-mono">${FDATE(data.installment_start_date)}</td></tr>
@@ -1420,7 +1411,7 @@ export function generateLoanAgreement(data: LoanAgreementData) {
     <div class="box mb-4" style="background: #f8fafc; border-color: #cbd5e1; margin-top: 15px;">
       <div class="box-title" style="color: #0f172a;">DEMAND PROMISSORY NOTE (DPN)</div>
       <p class="text-xs" style="color: #334155; line-height: 1.8; margin: 0;">
-        ON DEMAND, I, <strong>${data.member_name}</strong>, promise to pay <strong>AA2 MICROFINANCE PVT. LTD.</strong> or order, at <strong>${data.branch_code}</strong>, the sum of <strong>${INR(data.loan_amount)}</strong> (Rupees in words: ${INR(data.loan_amount)}) together with interest at the rate of <strong>${data.interest_rate}% per annum</strong> for value received.
+        ON DEMAND, I, <strong>${data.member_name}</strong>, promise to pay <strong>AA2 MICROFINANCE PVT. LTD.</strong> or order, at <strong>${data.branch_code}</strong>, the sum of <strong>${INR(data.loan_amount)}</strong> (Rupees in words: ${INR(data.loan_amount)}) together with applicable interest for value received.
       </p>
     </div>
 
