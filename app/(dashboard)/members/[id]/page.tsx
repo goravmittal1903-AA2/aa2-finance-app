@@ -303,12 +303,28 @@ export default function MemberDetailPage({ params }: PageProps) {
                   <input type="text" value={editFormData.state || ''} onChange={e => setEditFormData({ ...editFormData, state: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
                 </div>
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Branch Manager Name</label>
+                  <label className="font-semibold text-slate-700 block mb-1">Center Number</label>
+                  <input type="text" value={editFormData.center_no || ''} onChange={e => setEditFormData({ ...editFormData, center_no: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs font-mono" placeholder="e.g. C-104" />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Cluster Number</label>
+                  <input type="text" value={editFormData.cluster_no || ''} onChange={e => setEditFormData({ ...editFormData, cluster_no: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs font-mono" placeholder="e.g. CL-02" />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Field Officer Name (FO)</label>
+                  <input type="text" value={editFormData.fo_name || ''} onChange={e => setEditFormData({ ...editFormData, fo_name: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Branch Manager Name (BM)</label>
                   <input type="text" value={editFormData.bm_name || ''} onChange={e => setEditFormData({ ...editFormData, bm_name: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
                 </div>
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Field Officer Name</label>
-                  <input type="text" value={editFormData.fo_name || ''} onChange={e => setEditFormData({ ...editFormData, fo_name: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
+                  <label className="font-semibold text-slate-700 block mb-1">Area Manager Name (AM)</label>
+                  <input type="text" value={editFormData.am_name || ''} onChange={e => setEditFormData({ ...editFormData, am_name: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Regional Manager Name (RM)</label>
+                  <input type="text" value={editFormData.rm_name || ''} onChange={e => setEditFormData({ ...editFormData, rm_name: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
                 </div>
               </div>
               <div>
@@ -380,6 +396,30 @@ export default function MemberDetailPage({ params }: PageProps) {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Financial Portfolio Summary Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs space-y-1">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Facilities</span>
+          <p className="text-base font-bold text-slate-800">{loans.length} Loan(s)</p>
+          <p className="text-[11px] text-emerald-600 font-semibold">{loans.filter(l => l.status === 'ACTIVE').length} Active · {loans.filter(l => (l.status || '').startsWith('CLOS')).length} Closed</p>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs space-y-1">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Sanctioned</span>
+          <p className="text-base font-bold text-blue-600 font-mono">{inr(loans.reduce((acc, l) => acc + Number(l.loan_amount || 0), 0))}</p>
+          <p className="text-[11px] text-slate-400">Cumulative Sanctions</p>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs space-y-1">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Current Outstanding</span>
+          <p className="text-base font-bold text-amber-600 font-mono">{inr(loans.filter(l => l.status === 'ACTIVE').reduce((acc, l) => acc + Number(l.ledger_balance || 0), 0))}</p>
+          <p className="text-[11px] text-amber-700 font-semibold">Active Principal Due</p>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs space-y-1">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Collected</span>
+          <p className="text-base font-bold text-emerald-600 font-mono">{inr(loans.reduce((acc, l) => acc + Number(l.total_collected || 0), 0))}</p>
+          <p className="text-[11px] text-slate-400">Paid Receipts Sum</p>
         </div>
       </div>
 
