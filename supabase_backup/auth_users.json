@@ -1,0 +1,94 @@
+[
+  {
+    "id": "15acf53d-3cf5-480b-8ad7-363eec1422ac",
+    "aud": "authenticated",
+    "role": "authenticated",
+    "email": "it@aa2finance.com",
+    "email_confirmed_at": "2026-08-26T14:50:49.052066Z",
+    "phone": "",
+    "confirmed_at": "2026-08-26T14:50:49.052066Z",
+    "last_sign_in_at": "2026-08-26T14:51:00.864135Z",
+    "app_metadata": {
+      "provider": "email",
+      "providers": [
+        "email"
+      ]
+    },
+    "user_metadata": {
+      "email_verified": true
+    },
+    "identities": null,
+    "created_at": "2026-08-26T14:46:55.104525Z",
+    "updated_at": "2026-08-26T14:51:00.912785Z",
+    "is_anonymous": false
+  },
+  {
+    "id": "75a22636-01b3-469c-a7bc-fa0134bb4016",
+    "aud": "authenticated",
+    "role": "authenticated",
+    "email": "admin@aa2finance.com",
+    "email_confirmed_at": "2026-08-20T07:48:41.385424Z",
+    "phone": "",
+    "confirmed_at": "2026-08-20T07:48:41.385424Z",
+    "last_sign_in_at": "2026-08-21T08:17:57.390315Z",
+    "app_metadata": {
+      "provider": "email",
+      "providers": [
+        "email"
+      ]
+    },
+    "user_metadata": {
+      "email_verified": true
+    },
+    "identities": null,
+    "created_at": "2026-08-20T07:48:41.374989Z",
+    "updated_at": "2026-08-21T08:17:57.462945Z",
+    "is_anonymous": false
+  },
+  {
+    "id": "647da8b2-609d-43a9-8314-bf8e1084f38b",
+    "aud": "authenticated",
+    "role": "authenticated",
+    "email": "mis@aa2finance.com",
+    "email_confirmed_at": "2026-08-20T07:46:57.364583Z",
+    "phone": "",
+    "confirmed_at": "2026-08-20T07:46:57.364583Z",
+    "last_sign_in_at": "2026-08-25T10:43:40.006787Z",
+    "app_metadata": {
+      "provider": "email",
+      "providers": [
+        "email"
+      ]
+    },
+    "user_metadata": {
+      "email_verified": true
+    },
+    "identities": null,
+    "created_at": "2026-08-20T07:46:57.315072Z",
+    "updated_at": "2026-08-26T04:02:37.736213Z",
+    "is_anonymous": false
+  },
+  {
+    "id": "d7c77cd5-43eb-4cff-9064-a549b98f3171",
+    "aud": "authenticated",
+    "role": "authenticated",
+    "email": "management@aa2finance.com",
+    "email_confirmed_at": "2026-07-21T08:00:39.329172Z",
+    "phone": "",
+    "confirmed_at": "2026-07-21T08:00:39.329172Z",
+    "last_sign_in_at": "2026-08-20T13:03:55.676523Z",
+    "app_metadata": {
+      "provider": "email",
+      "providers": [
+        "email"
+      ]
+    },
+    "user_metadata": {
+      "email_verified": true
+    },
+    "identities": null,
+    "created_at": "2026-07-21T08:00:39.282793Z",
+    "updated_at": "2026-08-20T13:03:55.715935Z",
+    "is_anonymous": false
+  }
+]

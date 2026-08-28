@@ -1,0 +1,46 @@
+[
+  {
+    "id": "647da8b2-609d-43a9-8314-bf8e1084f38b",
+    "email": "mis@aa2finance.com",
+    "display_name": "MIS",
+    "role": "employee",
+    "branch_code": null,
+    "active": true,
+    "ip_allowlist": [],
+    "created_at": "2026-08-20T07:46:57.314692+00:00",
+    "updated_at": "2026-08-20T07:46:57.314692+00:00"
+  },
+  {
+    "id": "75a22636-01b3-469c-a7bc-fa0134bb4016",
+    "email": "admin@aa2finance.com",
+    "display_name": "Admin",
+    "role": "admin",
+    "branch_code": null,
+    "active": true,
+    "ip_allowlist": [],
+    "created_at": "2026-08-20T07:48:41.373908+00:00",
+    "updated_at": "2026-08-20T07:48:41.373908+00:00"
+  },
+  {
+    "id": "d7c77cd5-43eb-4cff-9064-a549b98f3171",
+    "email": "management@aa2finance.com",
+    "display_name": "AA2 IT Administrator",
+    "role": "it",
+    "branch_code": null,
+    "active": false,
+    "ip_allowlist": [],
+    "created_at": "2026-07-21T08:00:39.280079+00:00",
+    "updated_at": "2026-07-21T08:00:39.280079+00:00"
+  },
+  {
+    "id": "15acf53d-3cf5-480b-8ad7-363eec1422ac",
+    "email": "it@aa2finance.com",
+    "display_name": "it",
+    "role": "employee",
+    "branch_code": null,
+    "active": true,
+    "ip_allowlist": [],
+    "created_at": "2026-08-26T14:46:55.104184+00:00",
+    "updated_at": "2026-08-26T14:46:55.104184+00:00"
+  }
+]

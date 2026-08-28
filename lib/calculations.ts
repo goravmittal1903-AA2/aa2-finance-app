@@ -225,41 +225,18 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
     getOne<Loan>('loans', loan_account_no),
   ])
 
-  // Step 1: Sort and set baseline rows (respecting imported paid EMIs AND advance balance / total collected)
+  // Step 1: Sort and reset all non-restructured/waived rows to clean zero baseline state first
   let rows = rawRows.sort((a, b) => a.installment_no - b.installment_no)
   if (rows.length === 0 && loan) {
     rows = generateSchedule(loan)
   }
-  const importedPaidEmi = Number((loan as any)?.paid_emi || (loan as any)?.data?.paid_emi || 0)
-  const advanceBal = Number((loan as any)?.advance_balance || (loan as any)?.data?.advance_balance || (loan as any)?.data?.ADVANCE || 0)
-  const totalRec = Number((loan as any)?.total_collected || (loan as any)?.data?.total_collected || (loan as any)?.data?.TOTAL_RECEIVED_AMOUNT || 0)
-  const emiAmt = Number(loan?.installment_amount || (loan as any)?.data?.installment_amount || 0)
 
-  // Calculate effective baseline coverage in rupees
-  const effectiveBaselinePaid = Math.max(totalRec, (importedPaidEmi * emiAmt) + advanceBal)
-
-  let remBaseline = effectiveBaselinePaid
   for (const r of rows) {
     if (r.status !== 'Restructured' && r.status !== 'Waived') {
-      const due = r.emi_due || emiAmt
-      if (remBaseline >= due) {
-        r.paid_amount = due
-        r.status = 'Paid'
-        r.paid_date = r.paid_date || r.due_date
-        r.dpd = 0
-        remBaseline -= due
-      } else if (remBaseline > 0) {
-        r.paid_amount = remBaseline
-        r.status = 'Partial'
-        r.paid_date = r.paid_date || r.due_date
-        r.dpd = 0
-        remBaseline = 0
-      } else {
-        r.paid_amount = 0
-        r.status = 'Pending'
-        r.paid_date = null
-        r.dpd = 0
-      }
+      r.paid_amount = 0
+      r.status = 'Pending'
+      r.paid_date = null
+      r.dpd = 0
     }
   }
 
@@ -284,22 +261,51 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
     txns.push(t)
   }
 
-  // Step 3: Re-apply payments — oldest payment fills oldest installment first
-  for (const t of txns) {
-    let remaining = Number(t.amount) || 0
+  // Step 3: Re-apply payments — If transactions exist, apply chronologically from zero baseline
+  if (txns.length > 0) {
+    for (const t of txns) {
+      let remaining = Number(t.amount) || 0
+      for (const r of rows) {
+        if (remaining <= 0) break
+        if (r.status === 'Restructured' || r.status === 'Waived') continue
+        const due = r.emi_due - r.paid_amount
+        if (due <= 0) continue
+        const pay = Math.min(due, remaining)
+        r.paid_amount = Math.round((r.paid_amount + pay) * 100) / 100
+        remaining -= pay
+        if (r.paid_amount >= r.emi_due - 0.5) {
+          r.status = 'Paid'
+          r.paid_date = t.txn_date
+        } else {
+          r.status = 'Partial'
+        }
+      }
+    }
+  } else {
+    // Only if 0 transactions exist: Fallback to imported baseline paid EMIs or total collected from loan record
+    const importedPaidEmi = Number((loan as any)?.paid_emi || (loan as any)?.data?.paid_emi || 0)
+    const advanceBal = Number((loan as any)?.advance_balance || (loan as any)?.data?.advance_balance || (loan as any)?.data?.ADVANCE || 0)
+    const totalRec = Number((loan as any)?.total_collected || (loan as any)?.data?.total_collected || (loan as any)?.data?.TOTAL_RECEIVED_AMOUNT || 0)
+    const emiAmt = Number(loan?.installment_amount || (loan as any)?.data?.installment_amount || 0)
+    const effectiveBaselinePaid = Math.max(totalRec, (importedPaidEmi * emiAmt) + advanceBal)
+
+    let remBaseline = effectiveBaselinePaid
     for (const r of rows) {
-      if (remaining <= 0) break
-      if (r.status === 'Restructured' || r.status === 'Waived') continue
-      const due = r.emi_due - r.paid_amount
-      if (due <= 0) continue
-      const pay = Math.min(due, remaining)
-      r.paid_amount = Math.round((r.paid_amount + pay) * 100) / 100
-      remaining -= pay
-      if (r.paid_amount >= r.emi_due - 0.5) {
-        r.status = 'Paid'
-        r.paid_date = t.txn_date
-      } else {
-        r.status = 'Partial'
+      if (r.status !== 'Restructured' && r.status !== 'Waived') {
+        const due = r.emi_due || emiAmt
+        if (remBaseline >= due) {
+          r.paid_amount = due
+          r.status = 'Paid'
+          r.paid_date = r.paid_date || r.due_date
+          r.dpd = 0
+          remBaseline -= due
+        } else if (remBaseline > 0) {
+          r.paid_amount = remBaseline
+          r.status = 'Partial'
+          r.paid_date = r.paid_date || r.due_date
+          r.dpd = 0
+          remBaseline = 0
+        }
       }
     }
   }
@@ -309,10 +315,8 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
     if (r.status === 'Paid' || r.status === 'Waived' || r.status === 'Restructured') {
       r.dpd = 0
     } else {
-      // DPD = days the installment is overdue (only if due_date < today)
       const dpd = r.due_date < today ? daysBetween(r.due_date, today) : 0
       r.dpd = dpd
-      // Mark as Overdue if has dpd and not yet Partial
       if (dpd > 0 && r.status === 'Pending') r.status = 'Overdue'
     }
   }
@@ -324,13 +328,11 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
       activeRows.every(r => r.status === 'Paid' || r.status === 'Waived')
 
     if (fullyPaid) {
-      if (!(loan.status || '').toUpperCase().startsWith('CLOS')) {
-        loan.status = 'CLOSE'
-        loan.close_date = txns.length ? txns[txns.length - 1].txn_date : today
-        loan.closure_type = 'FULL_REPAYMENT'
-      }
+      loan.status = 'CLOSE'
+      if (!loan.close_date) loan.close_date = txns.length ? txns[txns.length - 1].txn_date : today
+      loan.closure_type = loan.closure_type || 'FULL_REPAYMENT'
     } else {
-      // If loan was closed from full repayment but a transaction was deleted/voided, revert to ACTIVE
+      // Revert to ACTIVE if not fully paid
       if (loan.closure_type === 'FULL_REPAYMENT' || (loan.status || '').toUpperCase().startsWith('CLOS')) {
         loan.status = 'ACTIVE'
         loan.close_date = null

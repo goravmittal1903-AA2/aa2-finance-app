@@ -116,10 +116,8 @@ export default function LoanDetailPage({ params }: PageProps) {
     setRstStartDate(todayISO())
     setTopupDate(todayISO())
     setTopupStartDate(todayISO())
-    // Run full ledger recalc on first load only (cleans duplicates, syncs schedule)
-    import('@/lib/calculations').then(({ recalcLoanLedger }) =>
-      recalcLoanLedger(id).then(() => loadLoanDetails())
-    )
+    // Load loan details cleanly on mount (read-only, no mutating overwrites)
+    loadLoanDetails()
 
     const handler = () => loadLoanDetails(true)
     window.addEventListener('aa2_data_changed', handler)

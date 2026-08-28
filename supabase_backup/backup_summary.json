@@ -1,0 +1,11 @@
+{
+  "customers": 447,
+  "loans": 467,
+  "transactions": 125,
+  "repayment_schedule": 1000,
+  "audit_logs": 20,
+  "documents": 0,
+  "user_profiles": 4,
+  "login_security": 3,
+  "auth_security_settings": 1
+}

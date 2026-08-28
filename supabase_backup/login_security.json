@@ -1,0 +1,20 @@
+[
+  {
+    "email": "management@aa2finance.com",
+    "failed_attempts": 1,
+    "locked_at": null,
+    "updated_at": "2026-08-20T13:03:50.730512+00:00"
+  },
+  {
+    "email": "admin@aa2finance.com",
+    "failed_attempts": 5,
+    "locked_at": "2026-08-21T08:49:54.394991+00:00",
+    "updated_at": "2026-08-21T08:49:54.394991+00:00"
+  },
+  {
+    "email": "it@aa2finance.com",
+    "failed_attempts": 3,
+    "locked_at": null,
+    "updated_at": "2026-08-24T12:29:13.642629+00:00"
+  }
+]

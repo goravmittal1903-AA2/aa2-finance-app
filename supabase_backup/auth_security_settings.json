@@ -1,0 +1,8 @@
+[
+  {
+    "id": true,
+    "allowed_email_domain": "aa2finance.com",
+    "max_failed_attempts": 5,
+    "updated_at": "2026-07-14T13:43:11.552043+00:00"
+  }
+]
