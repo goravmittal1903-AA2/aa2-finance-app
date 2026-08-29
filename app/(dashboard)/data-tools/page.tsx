@@ -129,7 +129,7 @@ export default function DataToolsPage() {
     setErrorMessage('')
 
     const batchId = `BATCH-${Date.now()}`
-    const CHUNK_SIZE = 40
+    const CHUNK_SIZE = 25
 
     try {
       const customers = parsedData.customers
@@ -166,6 +166,10 @@ export default function DataToolsPage() {
             transactions: tChunk,
             isLastChunk,
             totalMembers: customers.length,
+            cumulativeMembersCreated: totalCreatedM,
+            cumulativeMembersUpdated: totalUpdatedM,
+            cumulativeLoansCreated: totalCreatedL,
+            cumulativeLoansUpdated: totalUpdatedL,
           }),
         })
 

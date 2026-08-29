@@ -28,12 +28,16 @@ export async function POST(request: NextRequest) {
       transactions = [],
       isLastChunk = false,
       totalMembers = 0,
+      cumulativeMembersCreated = 0,
+      cumulativeMembersUpdated = 0,
+      cumulativeLoansCreated = 0,
+      cumulativeLoansUpdated = 0,
     } = body
 
     const supabase = adminClient()
     const batchId = clientBatchId || `BATCH-${Date.now()}`
 
-    // 1. Process Customers Chunk (Reuse existing permanent customer_id if matched)
+    // 1. Process Customers Sub-Chunks (25 items per sub-chunk)
     let membersCreated = 0
     let membersUpdated = 0
     if (customers.length > 0) {
@@ -51,10 +55,15 @@ export async function POST(request: NextRequest) {
         else membersCreated++
       })
 
-      await supabase.from('customers').upsert(customerPayloads)
+      const CUST_CHUNK = 25
+      for (let i = 0; i < customerPayloads.length; i += CUST_CHUNK) {
+        const sub = customerPayloads.slice(i, i + CUST_CHUNK)
+        const { error } = await supabase.from('customers').upsert(sub)
+        if (error) throw new Error(`Customers upsert error: ${error.message}`)
+      }
     }
 
-    // 2. Process Loans Chunk (Reuse existing permanent loan_account_no if matched)
+    // 2. Process Loans Sub-Chunks (25 items per sub-chunk)
     let loansCreated = 0
     let loansUpdated = 0
     const newlyCreatedLoanIds: string[] = []
@@ -73,14 +82,23 @@ export async function POST(request: NextRequest) {
         else { loansCreated++; newlyCreatedLoanIds.push(item.id) }
       })
 
-      await supabase.from('loans').upsert(loanPayloads)
+      const LOAN_CHUNK = 25
+      for (let i = 0; i < loanPayloads.length; i += LOAN_CHUNK) {
+        const sub = loanPayloads.slice(i, i + LOAN_CHUNK)
+        const { error } = await supabase.from('loans').upsert(sub)
+        if (error) throw new Error(`Loans upsert error: ${error.message}`)
+      }
 
-      // Write per-loan audit_events for NEWLY created loans so audit trail shows import entry
+      // Write per-loan audit_events for NEWLY created loans (25 items per sub-chunk)
       if (newlyCreatedLoanIds.length > 0) {
+        const actorUuid = auth.profile?.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(auth.profile.id)
+          ? auth.profile.id
+          : null
+
         const loanAuditEvents = loans
           .filter((l: any) => newlyCreatedLoanIds.includes(l.loan_account_no))
           .map((l: any) => ({
-            actor_id: auth.profile.id,
+            actor_id: actorUuid,
             actor_email: auth.profile.email,
             action: 'LOAN_CREATED',
             entity_type: 'LOAN',
@@ -98,37 +116,57 @@ export async function POST(request: NextRequest) {
               status: l.status,
               source: 'EXCEL_IMPORT',
               batch_id: batchId,
+              narration: `Loan Account ${l.loan_account_no} created via Excel Import (Batch: ${batchId}) for ${l.member_name_cache || l.member_name}`,
             },
-            narration: `Loan Account ${l.loan_account_no} created via Excel Import (Batch: ${batchId}) for ${l.member_name_cache || l.member_name}`,
             event_hash: `HASH-LOAN-${l.loan_account_no}-${batchId}`,
           }))
-        // Insert in chunks to avoid payload size limit
-        for (let i = 0; i < loanAuditEvents.length; i += 50) {
-          await supabase.from('audit_events').insert(loanAuditEvents.slice(i, i + 50))
+
+        const EVT_CHUNK = 25
+        for (let i = 0; i < loanAuditEvents.length; i += EVT_CHUNK) {
+          const sub = loanAuditEvents.slice(i, i + EVT_CHUNK)
+          const { error } = await supabase.from('audit_events').insert(sub)
+          if (error) console.warn('Audit event insert warning:', error.message)
         }
       }
     }
 
-    // 3. Process Repayment Schedules Chunk
+    // 3. Process Repayment Schedules Sub-Chunks (50 items per sub-chunk)
     if (schedules.length > 0) {
       const schedulePayloads = schedules.map((s: any) => ({
         id: `${s.loan_account_no}-${s.installment_no}`,
         data: { ...s, batch_id: batchId },
       }))
-      await supabase.from('repayment_schedule').upsert(schedulePayloads)
+
+      const SCHED_CHUNK = 50
+      for (let i = 0; i < schedulePayloads.length; i += SCHED_CHUNK) {
+        const sub = schedulePayloads.slice(i, i + SCHED_CHUNK)
+        const { error } = await supabase.from('repayment_schedule').upsert(sub)
+        if (error) throw new Error(`Schedules upsert error: ${error.message}`)
+      }
     }
 
-    // 4. Process Transactions Chunk
+    // 4. Process Transactions Sub-Chunks (50 items per sub-chunk)
     if (transactions.length > 0) {
       const transactionPayloads = transactions.map((t: any) => ({
         id: String(t.txn_id),
         data: { ...t, batch_id: batchId },
       }))
-      await supabase.from('transactions').upsert(transactionPayloads)
+
+      const TXN_CHUNK = 50
+      for (let i = 0; i < transactionPayloads.length; i += TXN_CHUNK) {
+        const sub = transactionPayloads.slice(i, i + TXN_CHUNK)
+        const { error } = await supabase.from('transactions').upsert(sub)
+        if (error) throw new Error(`Transactions upsert error: ${error.message}`)
+      }
     }
 
-    // 5. Final Batch Log Entry (Write to both audit_log & audit_logs tables)
+    // 5. Final Batch Log Entry with cumulative stats
     if (isLastChunk) {
+      const finalMembersCreated = (cumulativeMembersCreated || 0) + membersCreated
+      const finalMembersUpdated = (cumulativeMembersUpdated || 0) + membersUpdated
+      const finalLoansCreated = (cumulativeLoansCreated || 0) + loansCreated
+      const finalLoansUpdated = (cumulativeLoansUpdated || 0) + loansUpdated
+
       const batchLog = {
         id: batchId,
         data: {
@@ -137,10 +175,10 @@ export async function POST(request: NextRequest) {
           branch_name: branchName || 'ALL',
           uploaded_by: auth.profile.email,
           uploaded_at: new Date().toISOString(),
-          members_created: membersCreated,
-          members_updated: membersUpdated,
-          loans_created: loansCreated,
-          loans_updated: loansUpdated,
+          members_created: finalMembersCreated,
+          members_updated: finalMembersUpdated,
+          loans_created: finalLoansCreated,
+          loans_updated: finalLoansUpdated,
           total_records: totalMembers || customers.length,
           status: 'COMPLETED',
         },
@@ -156,7 +194,7 @@ export async function POST(request: NextRequest) {
         entity_id: batchId,
         branch_code: branchName || 'ALL',
         after_data: batchLog.data,
-        narration: `Master Excel Import completed: ${loansCreated} loans created, ${membersCreated} members created from ${fileName || 'Branch_Master.xlsx'}`,
+        narration: `Master Excel Import completed: ${finalLoansCreated} loans created, ${finalMembersCreated} members created from ${fileName || 'Branch_Master.xlsx'}`,
         event_hash: `HASH-${Date.now()}-${batchId}`
       })
     }
