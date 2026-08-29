@@ -183,7 +183,14 @@ export default function LoanDetailPage({ params }: PageProps) {
         ? sched.sort((a, b) => a.installment_no - b.installment_no)
         : generateSchedule(l)
       setSchedule(effectiveSchedule)
-      setTransactions(cleanTxs.sort((a, b) => (b.txn_date || '').localeCompare(a.txn_date || '') || Number(b.txn_id || 0) - Number(a.txn_id || 0)))
+
+      const { generateImportTransactions } = await import('@/lib/calculations')
+      const effectiveTransactions = cleanTxs.length > 0
+        ? cleanTxs
+        : (l.paid_emi && l.paid_emi > 0)
+          ? generateImportTransactions(l)
+          : []
+      setTransactions(effectiveTransactions.sort((a, b) => (b.txn_date || '').localeCompare(a.txn_date || '') || String(b.txn_id || '').localeCompare(String(a.txn_id || ''))))
       setDocuments(mergedDocs)
 
       // Load audit trail: combine audit_logs (local events) + audit_events (server-side import events)

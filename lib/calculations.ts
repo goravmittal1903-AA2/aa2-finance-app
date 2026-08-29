@@ -153,6 +153,45 @@ export function generateSchedule(loan: any): ScheduleRow[] {
   return rows
 }
 
+export function generateImportTransactions(loan: any): Transaction[] {
+  const txns: Transaction[] = []
+  const paidEmiCount = Number(loan.paid_emi || 0)
+  if (paidEmiCount <= 0) return txns
+
+  const stepDays = FREQ_DAYS[loan.frequency] || 7
+  let due = loan.installment_start_date || loan.disbursement_date || todayISO()
+  const emi = Number(loan.installment_amount) || 0
+  const memberName = loan.member_name_cache || loan.member_name || ''
+  const fo = loan.fo_name || 'System Import'
+
+  for (let i = 1; i <= paidEmiCount; i++) {
+    txns.push({
+      txn_id: `TXN-${loan.loan_account_no}-${i}` as any,
+      loan_account_no: loan.loan_account_no,
+      customer_id: loan.customer_id,
+      member_name: memberName,
+      receipt_no: `REC-${loan.loan_account_no}-${i}`,
+      txn_date: due,
+      txn_type: 'PAYMENT',
+      amount: emi,
+      mode: 'Cash',
+      reference_no: `COLLECT-${loan.loan_account_no}-${i}`,
+      classification: 'REGULAR',
+      installment_no: i,
+      remarks: `EMI ${i} collection import`,
+      entered_by: fo,
+      created_by: 'excel_import',
+      voided: false,
+      created_at: new Date().toISOString(),
+    })
+
+    due = (loan.frequency === 'Monthly' || loan.frequency === 'Bi-Monthly' || loan.frequency === 'Quarterly')
+      ? addMonthsLike(due, loan.frequency)
+      : addDays(due, stepDays)
+  }
+  return txns
+}
+
 export async function generateUniqueLoanAccountNo(): Promise<string> {
   // Use point lookups instead of loading all loans — much faster
   for (let attempt = 0; attempt < 20; attempt++) {

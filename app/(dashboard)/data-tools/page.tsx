@@ -129,7 +129,7 @@ export default function DataToolsPage() {
     setErrorMessage('')
 
     const batchId = `BATCH-${Date.now()}`
-    const CHUNK_SIZE = 15
+    const CHUNK_SIZE = 25
 
     try {
       const customers = parsedData.customers
@@ -146,9 +146,6 @@ export default function DataToolsPage() {
         
         const customerIds = new Set(cChunk.map(c => c.customer_id))
         const lChunk = parsedData.loans.filter(l => customerIds.has(l.customer_id))
-        
-        const loanNos = new Set(lChunk.map(l => l.loan_account_no))
-        const tChunk = parsedData.transactions.filter(t => loanNos.has(t.loan_account_no))
 
         const isLastChunk = chunkIdx === totalChunks - 1
 
@@ -168,7 +165,8 @@ export default function DataToolsPage() {
                 branchName: parsedData.branchName,
                 customers: cChunk,
                 loans: lChunk,
-                transactions: tChunk,
+                transactions: [],
+                schedules: [],
                 isLastChunk,
                 totalMembers: customers.length,
                 cumulativeMembersCreated: totalCreatedM,
