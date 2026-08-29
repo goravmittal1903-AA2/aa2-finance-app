@@ -362,8 +362,8 @@ export function parseBranchExcelWorkbook(buffer: ArrayBuffer, fileName: string):
         status: status as any,
         dpd: isClosed ? 0 : dpd,
         dpd_bucket: isClosed ? 'Current' : (dpdBucketStr || dpdBucket(dpd)),
-        // For closed loans, mark total_collected as full loan amount
-        total_collected: isClosed ? econ.total_loan : totalCollected,
+        // Preserve exact Excel TOTAL RECEIVED AMOUNT if present, otherwise fallback to full loan
+        total_collected: totalCollected > 0 ? totalCollected : (isClosed ? econ.total_loan : 0),
         ledger_balance: isClosed ? 0 : Math.max(0, ledgerBal),
         close_date: closeDate,
         paid_emi: paidEmiCount,

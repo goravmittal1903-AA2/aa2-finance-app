@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
 import { getAll } from '@/lib/supabase'
-import { applyPayment } from '@/lib/calculations'
+import { applyPayment, generateSchedule } from '@/lib/calculations'
 import { toast } from '@/lib/toast'
 import { confirmAction } from '@/lib/confirm'
 import type { Loan, ScheduleRow } from '@/lib/types'
@@ -172,10 +172,17 @@ export default function CollectionsPage() {
     setLoading(true)
     setErrorMessage('')
     try {
-      const [loans, schedule] = await Promise.all([
+      const [loans, rawSchedule] = await Promise.all([
         getAll<Loan>('loans'),
         getAll<ScheduleRow>('schedule')
       ])
+
+      const scheduleMap = new Map<string, ScheduleRow[]>()
+      rawSchedule.forEach(r => {
+        if (!scheduleMap.has(r.loan_account_no)) scheduleMap.set(r.loan_account_no, [])
+        scheduleMap.get(r.loan_account_no)!.push(r)
+      })
+
       const activeLoans = loans.filter(l => l.status === 'ACTIVE' || l.status === 'SANCTIONED')
       const newEntries: CollectionEntry[] = []
 
@@ -186,12 +193,13 @@ export default function CollectionsPage() {
 
       for (const loan of activeLoans) {
         const meetingDayStr = (loan.meeting_day || '').toLowerCase()
-        const isWeekly = loan.frequency === 'Weekly'
+        const isWeekly = loan.frequency === 'Weekly' || !loan.frequency
         const isDayMatch = isWeekly && (meetingDayStr.includes(dayShort) || meetingDayStr === dayName.toLowerCase())
 
+        const loanSched = scheduleMap.get(loan.loan_account_no) || generateSchedule(loan)
+
         // Accurately capture Pending, Overdue, and Partial dues on or before selected date
-        const dueRows = schedule.filter(r =>
-          r.loan_account_no === loan.loan_account_no &&
+        const dueRows = loanSched.filter(r =>
           (r.status === 'Pending' || r.status === 'Overdue' || r.status === 'Partial') &&
           r.due_date <= date
         )
@@ -222,10 +230,17 @@ export default function CollectionsPage() {
   async function loadEmiEntries() {
     setEmiLoading(true)
     try {
-      const [loans, schedule] = await Promise.all([
+      const [loans, rawSchedule] = await Promise.all([
         getAll<Loan>('loans'),
         getAll<ScheduleRow>('schedule')
       ])
+
+      const scheduleMap = new Map<string, ScheduleRow[]>()
+      rawSchedule.forEach(r => {
+        if (!scheduleMap.has(r.loan_account_no)) scheduleMap.set(r.loan_account_no, [])
+        scheduleMap.get(r.loan_account_no)!.push(r)
+      })
+
       const activeLoans = loans.filter(l => l.status === 'ACTIVE' || l.status === 'SANCTIONED')
       const entries: EmiEntry[] = []
 
@@ -234,10 +249,11 @@ export default function CollectionsPage() {
         const fMatch = !foName || (loan.fo_name || '').toLowerCase().includes(foName.toLowerCase())
         if (!bMatch || !fMatch) continue
 
+        const loanSched = scheduleMap.get(loan.loan_account_no) || generateSchedule(loan)
+
         // Capture all unpaid/partially paid EMIs on or before selected date
-        const dueRows = schedule
+        const dueRows = loanSched
           .filter(r =>
-            r.loan_account_no === loan.loan_account_no &&
             (r.status === 'Pending' || r.status === 'Overdue' || r.status === 'Partial') &&
             r.due_date <= date
           )
