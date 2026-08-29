@@ -18,6 +18,7 @@ import { useAuth } from '@/lib/auth-context'
 interface CollectionEntry {
   loan: Loan
   emiAmt: number
+  dueCount: number
   totalOverdue: number
   collectedAmount: string
   mode: string
@@ -97,7 +98,23 @@ function downloadSampleCSV() {
   a.click()
 }
 
-// ─── Field Sheet Printout ─────────────────────────────────────────────────────
+// ─── Excel Exporter ───────────────────────────────────────────────────────────
+function downloadExcel(filename: string, headers: string[], rows: (string | number)[][]) {
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+  ].join('\n')
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename.endsWith('.csv') || filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ─── Field Sheet Printouts ────────────────────────────────────────────────────
 function printFieldSheet(entries: CollectionEntry[], date: string, branch: string, foName: string) {
   const pw = window.open('', '_blank', 'width=900,height=1000')
   if (!pw) { toast.error('Popup Blocked', 'Please allow popups.'); return }
@@ -106,7 +123,9 @@ function printFieldSheet(entries: CollectionEntry[], date: string, branch: strin
       <td>${e.loan.loan_account_no}</td>
       <td>${e.loan.member_name_cache || e.loan.member_name}</td>
       <td>${e.loan.mobile || '—'}</td>
-      <td style="text-align:right; font-weight:bold;">${inr(e.emiAmt)}</td>
+      <td style="text-align:center;">${e.dueCount} EMI(s)</td>
+      <td style="text-align:right;">${inr(e.emiAmt)}</td>
+      <td style="text-align:right; font-weight:bold;">${inr(e.totalOverdue)}</td>
       <td style="width:90px; border-bottom: 1px solid #ccc;"></td>
       <td style="width:100px; border-bottom: 1px solid #ccc;"></td>
       <td style="width:80px; border-bottom: 1px solid #ccc;"></td>
@@ -129,12 +148,12 @@ function printFieldSheet(entries: CollectionEntry[], date: string, branch: strin
       Due Date: <strong>${date}</strong> &nbsp;|&nbsp; 
       Branch: <strong>${branch || 'ALL'}</strong> &nbsp;|&nbsp;
       Field Officer: <strong>${foName || 'ALL'}</strong> &nbsp;|&nbsp;
-      Total Daily Scheduled Demand: <strong>${inr(entries.reduce((s, e) => s + e.emiAmt, 0))}</strong> (${entries.length} Loans)
+      Total Daily Scheduled Demand: <strong>${inr(entries.reduce((s, e) => s + e.totalOverdue, 0))}</strong> (${entries.length} Loans)
     </div>
     <table>
       <thead><tr>
-        <th>Loan A/C</th><th>Member Name</th><th>Mobile</th>
-        <th>Today EMI Due (₹)</th><th>Collected (₹)</th><th>Mode / Ref</th><th>Sign</th>
+        <th>Loan A/C</th><th>Member Name</th><th>Mobile</th><th>No. of EMIs</th>
+        <th>Single EMI (₹)</th><th>Net Total Due (₹)</th><th>Collected (₹)</th><th>Mode / Ref</th><th>Sign</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -211,6 +230,10 @@ export default function CollectionsPage() {
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
 
+  // Dynamic Filter Dropdowns State
+  const [branchesList, setBranchesList] = useState<string[]>([])
+  const [foList, setFoList] = useState<string[]>([])
+
   // Overdue & Arrears tab state
   const [overdueEntries, setOverdueEntries] = useState<OverdueEntry[]>([])
   const [overdueLoading, setOverdueLoading] = useState(false)
@@ -249,6 +272,12 @@ export default function CollectionsPage() {
         getAll<ScheduleRow>('schedule')
       ])
 
+      // Populate dynamic branch & FO dropdown lists
+      const uniqueBranches = Array.from(new Set(loans.map(l => l.branch_code).filter(Boolean))).sort()
+      const uniqueFos = Array.from(new Set(loans.map(l => l.fo_name).filter(Boolean))).sort()
+      setBranchesList(uniqueBranches)
+      setFoList(uniqueFos)
+
       const scheduleMap = new Map<string, ScheduleRow[]>()
       rawSchedule.forEach(r => {
         if (!scheduleMap.has(r.loan_account_no)) scheduleMap.set(r.loan_account_no, [])
@@ -271,37 +300,41 @@ export default function CollectionsPage() {
 
         const loanSched = scheduleMap.get(loan.loan_account_no) || generateSchedule(loan)
 
-        // Find the installment specifically dated on `date`
+        // Find all installments due on or before `date` that are unpaid/partial
+        const unpaidRows = loanSched.filter(r =>
+          (r.status === 'Pending' || r.status === 'Overdue' || r.status === 'Partial') &&
+          r.due_date <= date
+        )
+
+        const netDueSum = unpaidRows.reduce((s, r) => s + Math.max(0, (r.emi_due || 0) - (r.paid_amount || 0)), 0)
+
+        // Exact day row on selected date
         const exactDayRow = loanSched.find(r => r.due_date === date)
-
-        // If exactDayRow exists and is NOT already fully paid → it's the one to collect today
         const rowIsUnpaid = exactDayRow && (exactDayRow.status === 'Pending' || exactDayRow.status === 'Overdue' || exactDayRow.status === 'Partial')
-        const exactDueAmt = exactDayRow ? Math.max(0, (exactDayRow.emi_due || 0) - (exactDayRow.paid_amount || 0)) : 0
 
-        if (isDayMatch || rowIsUnpaid) {
+        if (isDayMatch || rowIsUnpaid || netDueSum > 0) {
           let dueAmt: number
-          let schedRow = exactDayRow
+          let count = unpaidRows.length || 1
 
-          if (exactDueAmt > 0) {
-            // The installment on this exact date has a balance → collect it
-            dueAmt = exactDueAmt
+          if (netDueSum > 0) {
+            dueAmt = netDueSum
           } else {
-            // The exact-date row is already Paid (or no row for this date).
-            // Find the next pending/overdue installment for this loan.
+            // Find next pending installment if current is paid
             const nextPending = loanSched.find(r =>
               (r.status === 'Pending' || r.status === 'Overdue' || r.status === 'Partial') &&
               Math.max(0, (r.emi_due || 0) - (r.paid_amount || 0)) > 0
             )
-            if (!nextPending) continue // Loan is fully paid — skip
+            if (!nextPending) continue // Fully paid loan
             dueAmt = Math.max(0, (nextPending.emi_due || 0) - (nextPending.paid_amount || 0))
-            schedRow = nextPending
+            count = 1
           }
 
-          if (dueAmt <= 0) continue // Safety: still 0 — skip
+          if (dueAmt <= 0) continue
 
           newEntries.push({
             loan,
-            emiAmt: dueAmt,
+            emiAmt: Number(loan.installment_amount) || dueAmt,
+            dueCount: count,
             totalOverdue: dueAmt,
             collectedAmount: '',
             mode: 'Cash',
@@ -589,6 +622,43 @@ export default function CollectionsPage() {
         <p className="text-slate-500 text-xs mt-0.5">Daily collection worksheet, overdue & arrears recovery, individual receipts, CSV bulk upload, and field officer printouts.</p>
       </div>
 
+      {/* Live Collection Target & Efficiency Dashboard */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 p-5 rounded-2xl text-white shadow-xs">
+        <div>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Scheduled Target Demand</p>
+          <p className="text-xl font-extrabold font-mono text-white mt-1">{inr(filteredEntries.reduce((s, e) => s + e.totalOverdue, 0))}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">{filteredEntries.length} Borrowing Accounts</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Total Collected Today</p>
+          <p className="text-xl font-extrabold font-mono text-emerald-400 mt-1">{inr(totalCollectedSum)}</p>
+          <p className="text-[11px] text-emerald-300/80 mt-0.5">{entries.filter(e => Number(e.collectedAmount) > 0).length} Payments Entered</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Pending Shortfall</p>
+          <p className="text-xl font-extrabold font-mono text-amber-400 mt-1">{inr(Math.max(0, filteredEntries.reduce((s, e) => s + e.totalOverdue, 0) - totalCollectedSum))}</p>
+          <p className="text-[11px] text-amber-300/80 mt-0.5">Remaining to Collect</p>
+        </div>
+        <div>
+          {(() => {
+            const demand = filteredEntries.reduce((s, e) => s + e.totalOverdue, 0)
+            const eff = demand > 0 ? (totalCollectedSum / demand) * 100 : 0
+            return (
+              <>
+                <div className="flex justify-between items-center">
+                  <p className="text-[10px] font-bold text-blue-300 uppercase tracking-wider">Collection Efficiency</p>
+                  <span className="text-sm font-extrabold font-mono text-blue-300">{eff.toFixed(1)}%</span>
+                </div>
+                <div className="w-full bg-slate-800 rounded-full h-2 mt-2 overflow-hidden">
+                  <div className="bg-gradient-to-r from-blue-500 to-emerald-400 h-2 rounded-full transition-all duration-500" style={{ width: `${Math.min(100, eff)}%` }} />
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">Real-time Field Collection Rate</p>
+              </>
+            )
+          })()}
+        </div>
+      </div>
+
       {/* Tabs */}
       <div className="flex border-b border-slate-200 overflow-x-auto gap-1 text-xs">
         {([
@@ -611,7 +681,7 @@ export default function CollectionsPage() {
           {message && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-xs flex items-center gap-2"><CheckCircle className="w-4 h-4" /> {message}</div>}
           {errorMessage && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs flex items-center gap-2"><AlertCircle className="w-4 h-4" /> {errorMessage}</div>}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs text-xs">
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Due Date</label>
               <div className="relative">
@@ -621,24 +691,46 @@ export default function CollectionsPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Branch</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                <input type="text" placeholder="Filter branch" value={branch} onChange={e => setBranch(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Branch Select</label>
+              <select value={branch} onChange={e => setBranch(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">All Branches</option>
+                {branchesList.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
             </div>
 
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Field Officer</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                <input type="text" placeholder="Filter FO" value={foName} onChange={e => setFoName(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Field Officer Select</label>
+              <select value={foName} onChange={e => setFoName(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">All Field Officers</option>
+                {foList.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
             </div>
 
-            <div className="flex items-end">
+            <div className="flex items-end gap-1.5">
               <button onClick={fillAllDue} className="w-full py-2 border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 text-xs font-bold rounded-xl transition">
-                Auto-Fill All Today's Dues
+                Auto-Fill All Dues
+              </button>
+            </div>
+
+            <div className="flex items-end gap-1.5">
+              <button
+                onClick={() => downloadExcel(`daily_collection_${date}.xlsx`, ['Loan A/C', 'Member Name', 'Branch', 'Field Officer', 'Meeting Day', 'No. of EMIs Due', 'Single EMI (Rs)', 'Net Total Due (Rs)', 'Collected Amount (Rs)', 'Mode', 'Ref No'], filteredEntries.map(e => [
+                  e.loan.loan_account_no,
+                  e.loan.member_name_cache || e.loan.member_name,
+                  e.loan.branch_code,
+                  e.loan.fo_name || '',
+                  e.loan.meeting_day || '',
+                  e.dueCount,
+                  e.emiAmt,
+                  e.totalOverdue,
+                  e.collectedAmount || 0,
+                  e.mode,
+                  e.referenceNo
+                ]))}
+                className="w-full py-2 border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1">
+                <Download className="w-3.5 h-3.5" /> Excel Export (.xlsx)
               </button>
             </div>
           </div>
@@ -647,7 +739,7 @@ export default function CollectionsPage() {
             <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <span className="text-xs font-bold text-slate-700">{filteredEntries.length} loan accounts scheduled for {fdate(date)}</span>
-                <span className="text-[11px] text-slate-400 ml-2">Total Demand: <strong className="text-slate-800 font-mono">{inr(filteredEntries.reduce((s, e) => s + e.emiAmt, 0))}</strong></span>
+                <span className="text-[11px] text-slate-400 ml-2">Total Demand: <strong className="text-slate-800 font-mono">{inr(filteredEntries.reduce((s, e) => s + e.totalOverdue, 0))}</strong></span>
               </div>
               <button onClick={handleSaveAll} disabled={saving || loading || totalCollectedSum === 0}
                 className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition shadow-xs">
@@ -662,15 +754,17 @@ export default function CollectionsPage() {
                     <th className="text-left px-4 py-3 font-semibold">Loan A/C</th>
                     <th className="text-left px-4 py-3 font-semibold">Branch / FO</th>
                     <th className="text-center px-4 py-3 font-semibold">Meeting Day</th>
-                    <th className="text-right px-4 py-3 font-semibold">Today's Due EMI (₹)</th>
+                    <th className="text-center px-4 py-3 font-semibold">No. of EMIs Due</th>
+                    <th className="text-right px-4 py-3 font-semibold">Single EMI (₹)</th>
+                    <th className="text-right px-4 py-3 font-semibold">Net Total Due (₹)</th>
                     <th className="text-left px-4 py-3 w-40 font-semibold">Collected (₹)</th>
                     <th className="text-left px-4 py-3 w-32 font-semibold">Mode</th>
                     <th className="text-left px-4 py-3 w-36 font-semibold">Ref No</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {loading && <tr><td colSpan={8} className="py-10 text-center text-slate-400">Loading daily collection worksheet…</td></tr>}
-                  {!loading && filteredEntries.length === 0 && <tr><td colSpan={8} className="py-10 text-center text-slate-400">No scheduled dues for {fdate(date)}.</td></tr>}
+                  {loading && <tr><td colSpan={10} className="py-10 text-center text-slate-400">Loading daily collection worksheet…</td></tr>}
+                  {!loading && filteredEntries.length === 0 && <tr><td colSpan={10} className="py-10 text-center text-slate-400">No scheduled dues for {fdate(date)}.</td></tr>}
                   {!loading && filteredEntries.map(e => (
                     <tr key={e.loan.loan_account_no} className="hover:bg-slate-50/50 transition">
                       <td className="px-4 py-2.5 font-bold text-slate-800">
@@ -685,14 +779,20 @@ export default function CollectionsPage() {
                       </td>
                       <td className="px-4 py-2.5 text-slate-500 text-[11px]">{e.loan.branch_code} / {e.loan.fo_name || '—'}</td>
                       <td className="px-4 py-2.5 text-center font-semibold text-slate-700">{e.loan.meeting_day || '—'}</td>
-                      <td className="px-4 py-2.5 text-right font-mono font-bold text-slate-800">{inr(e.emiAmt)}</td>
+                      <td className="px-4 py-2.5 text-center font-semibold text-slate-700">
+                        <span className={`px-2 py-0.5 rounded-md font-mono text-[11px] font-bold ${e.dueCount > 1 ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-slate-100 text-slate-700'}`}>
+                          {e.dueCount} EMI(s)
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono text-slate-600">{inr(e.emiAmt)}</td>
+                      <td className="px-4 py-2.5 text-right font-mono font-bold text-amber-700">{inr(e.totalOverdue)}</td>
                       <td className="px-4 py-2">
                         <div className="flex gap-1">
                           <input type="number" placeholder="0" value={e.collectedAmount}
                             onChange={el => setField(e.loan.loan_account_no, 'collectedAmount', el.target.value)}
                             className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold font-mono focus:bg-white focus:outline-none focus:border-blue-400" />
-                          <button type="button" onClick={() => setField(e.loan.loan_account_no, 'collectedAmount', String(e.emiAmt))}
-                            className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg transition" title="Fill today's due"><Sparkles className="w-3 h-3 text-slate-600" /></button>
+                          <button type="button" onClick={() => setField(e.loan.loan_account_no, 'collectedAmount', String(e.totalOverdue))}
+                            className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg transition" title="Fill net due"><Sparkles className="w-3 h-3 text-slate-600" /></button>
                         </div>
                       </td>
                       <td className="px-4 py-2">
@@ -721,7 +821,7 @@ export default function CollectionsPage() {
           {message && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-xs flex items-center gap-2"><CheckCircle className="w-4 h-4" /> {message}</div>}
           {errorMessage && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs flex items-center gap-2"><AlertCircle className="w-4 h-4" /> {errorMessage}</div>}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs text-xs">
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">As of Date</label>
               <div className="relative">
@@ -731,19 +831,21 @@ export default function CollectionsPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Branch</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                <input type="text" placeholder="Filter branch" value={branch} onChange={e => setBranch(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500" />
-              </div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Branch Select</label>
+              <select value={branch} onChange={e => setBranch(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500">
+                <option value="">All Branches</option>
+                {branchesList.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
             </div>
 
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Field Officer</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                <input type="text" placeholder="Filter FO" value={foName} onChange={e => setFoName(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500" />
-              </div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Field Officer Select</label>
+              <select value={foName} onChange={e => setFoName(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500">
+                <option value="">All Field Officers</option>
+                {foList.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
             </div>
 
             <div className="space-y-1">
@@ -759,8 +861,28 @@ export default function CollectionsPage() {
             </div>
 
             <div className="flex items-end gap-1.5">
-              <button onClick={fillAllOverdues} className="flex-1 py-2 border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 text-xs font-bold rounded-xl transition">
+              <button onClick={fillAllOverdues} className="w-full py-2 border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 text-xs font-bold rounded-xl transition">
                 Auto-Fill Overdues
+              </button>
+            </div>
+
+            <div className="flex items-end gap-1.5">
+              <button
+                onClick={() => downloadExcel(`overdue_recovery_${date}.xlsx`, ['Loan A/C', 'Member Name', 'Branch', 'Field Officer', 'Missed EMIs', 'DPD', 'Bucket', 'Total Overdue (Rs)', 'Recovered (Rs)', 'Mode', 'Ref No'], filteredOverdues.map(e => [
+                  e.loan.loan_account_no,
+                  e.loan.member_name_cache || e.loan.member_name,
+                  e.loan.branch_code,
+                  e.loan.fo_name || '',
+                  e.unpaidCount,
+                  e.dpd,
+                  e.dpdBucket,
+                  e.totalOverdueAmt,
+                  e.collectedAmount || 0,
+                  e.mode,
+                  e.referenceNo
+                ]))}
+                className="w-full py-2 border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1">
+                <Download className="w-3.5 h-3.5" /> Excel (.xlsx)
               </button>
               <button onClick={() => printOverdueSheet(filteredOverdues, date, branch, foName)} className="p-2 border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-xl transition" title="Print Overdue Recovery Sheet">
                 <Printer className="w-4 h-4" />
