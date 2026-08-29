@@ -189,6 +189,30 @@ export function generateImportTransactions(loan: any): Transaction[] {
       ? addMonthsLike(due, loan.frequency)
       : addDays(due, stepDays)
   }
+
+  // Include Advance receipt if member paid advance in Excel
+  if (Number(loan.advance_balance || 0) > 0) {
+    txns.push({
+      txn_id: `TXN-${loan.loan_account_no}-ADV` as any,
+      loan_account_no: loan.loan_account_no,
+      customer_id: loan.customer_id,
+      member_name: memberName,
+      receipt_no: `REC-${loan.loan_account_no}-ADV`,
+      txn_date: loan.advance_date || due,
+      txn_type: 'PAYMENT',
+      amount: Number(loan.advance_balance),
+      mode: 'Cash',
+      reference_no: `ADV-${loan.loan_account_no}`,
+      classification: 'ADVANCE',
+      installment_no: paidEmiCount + 1,
+      remarks: 'Advance EMI payment on record',
+      entered_by: fo,
+      created_by: 'excel_import',
+      voided: false,
+      created_at: new Date().toISOString(),
+    })
+  }
+
   return txns
 }
 
