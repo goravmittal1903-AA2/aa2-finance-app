@@ -300,41 +300,37 @@ export default function CollectionsPage() {
 
         const loanSched = scheduleMap.get(loan.loan_account_no) || generateSchedule(loan)
 
-        // Find all installments due on or before `date` that are unpaid/partial
+        // Unpaid installments up to selected date
         const unpaidRows = loanSched.filter(r =>
           (r.status === 'Pending' || r.status === 'Overdue' || r.status === 'Partial') &&
           r.due_date <= date
         )
-
         const netDueSum = unpaidRows.reduce((s, r) => s + Math.max(0, (r.emi_due || 0) - (r.paid_amount || 0)), 0)
 
         // Exact day row on selected date
         const exactDayRow = loanSched.find(r => r.due_date === date)
         const rowIsUnpaid = exactDayRow && (exactDayRow.status === 'Pending' || exactDayRow.status === 'Overdue' || exactDayRow.status === 'Partial')
+        const exactDueAmt = exactDayRow ? Math.max(0, (exactDayRow.emi_due || 0) - (exactDayRow.paid_amount || 0)) : 0
 
-        if (isDayMatch || rowIsUnpaid || netDueSum > 0) {
-          let dueAmt: number
-          let count = unpaidRows.length || 1
-
-          if (netDueSum > 0) {
-            dueAmt = netDueSum
-          } else {
-            // Find next pending installment if current is paid
+        // STRICT MATCH FOR DAILY WORKSHEET:
+        // Only include accounts whose meeting day matches selected date OR whose installment is due on this exact date
+        if (isDayMatch || rowIsUnpaid) {
+          let dueAmt = netDueSum > 0 ? netDueSum : exactDueAmt
+          if (dueAmt <= 0) {
+            // Find next pending installment if exact is paid
             const nextPending = loanSched.find(r =>
               (r.status === 'Pending' || r.status === 'Overdue' || r.status === 'Partial') &&
               Math.max(0, (r.emi_due || 0) - (r.paid_amount || 0)) > 0
             )
-            if (!nextPending) continue // Fully paid loan
+            if (!nextPending) continue
             dueAmt = Math.max(0, (nextPending.emi_due || 0) - (nextPending.paid_amount || 0))
-            count = 1
           }
-
-          if (dueAmt <= 0) continue
+          if (dueAmt <= 0) continue // Skip if fully paid
 
           newEntries.push({
             loan,
             emiAmt: Number(loan.installment_amount) || dueAmt,
-            dueCount: count,
+            dueCount: unpaidRows.length || 1,
             totalOverdue: dueAmt,
             collectedAmount: '',
             mode: 'Cash',
