@@ -27,24 +27,39 @@ export async function POST(request: NextRequest) {
     let deletedCount = 0
 
     const tables = ['transactions', 'repayment_schedule', 'loans', 'customers']
+    const CHUNK_SIZE = 25
+
     for (const table of tables) {
       while (true) {
         const { data: matched, error: selErr } = await supabase
           .from(table)
           .select('id')
           .eq('data->>batch_id', String(batchId))
-          .limit(500)
+          .limit(CHUNK_SIZE)
 
         if (selErr || !matched || matched.length === 0) break
         const ids = matched.map((r: any) => r.id)
+        
         const { error: delErr } = await supabase.from(table).delete().in('id', ids)
         if (delErr) {
-          console.warn(`Error deleting batch ${batchId} from ${table}:`, delErr.message)
-          break
+          console.warn(`Batch chunk delete failed on ${table}, falling back to single-item deletes:`, delErr.message)
+          // Fallback: delete one-by-one to ensure every record is deleted even on busy DB
+          for (const singleId of ids) {
+            const { error: sErr } = await supabase.from(table).delete().eq('id', singleId)
+            if (!sErr) deletedCount++
+          }
+        } else {
+          deletedCount += ids.length
         }
-        deletedCount += ids.length
-        if (matched.length < 500) break
       }
+    }
+
+    // Clean up audit_events created during this batch
+    try {
+      await supabase.from('audit_events').delete().eq('after_data->>batch_id', String(batchId))
+      await supabase.from('audit_events').delete().eq('entity_id', String(batchId))
+    } catch {
+      // Continue
     }
 
     // Clean up orphaned transactions and schedules whose loans no longer exist via RPC if available
