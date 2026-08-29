@@ -129,7 +129,7 @@ export default function DataToolsPage() {
     setErrorMessage('')
 
     const batchId = `BATCH-${Date.now()}`
-    const CHUNK_SIZE = 25
+    const CHUNK_SIZE = 8
 
     try {
       const customers = parsedData.customers
@@ -153,39 +153,60 @@ export default function DataToolsPage() {
 
         const isLastChunk = chunkIdx === totalChunks - 1
 
-        const res = await fetch('/api/admin/import-excel', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            batchId,
-            fileName: excelFile.name,
-            branchName: parsedData.branchName,
-            customers: cChunk,
-            loans: lChunk,
-            schedules: sChunk,
-            transactions: tChunk,
-            isLastChunk,
-            totalMembers: customers.length,
-            cumulativeMembersCreated: totalCreatedM,
-            cumulativeMembersUpdated: totalUpdatedM,
-            cumulativeLoansCreated: totalCreatedL,
-            cumulativeLoansUpdated: totalUpdatedL,
-          }),
-        })
+        // Resilient upload with up to 3 automatic retries
+        let result: any = null
+        let lastErrorMsg = ''
+        const MAX_RETRIES = 3
 
-        if (!res.ok) {
-          const text = await res.text()
-          let errMsg = 'Chunk upload failed.'
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
           try {
-            const errJson = JSON.parse(text)
-            errMsg = errJson.error || errMsg
-          } catch {
-            errMsg = `Server returned HTTP ${res.status}: ${text.slice(0, 100)}`
+            const res = await fetch('/api/admin/import-excel', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                batchId,
+                fileName: excelFile.name,
+                branchName: parsedData.branchName,
+                customers: cChunk,
+                loans: lChunk,
+                schedules: sChunk,
+                transactions: tChunk,
+                isLastChunk,
+                totalMembers: customers.length,
+                cumulativeMembersCreated: totalCreatedM,
+                cumulativeMembersUpdated: totalUpdatedM,
+                cumulativeLoansCreated: totalCreatedL,
+                cumulativeLoansUpdated: totalUpdatedL,
+              }),
+            })
+
+            if (!res.ok) {
+              const text = await res.text()
+              let errMsg = `HTTP ${res.status}`
+              try {
+                const errJson = JSON.parse(text)
+                errMsg = errJson.error || errMsg
+              } catch {
+                errMsg = `Server returned HTTP ${res.status}: ${text.slice(0, 80)}`
+              }
+              throw new Error(errMsg)
+            }
+
+            result = await res.json()
+            break // Success, exit retry loop
+          } catch (fetchErr: any) {
+            lastErrorMsg = fetchErr.message || 'Chunk request failed'
+            console.warn(`Chunk ${chunkIdx + 1}/${totalChunks} attempt ${attempt} failed: ${lastErrorMsg}`)
+            if (attempt < MAX_RETRIES) {
+              await new Promise(r => setTimeout(r, 1500 * attempt))
+            }
           }
-          throw new Error(errMsg)
         }
 
-        const result = await res.json()
+        if (!result) {
+          throw new Error(`Chunk ${chunkIdx + 1}/${totalChunks} failed after ${MAX_RETRIES} attempts: ${lastErrorMsg}`)
+        }
+
         totalCreatedM += result.membersCreated || 0
         totalUpdatedM += result.membersUpdated || 0
         totalCreatedL += result.loansCreated || 0

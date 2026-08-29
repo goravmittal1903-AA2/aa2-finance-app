@@ -37,9 +37,10 @@ export async function POST(request: NextRequest) {
     const supabase = adminClient()
     const batchId = clientBatchId || `BATCH-${Date.now()}`
 
-    // 1. Process Customers Sub-Chunks (25 items per sub-chunk)
+    // 1. Process Customers
     let membersCreated = 0
     let membersUpdated = 0
+    let customerPromise: Promise<any> = Promise.resolve()
     if (customers.length > 0) {
       const customerPayloads = customers.map((c: any) => ({
         id: c.customer_id,
@@ -55,18 +56,18 @@ export async function POST(request: NextRequest) {
         else membersCreated++
       })
 
-      const CUST_CHUNK = 25
-      for (let i = 0; i < customerPayloads.length; i += CUST_CHUNK) {
-        const sub = customerPayloads.slice(i, i + CUST_CHUNK)
-        const { error } = await supabase.from('customers').upsert(sub)
+      customerPromise = supabase.from('customers').upsert(customerPayloads).then(({ error }) => {
         if (error) throw new Error(`Customers upsert error: ${error.message}`)
-      }
+      })
     }
 
-    // 2. Process Loans Sub-Chunks (25 items per sub-chunk)
+    // 2. Process Loans
     let loansCreated = 0
     let loansUpdated = 0
     const newlyCreatedLoanIds: string[] = []
+    let loanPromise: Promise<any> = Promise.resolve()
+    let auditEventsPromise: Promise<any> = Promise.resolve()
+
     if (loans.length > 0) {
       const loanPayloads = loans.map((l: any) => ({
         id: l.loan_account_no,
@@ -82,14 +83,10 @@ export async function POST(request: NextRequest) {
         else { loansCreated++; newlyCreatedLoanIds.push(item.id) }
       })
 
-      const LOAN_CHUNK = 25
-      for (let i = 0; i < loanPayloads.length; i += LOAN_CHUNK) {
-        const sub = loanPayloads.slice(i, i + LOAN_CHUNK)
-        const { error } = await supabase.from('loans').upsert(sub)
+      loanPromise = supabase.from('loans').upsert(loanPayloads).then(({ error }) => {
         if (error) throw new Error(`Loans upsert error: ${error.message}`)
-      }
+      })
 
-      // Write per-loan audit_events for NEWLY created loans (25 items per sub-chunk)
       if (newlyCreatedLoanIds.length > 0) {
         const actorUuid = auth.profile?.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(auth.profile.id)
           ? auth.profile.id
@@ -121,44 +118,51 @@ export async function POST(request: NextRequest) {
             event_hash: `HASH-LOAN-${l.loan_account_no}-${batchId}`,
           }))
 
-        const EVT_CHUNK = 25
-        for (let i = 0; i < loanAuditEvents.length; i += EVT_CHUNK) {
-          const sub = loanAuditEvents.slice(i, i + EVT_CHUNK)
-          const { error } = await supabase.from('audit_events').insert(sub)
+        auditEventsPromise = supabase.from('audit_events').insert(loanAuditEvents).then(({ error }) => {
           if (error) console.warn('Audit event insert warning:', error.message)
-        }
+        })
       }
     }
 
-    // 3. Process Repayment Schedules Sub-Chunks (50 items per sub-chunk)
+    // 3. Process Repayment Schedules (Parallel 75-item subchunks)
+    const schedulePromises: Promise<any>[] = []
     if (schedules.length > 0) {
       const schedulePayloads = schedules.map((s: any) => ({
         id: `${s.loan_account_no}-${s.installment_no}`,
         data: { ...s, batch_id: batchId },
       }))
 
-      const SCHED_CHUNK = 50
+      const SCHED_CHUNK = 75
       for (let i = 0; i < schedulePayloads.length; i += SCHED_CHUNK) {
         const sub = schedulePayloads.slice(i, i + SCHED_CHUNK)
-        const { error } = await supabase.from('repayment_schedule').upsert(sub)
-        if (error) throw new Error(`Schedules upsert error: ${error.message}`)
+        schedulePromises.push(
+          supabase.from('repayment_schedule').upsert(sub).then(({ error }) => {
+            if (error) throw new Error(`Schedules upsert error: ${error.message}`)
+          })
+        )
       }
     }
 
-    // 4. Process Transactions Sub-Chunks (50 items per sub-chunk)
+    // 4. Process Transactions
+    let transactionPromise: Promise<any> = Promise.resolve()
     if (transactions.length > 0) {
       const transactionPayloads = transactions.map((t: any) => ({
         id: String(t.txn_id),
         data: { ...t, batch_id: batchId },
       }))
-
-      const TXN_CHUNK = 50
-      for (let i = 0; i < transactionPayloads.length; i += TXN_CHUNK) {
-        const sub = transactionPayloads.slice(i, i + TXN_CHUNK)
-        const { error } = await supabase.from('transactions').upsert(sub)
+      transactionPromise = supabase.from('transactions').upsert(transactionPayloads).then(({ error }) => {
         if (error) throw new Error(`Transactions upsert error: ${error.message}`)
-      }
+      })
     }
+
+    // Execute all table writes concurrently in parallel
+    await Promise.all([
+      customerPromise,
+      loanPromise,
+      auditEventsPromise,
+      transactionPromise,
+      ...schedulePromises,
+    ])
 
     // 5. Final Batch Log Entry with cumulative stats
     if (isLastChunk) {
