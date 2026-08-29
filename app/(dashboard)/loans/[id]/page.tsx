@@ -179,7 +179,10 @@ export default function LoanDetailPage({ params }: PageProps) {
       )
 
       setMember(m)
-      setSchedule(sched.sort((a, b) => a.installment_no - b.installment_no))
+      const effectiveSchedule = (sched && sched.length > 0)
+        ? sched.sort((a, b) => a.installment_no - b.installment_no)
+        : generateSchedule(l)
+      setSchedule(effectiveSchedule)
       setTransactions(cleanTxs.sort((a, b) => (b.txn_date || '').localeCompare(a.txn_date || '') || Number(b.txn_id || 0) - Number(a.txn_id || 0)))
       setDocuments(mergedDocs)
 

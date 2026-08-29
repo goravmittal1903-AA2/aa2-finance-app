@@ -102,20 +102,35 @@ export function computeLoanEconomics({
 export function generateSchedule(loan: any): ScheduleRow[] {
   const rows: ScheduleRow[] = []
   const stepDays = FREQ_DAYS[loan.frequency] || 7
-  let opening = loan.total_loan
-  let due = loan.installment_start_date
+  const tenure = Math.max(1, Number(loan.tenure) || 1)
+  const emi_due = Number(loan.installment_amount) || 0
+  const totalLoan = Number(loan.total_loan) || (emi_due * tenure) || Number(loan.loan_amount) || 0
+  let opening = totalLoan
+  let due = loan.installment_start_date || loan.disbursement_date || todayISO()
 
-  const total_int = Number(loan.total_interest) || Math.max(0, (Number(loan.installment_amount || 0) * Number(loan.tenure || 1)) - Number(loan.loan_amount || 0))
-  const per_int = Number(loan.per_installment_interest) || (loan.tenure > 0 ? total_int / loan.tenure : 0)
+  const total_int = Number(loan.total_interest) || Math.max(0, (emi_due * tenure) - Number(loan.loan_amount || 0))
+  const per_int = Number(loan.per_installment_interest) || (tenure > 0 ? total_int / tenure : 0)
 
-  for (let i = 1; i <= loan.tenure; i++) {
+  const paidEmiCount = Number(loan.paid_emi || 0)
+  const isClosed = String(loan.status || '').toUpperCase().startsWith('CLOS')
+  const today = todayISO()
+
+  for (let i = 1; i <= tenure; i++) {
     const interest_due = Math.round(per_int * 100) / 100
-    const emi_due = Number(loan.installment_amount) || 0
     const principal_due = Math.round(Math.max(0, emi_due - interest_due) * 100) / 100
     const closing = Math.max(0, Math.round((opening - emi_due) * 100) / 100)
     
+    const isPaid = isClosed || (i <= paidEmiCount)
+    const status: 'Paid' | 'Pending' | 'Overdue' = isPaid
+      ? 'Paid'
+      : (due < today && !isClosed ? 'Overdue' : 'Pending')
+
+    const paid_amount = isPaid ? emi_due : 0
+    const paid_date = isPaid ? due : null
+    const dpd = status === 'Overdue' ? Math.max(0, daysBetween(due, today)) : 0
+
     rows.push({
-      id: loan.loan_account_no + '_' + i,
+      id: `${loan.loan_account_no}_${i}`,
       loan_account_no: loan.loan_account_no,
       installment_no: i,
       due_date: due,
@@ -124,10 +139,10 @@ export function generateSchedule(loan: any): ScheduleRow[] {
       interest_due,
       emi_due,
       closing_balance: closing,
-      paid_amount: 0,
-      paid_date: null,
-      status: 'Pending',
-      dpd: 0,
+      paid_amount,
+      paid_date,
+      status,
+      dpd,
     })
     
     opening = closing
