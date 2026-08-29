@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
+import * as xlsx from 'xlsx'
 import { getAll } from '@/lib/supabase'
 import { applyPayment, generateSchedule } from '@/lib/calculations'
 import { toast } from '@/lib/toast'
@@ -100,16 +101,26 @@ function downloadSampleCSV() {
 
 // ─── Excel Exporter ───────────────────────────────────────────────────────────
 function downloadExcel(filename: string, headers: string[], rows: (string | number)[][]) {
-  const csvContent = [
-    headers.join(','),
-    ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-  ].join('\n')
+  const wsData = [headers, ...rows]
+  const ws = xlsx.utils.aoa_to_sheet(wsData)
 
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const colWidths = headers.map((h, i) => {
+    const maxLen = Math.max(h.length, ...rows.map(r => String(r[i] || '').length))
+    return { wch: Math.min(40, Math.max(12, maxLen + 3)) }
+  })
+  ws['!cols'] = colWidths
+
+  const wb = xlsx.utils.book_new()
+  xlsx.utils.book_append_sheet(wb, ws, 'Collections')
+
+  const excelBuffer = xlsx.write(wb, { bookType: 'xlsx', type: 'array' })
+  const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+
+  const finalName = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = filename.endsWith('.csv') || filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`
+  a.download = finalName
   a.click()
   URL.revokeObjectURL(url)
 }
