@@ -258,9 +258,10 @@ export default function CollectionsPage() {
       const activeLoans = loans.filter(l => l.status === 'ACTIVE' || l.status === 'SANCTIONED')
       const newEntries: CollectionEntry[] = []
 
-      const selectedDateObj = new Date(date)
+      // Use UTC day to avoid IST timezone shift (date string '2026-08-24' must stay as Mon in UTC)
+      const selectedDateObj = new Date(date + 'T00:00:00Z')
       const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-      const dayName = daysOfWeek[selectedDateObj.getDay()] || 'Monday'
+      const dayName = daysOfWeek[selectedDateObj.getUTCDay()] || 'Monday'
       const dayShort = dayName.slice(0, 3).toLowerCase()
 
       for (const loan of activeLoans) {
@@ -270,12 +271,34 @@ export default function CollectionsPage() {
 
         const loanSched = scheduleMap.get(loan.loan_account_no) || generateSchedule(loan)
 
-        // STRICT SINGLE-DAY MATCH: only find the installment specifically due on `date` (or today's meeting)
+        // Find the installment specifically dated on `date`
         const exactDayRow = loanSched.find(r => r.due_date === date)
-        const isTargetDue = exactDayRow && (exactDayRow.status === 'Pending' || exactDayRow.status === 'Partial')
 
-        if (isDayMatch || isTargetDue) {
-          const dueAmt = exactDayRow ? Math.max(0, (exactDayRow.emi_due || 0) - (exactDayRow.paid_amount || 0)) : (loan.installment_amount || 0)
+        // If exactDayRow exists and is NOT already fully paid → it's the one to collect today
+        const rowIsUnpaid = exactDayRow && (exactDayRow.status === 'Pending' || exactDayRow.status === 'Overdue' || exactDayRow.status === 'Partial')
+        const exactDueAmt = exactDayRow ? Math.max(0, (exactDayRow.emi_due || 0) - (exactDayRow.paid_amount || 0)) : 0
+
+        if (isDayMatch || rowIsUnpaid) {
+          let dueAmt: number
+          let schedRow = exactDayRow
+
+          if (exactDueAmt > 0) {
+            // The installment on this exact date has a balance → collect it
+            dueAmt = exactDueAmt
+          } else {
+            // The exact-date row is already Paid (or no row for this date).
+            // Find the next pending/overdue installment for this loan.
+            const nextPending = loanSched.find(r =>
+              (r.status === 'Pending' || r.status === 'Overdue' || r.status === 'Partial') &&
+              Math.max(0, (r.emi_due || 0) - (r.paid_amount || 0)) > 0
+            )
+            if (!nextPending) continue // Loan is fully paid — skip
+            dueAmt = Math.max(0, (nextPending.emi_due || 0) - (nextPending.paid_amount || 0))
+            schedRow = nextPending
+          }
+
+          if (dueAmt <= 0) continue // Safety: still 0 — skip
+
           newEntries.push({
             loan,
             emiAmt: dueAmt,
@@ -327,7 +350,10 @@ export default function CollectionsPage() {
         if (totalOverdueAmt <= 0) continue
 
         const firstDue = pastDueRows[0].due_date
-        const daysPast = Math.max(0, Math.floor((new Date(date).getTime() - new Date(firstDue).getTime()) / (1000 * 60 * 60 * 24)))
+        // Use UTC dates to avoid IST timezone offset (date strings are YYYY-MM-DD UTC)
+        const dateTs = new Date(date + 'T00:00:00Z').getTime()
+        const firstDueTs = new Date(firstDue + 'T00:00:00Z').getTime()
+        const daysPast = Math.max(0, Math.floor((dateTs - firstDueTs) / (1000 * 60 * 60 * 24)))
         const dpd = Math.max(Number(loan.dpd || 0), daysPast)
         const dpdBucket = dpd > 90 ? '90+ NPA' : dpd > 60 ? '61-90' : dpd > 30 ? '31-60' : '1-30'
 
