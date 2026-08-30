@@ -245,7 +245,15 @@ export default function DataToolsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ batchId: targetBatchId }),
       })
-      const result = await res.json()
+
+      const rawText = await res.text()
+      let result: any
+      try {
+        result = JSON.parse(rawText)
+      } catch {
+        throw new Error(res.ok ? 'Server returned invalid response format.' : `Server error (HTTP ${res.status}). Please retry or check connection.`)
+      }
+
       if (!res.ok) throw new Error(result.error || 'Rollback failed.')
 
       toast.success(`Batch ${targetBatchId} successfully reversed! Deleted ${result.deletedCount} records.`)

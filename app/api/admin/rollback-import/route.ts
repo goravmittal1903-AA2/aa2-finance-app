@@ -27,29 +27,31 @@ export async function POST(request: NextRequest) {
     let deletedCount = 0
 
     const tables = ['transactions', 'repayment_schedule', 'loans', 'customers']
-    const CHUNK_SIZE = 25
 
     for (const table of tables) {
-      while (true) {
-        const { data: matched, error: selErr } = await supabase
-          .from(table)
-          .select('id')
-          .eq('data->>batch_id', String(batchId))
-          .limit(CHUNK_SIZE)
+      // 1. Direct high-speed bulk delete by batch_id JSON field
+      const { error: delErr } = await supabase
+        .from(table)
+        .delete()
+        .eq('data->>batch_id', String(batchId))
 
-        if (selErr || !matched || matched.length === 0) break
-        const ids = matched.map((r: any) => r.id)
-        
-        const { error: delErr } = await supabase.from(table).delete().in('id', ids)
-        if (delErr) {
-          console.warn(`Batch chunk delete failed on ${table}, falling back to single-item deletes:`, delErr.message)
-          // Fallback: delete one-by-one to ensure every record is deleted even on busy DB
-          for (const singleId of ids) {
-            const { error: sErr } = await supabase.from(table).delete().eq('id', singleId)
-            if (!sErr) deletedCount++
-          }
-        } else {
+      if (delErr) {
+        console.warn(`Direct delete failed on ${table}, falling back to 500-item chunked deletes:`, delErr.message)
+        // Fallback: batch delete in 500-item chunks (fast, avoids 26s Netlify timeout)
+        let hasMore = true
+        while (hasMore) {
+          const { data: matched } = await supabase
+            .from(table)
+            .select('id')
+            .eq('data->>batch_id', String(batchId))
+            .limit(500)
+
+          if (!matched || matched.length === 0) break
+          const ids = matched.map((r: any) => r.id)
+          const { error: chunkErr } = await supabase.from(table).delete().in('id', ids)
+          if (chunkErr) break
           deletedCount += ids.length
+          if (matched.length < 500) hasMore = false
         }
       }
     }
