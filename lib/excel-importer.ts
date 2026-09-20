@@ -3,12 +3,21 @@ import type { Customer, Loan, ScheduleRow, Transaction } from '@/lib/types'
 import { dpdBucket } from '@/lib/utils'
 import { computeLoanEconomics, addDays } from '@/lib/calculations'
 
+export interface ImportValidationIssue {
+  row: number
+  loanAccountNo?: string
+  memberName?: string
+  type: 'ERROR' | 'WARNING'
+  message: string
+}
+
 export interface ParsedExcelData {
   branchName: string
   customers: Partial<Customer>[]
   loans: Partial<Loan>[]
   schedules: Partial<ScheduleRow>[]
   transactions: Partial<Transaction>[]
+  validationIssues?: ImportValidationIssue[]
 }
 
 export function parseExcelDate(val: any, fallback = '2026-05-01'): string {

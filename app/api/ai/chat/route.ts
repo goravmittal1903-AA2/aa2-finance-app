@@ -5,12 +5,6 @@ interface Message {
   content: string
 }
 
-// Built-in resilient Gemini key accessor
-const FALLBACK_GEMINI_KEY = Buffer.from(
-  'QVEuQWI4Uk42TFRTSzg3U0lZS1pKcEZCMFZyMms5ek1nbVNiTW9WbXRoX3h6bHFkQjRhd3c=',
-  'base64'
-).toString('utf-8')
-
 export async function POST(req: NextRequest) {
   try {
     const { messages, portfolioContext } = (await req.json()) as {
@@ -36,10 +30,10 @@ export async function POST(req: NextRequest) {
     }
 
     const lastUserMessage = messages[messages.length - 1]?.content || ''
-    const apiKey =
-      process.env.GEMINI_API_KEY ||
-      process.env.NEXT_PUBLIC_GEMINI_API_KEY ||
-      FALLBACK_GEMINI_KEY
+    const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || ''
+    if (!apiKey) {
+      return NextResponse.json({ error: 'Gemini AI API Key is not configured on the server.' }, { status: 503 })
+    }
 
     // Call Google Gemini API (tries 3.6-flash, flash-latest, 2.5-flash)
     if (apiKey) {

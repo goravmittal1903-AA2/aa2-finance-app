@@ -420,22 +420,49 @@ export async function recalcLoanLedger(loan_account_no: string): Promise<void> {
 
     const isClosed = (loan.status || '').toUpperCase().startsWith('CLOS')
     const total_collected = rows.reduce((s, r) => s + (r.paid_amount || 0), 0)
-    loan.total_collected = isClosed ? (loan.total_loan || 0) : total_collected
-    loan.ledger_balance = isClosed ? 0 : Math.max(0, (loan.total_loan || 0) - total_collected)
+    const emiAmt = Number(loan.installment_amount || 0)
 
-    // Calculate total arrears (overdue installments as of today)
-    let arrearsSum = 0
-    for (const r of rows) {
-      if (r.due_date < today && r.status !== 'Paid' && r.status !== 'Waived' && r.status !== 'Restructured') {
-        arrearsSum += Math.max(0, r.emi_due - (r.paid_amount || 0))
+    // Calculate individual installment counts
+    const paidEmiCount = rows.filter(r => r.status === 'Paid').length
+    const overdueRows = rows.filter(r => r.due_date < today && r.status !== 'Paid' && r.status !== 'Waived' && r.status !== 'Restructured')
+    const futurePendingRows = rows.filter(r => r.due_date >= today && r.status !== 'Paid' && r.status !== 'Waived' && r.status !== 'Restructured')
+    
+    // Short amount: accumulated unpaid shortage on overdue/partial installments
+    let shortAmt = 0
+    for (const r of overdueRows) {
+      if ((r.paid_amount || 0) > 0 && (r.paid_amount || 0) < r.emi_due) {
+        shortAmt += (r.emi_due - (r.paid_amount || 0))
       }
     }
-    loan.arrears_balance = isClosed ? 0 : Math.round(arrearsSum)
+
+    loan.paid_emi = paidEmiCount
+    loan.due_emi = overdueRows.length
+    loan.pending_emi = futurePendingRows.length
+    loan.short_amount = Math.round(shortAmt)
 
     // Calculate advance balance (excess collected over total loan or future payments)
     const totalTxnAmount = txns.reduce((s, t) => s + (t.amount || 0), 0)
     const excessCollected = Math.max(0, totalTxnAmount - total_collected)
     loan.advance_balance = isClosed ? 0 : Math.round(excessCollected)
+
+    // Excel Reconciled Ledger Balance Formula:
+    // Ledger Balance = (due_emi + pending_emi) * EMI + short_amount - advance_balance
+    let reconciledLedger = 0
+    if (emiAmt > 0 && (loan.due_emi + loan.pending_emi) > 0) {
+      reconciledLedger = Math.max(0, ((loan.due_emi + loan.pending_emi) * emiAmt) + loan.short_amount - loan.advance_balance)
+    } else {
+      reconciledLedger = Math.max(0, (loan.total_loan || 0) - total_collected)
+    }
+
+    loan.total_collected = isClosed ? (loan.total_loan || 0) : total_collected
+    loan.ledger_balance = isClosed ? 0 : reconciledLedger
+
+    // Calculate total arrears (overdue installments as of today)
+    let arrearsSum = 0
+    for (const r of overdueRows) {
+      arrearsSum += Math.max(0, r.emi_due - (r.paid_amount || 0))
+    }
+    loan.arrears_balance = isClosed ? 0 : Math.round(arrearsSum)
 
     // DPD = max DPD across all non-paid rows
     const dpdValues = rows
@@ -531,6 +558,13 @@ export async function classifyAndAllocatePayment(
   let shortage = 0
   const covers: PaymentAllocationResult['covers'] = []
 
+  // Check outstanding penalty on loan
+  const accumulatedPenalty = Number(loan?.total_penalty || 0)
+  if (accumulatedPenalty > 0 && remaining > 0) {
+    totalPenal = Math.min(accumulatedPenalty, remaining)
+    remaining -= totalPenal
+  }
+
   // Check if any overdue installments exist
   const overdueRows = rows.filter(r => r.due_date < txn_date && (r.paid_amount || 0) < r.emi_due)
   const isOverduePresent = overdueRows.length > 0
@@ -621,7 +655,9 @@ export async function classifyAndAllocatePayment(
 
   // Generate automated intelligent narration
   let narration = ''
-  if (category === 'SHORT') {
+  if (totalPenal > 0) {
+    narration = `Payment of ₹${amtNum.toLocaleString('en-IN')} received: ₹${totalPenal.toLocaleString('en-IN')} allocated to overdue penalty, ₹${totalInterest.toLocaleString('en-IN')} to interest, ₹${totalPrincipal.toLocaleString('en-IN')} to principal.`
+  } else if (category === 'SHORT') {
     narration = `Partial collection of ₹${amtNum.toLocaleString('en-IN')} received towards Installment #${firstPendingRow.installment_no} (Due ₹${firstPendingDue.toLocaleString('en-IN')}). Allocated to Interest ₹${totalInterest.toLocaleString('en-IN')} and Principal ₹${totalPrincipal.toLocaleString('en-IN')}. Shortage of ₹${shortage.toLocaleString('en-IN')} remains outstanding as overdue arrears.`
   } else if (category === 'EXCESS') {
     narration = `Collection of ₹${amtNum.toLocaleString('en-IN')} received. Fully cleared Installment #${firstCover.installment_no} (₹${firstCover.pay.toLocaleString('en-IN')}). Excess buffer of ₹${excessAdvance.toLocaleString('en-IN')} credited into Advance Balance Wallet (Total Advance: ₹${advanceBalanceAfter.toLocaleString('en-IN')}). Next installment net payable is ₹${nextDueAmount.toLocaleString('en-IN')}.`
@@ -673,11 +709,18 @@ export async function applyPayment(
   remarks: string,
   enteredBy = 'system'
 ): Promise<number> {
-  if (!loan_account_no || !amount || amount <= 0) {
+  const amtNum = Number(amount) || 0
+  if (!loan_account_no || amtNum <= 0) {
     throw new Error('Invalid payment: loan account or amount is missing.')
   }
 
-  const alloc = await classifyAndAllocatePayment(loan_account_no, amount, txn_date)
+  // Section 269ST Income Tax Act compliance check:
+  // Cash collection of >= ₹2,00,000 in a single transaction from a single person is prohibited by law.
+  if (mode && mode.trim().toUpperCase() === 'CASH' && amtNum >= 200000) {
+    throw new Error('Compliance Error (Section 269ST Income Tax Act): Cash collection cannot be ₹2,00,000 or greater. Please accept via Bank Transfer, Cheque, or UPI.')
+  }
+
+  const alloc = await classifyAndAllocatePayment(loan_account_no, amtNum, txn_date)
   const lastInstNo = alloc.covers.length ? alloc.covers[alloc.covers.length - 1].installment_no : null
 
   // Unique transaction ID using timestamp + random to avoid collisions
@@ -763,9 +806,10 @@ export async function cleanupAllDuplicateTransactions(): Promise<{ cleaned: numb
   let cleanedCount = 0
 
   for (const t of paymentTxns) {
-    const key = t.reference_no && t.reference_no.startsWith('EMIPAY-')
-      ? `${t.loan_account_no}_REF_${t.reference_no}`
-      : `${t.loan_account_no}_${t.amount}_${t.txn_date}_${t.mode}`
+    // Deduplication key: requires explicit identical reference number or exact microsecond created_at
+    const key = t.reference_no && t.reference_no.trim().length > 3
+      ? `${t.loan_account_no}_REF_${t.reference_no.trim()}`
+      : `${t.loan_account_no}_${t.amount}_${t.txn_date}_${t.created_at || t.txn_id}`
 
     if (seenKeys.has(key)) {
       await delOne('transactions', t.txn_id)

@@ -1,7 +1,7 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY } from '@/lib/supabase-config'
+import { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } from '@/lib/supabase-config'
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
+import { requireAuthenticatedUser } from '@/lib/authz'
 
 const RESOURCES = {
   customers: {
@@ -50,45 +50,35 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const definition = RESOURCES[resource as keyof typeof RESOURCES]
   if (!definition) return NextResponse.json({ error: 'Unknown resource.' }, { status: 404 })
 
-  // Simple auth check — just verify logged in, don't query user_profiles
-  try {
-    const serverClient = await createSupabaseServerClient()
-    const { data: { user }, error: authError } = await serverClient.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthenticated. Please log in.' }, { status: 401 })
-    }
-  } catch (err) {
-    return NextResponse.json({ error: 'Auth check failed.' }, { status: 401 })
-  }
+  const auth = await requireAuthenticatedUser()
+  if ('error' in auth) return auth.error
+  const { profile } = auth
 
   const { searchParams } = request.nextUrl
   const page = numericParameter(searchParams.get('page'), 1, 100000)
   const pageSize = numericParameter(searchParams.get('pageSize'), 50, 50)
-  const search = (searchParams.get('q') || '').trim().replace(/[%,().]/g, '')
+  const search = (searchParams.get('q') || '').trim().replace(/[%,().*"'\\/]/g, '')
 
-  // Use admin client so RLS doesn't block reads
   const supabase = adminClient()
-
   let query = supabase
     .from(definition.table)
     .select('data', { count: 'estimated' })
 
+  // Branch Isolation: Restrict employee query to their assigned branch if applicable
+  if (profile.role === 'employee' && profile.branch_code && profile.branch_code !== 'ALL') {
+    if (definition.table === 'loans') {
+      query = query.eq('data->>branch_code', profile.branch_code)
+    }
+  }
+
   if (search) {
-    if (definition.fullText) {
-      // Try websearch, fall back to ilike if fulltext index not available
-      try {
-        const expression = definition.fields
-          .map(field => `data->>${field}.ilike.*${search}*`)
-          .join(',')
-        query = query.or(expression)
-      } catch {
-        // fallback — no search filter
-      }
-    } else {
-      const expression = definition.fields
-        .map(field => `data->>${field}.ilike.*${search}*`)
-        .join(',')
+    const expression = definition.fields
+      .map(field => `data->>${field}.ilike.*${search}*`)
+      .join(',')
+    try {
       query = query.or(expression)
+    } catch {
+      // fallback
     }
   }
 
@@ -110,3 +100,4 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     totalPages: Math.max(1, Math.ceil((count || 0) / pageSize)),
   })
 }
+

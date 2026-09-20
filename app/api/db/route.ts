@@ -1,9 +1,9 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY } from '@/lib/supabase-config'
+import { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } from '@/lib/supabase-config'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { requireAuthenticatedUser, canAccessBranch } from '@/lib/authz'
 
-// Service-role client — bypasses RLS, used only for authenticated write operations
+// Service-role client — used with server-side authorization checks
 let _adminClient: any = null
 function adminClient() {
   if (!_adminClient) {
@@ -22,6 +22,11 @@ const ALLOWED_TABLES = new Set([
   'borrowings', 'borrowing_txns', 'cash_accounts', 'cash_txns', 'expenses', 'fixed_assets'
 ])
 
+// Tables restricted strictly to IT and Admin roles
+const ADMIN_ONLY_TABLES = new Set([
+  'investors', 'investor_txns', 'borrowings', 'borrowing_txns', 'fixed_assets', 'audit_log', 'audit_logs'
+])
+
 function tbl(store: string) {
   return store === 'schedule' ? 'repayment_schedule' : store
 }
@@ -29,9 +34,9 @@ function tbl(store: string) {
 // ─── GET: read all or filtered ─────────────────────────────────────────────
 export async function GET(request: NextRequest) {
   try {
-    const auth = await createSupabaseServerClient()
-    const { data: { user } } = await auth.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const auth = await requireAuthenticatedUser()
+    if ('error' in auth) return auth.error
+    const { profile } = auth
 
     const { searchParams } = request.nextUrl
     const store = searchParams.get('store') || ''
@@ -41,6 +46,10 @@ export async function GET(request: NextRequest) {
 
     if (!ALLOWED_TABLES.has(table)) {
       return NextResponse.json({ error: 'Invalid table' }, { status: 400 })
+    }
+
+    if (ADMIN_ONLY_TABLES.has(table) && profile.role !== 'it' && profile.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden. Admin access required for this resource.' }, { status: 403 })
     }
 
     const supabase = adminClient()
@@ -60,7 +69,6 @@ export async function GET(request: NextRequest) {
       }
       let { data, error } = await query
       if (error && field !== 'id') {
-        // Fallback retry with id column directly
         const fallback = await supabase.from(table).select('data').eq('id', value).range(from, from + STEP - 1)
         if (!fallback.error) {
           data = fallback.data
@@ -70,7 +78,6 @@ export async function GET(request: NextRequest) {
       if (error) return NextResponse.json({ error: error.message }, { status: 400 })
       if (!data || data.length === 0) {
         if (field === 'id' && from === 0) {
-          // Retry matching data->>customer_id or data->>loan_account_no if native id didn't match
           const alt = await supabase.from(table).select('data')
             .or(`data->>loan_account_no.eq.${value},data->>customer_id.eq.${value},data->>id.eq.${value}`)
             .range(from, from + STEP - 1)
@@ -85,7 +92,16 @@ export async function GET(request: NextRequest) {
       from += STEP
     }
 
-    return NextResponse.json({ records: (allData || []).map((r: any) => r.data) })
+    let records = (allData || []).map((r: any) => r.data)
+
+    // Branch filtering for employees on loans
+    if (profile.role === 'employee' && profile.branch_code && profile.branch_code !== 'ALL') {
+      if (table === 'loans') {
+        records = records.filter((r: any) => canAccessBranch(profile, r.branch_code || r.branch_name))
+      }
+    }
+
+    return NextResponse.json({ records })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 })
   }
@@ -94,12 +110,11 @@ export async function GET(request: NextRequest) {
 // ─── POST: upsert one or many records ─────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
-    const auth = await createSupabaseServerClient()
-    const [{ data: { user } }, body] = await Promise.all([
-      auth.auth.getUser(),
-      request.json()
-    ])
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const auth = await requireAuthenticatedUser()
+    if ('error' in auth) return auth.error
+    const { profile } = auth
+
+    const body = await request.json()
     const { store, record, records, idField } = body
 
     if (!store || !idField) {
@@ -111,15 +126,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid table' }, { status: 400 })
     }
 
+    if (ADMIN_ONLY_TABLES.has(table) && profile.role !== 'it' && profile.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden. Admin access required to modify this resource.' }, { status: 403 })
+    }
+
     const supabase = adminClient()
 
     if (records && Array.isArray(records)) {
-      // Bulk upsert
       const payloads = records.map((r: any) => ({ id: String(r[idField]), data: r }))
       const { error } = await supabase.from(table).upsert(payloads)
       if (error) return NextResponse.json({ error: error.message }, { status: 400 })
     } else if (record) {
-      // Single upsert
       const { error } = await supabase.from(table).upsert({ id: String(record[idField]), data: record })
       if (error) return NextResponse.json({ error: error.message }, { status: 400 })
     } else {
@@ -135,9 +152,14 @@ export async function POST(request: NextRequest) {
 // ─── DELETE: remove one record ─────────────────────────────────────────────
 export async function DELETE(request: NextRequest) {
   try {
-    const auth = await createSupabaseServerClient()
-    const { data: { user } } = await auth.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const auth = await requireAuthenticatedUser()
+    if ('error' in auth) return auth.error
+    const { profile } = auth
+
+    // Only Admin or IT can delete records
+    if (profile.role !== 'it' && profile.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden. Only IT and Admin roles can delete records.' }, { status: 403 })
+    }
 
     const { searchParams } = request.nextUrl
     const store = searchParams.get('store') || ''
@@ -157,3 +179,4 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 })
   }
 }
+
