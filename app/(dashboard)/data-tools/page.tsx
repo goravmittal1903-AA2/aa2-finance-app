@@ -396,17 +396,18 @@ export default function DataToolsPage() {
               )}
             </div>
 
-            {/* Parsed Preview Box */}
+            {/* Parsed Preview Box with Dry-Run Sample Table */}
             {parsedData && (
-              <div className="mt-6 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
-                <div className="flex items-center justify-between mb-3">
+              <div className="mt-6 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4">
+                <div className="flex items-center justify-between">
                   <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
-                    <FileCheck className="w-4 h-4" /> File Preview Summary
+                    <FileCheck className="w-4 h-4" /> Pre-Import Dry-Run Summary
                   </span>
                   <span className="text-xs font-semibold px-2.5 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full">
-                    Branch: {parsedData.branchName}
+                    Detected Branch: {parsedData.branchName}
                   </span>
                 </div>
+                
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
                   <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
                     <div className="text-xs text-slate-500">Members Found</div>
@@ -417,12 +418,47 @@ export default function DataToolsPage() {
                     <div className="text-lg font-bold text-slate-900 dark:text-white">{parsedData.loans.length}</div>
                   </div>
                   <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
-                    <div className="text-xs text-slate-500">Schedules Generated</div>
-                    <div className="text-lg font-bold text-slate-900 dark:text-white">{parsedData.schedules.length}</div>
+                    <div className="text-xs text-slate-500">Total Portfolio Value</div>
+                    <div className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                      ₹{parsedData.loans.reduce((s, l) => s + (Number(l.loan_amount) || 0), 0).toLocaleString('en-IN')}
+                    </div>
                   </div>
                   <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
-                    <div className="text-xs text-slate-500">Paid Installment Txns</div>
-                    <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{parsedData.transactions.length}</div>
+                    <div className="text-xs text-slate-500">Status</div>
+                    <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">Ready to Sync</div>
+                  </div>
+                </div>
+
+                {/* Sample Rows Preview */}
+                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-400">
+                    Sample Records Preview (First 5 Rows)
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 border-b border-slate-100 dark:border-slate-800">
+                        <tr>
+                          <th className="px-3 py-2 font-medium">Loan A/C</th>
+                          <th className="px-3 py-2 font-medium">Member Name</th>
+                          <th className="px-3 py-2 font-medium">Loan Amount</th>
+                          <th className="px-3 py-2 font-medium">EMI</th>
+                          <th className="px-3 py-2 font-medium">Disb Date</th>
+                          <th className="px-3 py-2 font-medium">Meeting Day</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {parsedData.loans.slice(0, 5).map((l, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                            <td className="px-3 py-2 font-mono font-semibold text-slate-800 dark:text-slate-200">{l.loan_account_no}</td>
+                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{l.member_name_cache || l.member_name}</td>
+                            <td className="px-3 py-2 font-medium text-slate-900 dark:text-white">₹{Number(l.loan_amount || 0).toLocaleString('en-IN')}</td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">₹{Number(l.installment_amount || 0).toLocaleString('en-IN')}</td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{l.disbursement_date}</td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{l.meeting_day || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>

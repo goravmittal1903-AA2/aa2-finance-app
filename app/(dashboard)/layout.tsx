@@ -8,6 +8,7 @@ import { Header } from '@/components/layout/Header'
 import { InactivityGuard } from '@/components/auth/InactivityGuard'
 import { CommandPalette } from '@/components/CommandPalette'
 import { AICopilot } from '@/components/ai/AICopilot'
+import { MobileNav } from '@/components/layout/MobileNav'
 import { cn } from '@/lib/utils'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -48,16 +49,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <InactivityGuard>
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
-        <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
+        {/* Desktop Sidebar (hidden on mobile) */}
+        <div className="hidden md:block">
+          <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
+        </div>
         <Header collapsed={sidebarCollapsed} />
         <CommandPalette />
-        <main className={cn("pt-[60px] min-h-screen transition-all duration-200", sidebarCollapsed ? "ml-16" : "ml-60")}>
-          <div className="p-6">
+        <main className={cn(
+          "pt-[60px] pb-20 md:pb-6 min-h-screen transition-all duration-200",
+          "ml-0 md:ml-60",
+          sidebarCollapsed && "md:ml-16"
+        )}>
+          <div className="p-4 md:p-6 max-w-7xl mx-auto">
             {children}
           </div>
         </main>
+        {/* Mobile Bottom Navigation */}
+        <MobileNav />
         <AICopilot />
       </div>
     </InactivityGuard>
   )
 }
+

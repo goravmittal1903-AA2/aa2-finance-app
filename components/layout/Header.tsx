@@ -79,11 +79,18 @@ export function Header({ collapsed = false }: { collapsed?: boolean }) {
   const displayName = user?.name || user?.email?.split('@')[0] || 'User'
 
   return (
-    <header className={cn("fixed top-0 right-0 h-[60px] bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 z-20 shadow-sm transition-all duration-200", collapsed ? "left-16" : "left-60")}>
-      {/* Left Area — Logos (when collapsed) & Breadcrumbs */}
-      <div className="flex items-center gap-4">
+    <header className={cn(
+      "fixed top-0 right-0 h-[60px] bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 md:px-6 z-20 shadow-sm transition-all duration-200",
+      "left-0 md:left-60",
+      collapsed && "md:left-16"
+    )}>
+      {/* Left Area — Mobile Logo & Breadcrumbs */}
+      <div className="flex items-center gap-3 md:gap-4">
+        <Link href="/dashboard" className="flex md:hidden items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
+          <img src="/brand/aa2-microfinance.png" alt="AA2 Micro Finance" className="h-5 w-auto object-contain" />
+        </Link>
         {collapsed && (
-          <Link href="/dashboard" className="hidden sm:flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
+          <Link href="/dashboard" className="hidden sm:flex md:flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
             <img src="/brand/aa2-microfinance.png" alt="AA2 Micro Finance" className="h-5 w-auto object-contain" />
             <div className="w-px h-3.5 bg-slate-300 dark:bg-slate-600" />
             <img src="/brand/aa2-foundation.jpeg" alt="AA2 Foundation" className="h-5 w-auto object-contain rounded" />
