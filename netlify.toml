@@ -3,9 +3,12 @@
   publish = ".next"
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"
   NETLIFY_NEXT_PLUGIN_SKIP = "false"
+  SECRETS_SCAN_OMIT_KEYS = "NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY,NEXT_PUBLIC_APP_URL"
+  SECRETS_SCAN_OMIT_PATHS = ".netlify/**,next.config.ts"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+
 
