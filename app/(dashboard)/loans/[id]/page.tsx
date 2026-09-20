@@ -7,7 +7,12 @@ import { getOne, getFiltered, putOne, putMany, delOne, getAll, supabase } from '
 import { recalcLoanLedger, applyPayment, computeForeclosure, addDays, addMonthsLike, daysBetween, computeLoanEconomics, generateSchedule, classifyAndAllocatePayment, processOTSSettlement, generateUniqueLoanAccountNo, FREQ_PER_YEAR } from '@/lib/calculations'
 import type { Loan, ScheduleRow, Transaction, Customer } from '@/lib/types'
 import { inr, fdate, fdatetime, todayISO, statusColor, username } from '@/lib/utils'
-import { generateSanctionLetter, generatePaymentReceipt, generateThermalPaymentReceipt, generateForeclosureNoc, generateRepaymentSchedule, generateSOA, generateTopUpLetter, generateRestructureAgreement, generateOTSSettlementLetter } from '@/lib/document-generator'
+import {
+  generateSanctionLetter, generatePaymentReceipt, generateThermalPaymentReceipt,
+  generateForeclosureNoc, generateRepaymentSchedule, generateSOA, generateTopUpLetter,
+  generateRestructureAgreement, generateOTSSettlementLetter, generateKFS,
+  generateLoanAgreement, generatePassbook
+} from '@/lib/document-generator'
 import { logAuditEvent } from '@/lib/audit'
 import { useAuth } from '@/lib/auth-context'
 import { confirmAction } from '@/lib/confirm'
@@ -1102,7 +1107,7 @@ export default function LoanDetailPage({ params }: PageProps) {
   const tabs: { key: TabType; label: string; icon: any }[] = [
     { key: 'schedule', label: `Schedule (${schedule.length})`, icon: Calendar },
     { key: 'transactions', label: `Transactions (${transactions.length})`, icon: Receipt },
-    { key: 'soa', label: 'SOA / NOC', icon: FileText },
+    { key: 'soa', label: 'Documents & KFS', icon: FileText },
     { key: 'edit', label: 'Edit Details', icon: Edit2 },
     ...(!isClosed ? [
       { key: 'restructure' as TabType, label: 'Restructure', icon: RefreshCw },
@@ -1127,7 +1132,38 @@ export default function LoanDetailPage({ params }: PageProps) {
             <ArrowLeft className="w-4 h-4" /> Back to Loans
           </button>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => generateKFS({
+              loan_account_no: loan.loan_account_no,
+              member_name: loan.member_name_cache || loan.member_name,
+              customer_id: loan.customer_id,
+              mobile: member?.mobile || '',
+              father_husband_name: member?.father_husband_name || '',
+              address: member ? `${member.address_current || ''}, ${member.village_city || ''}` : '',
+              branch_code: loan.branch_code,
+              loan_amount: loan.loan_amount,
+              net_disbursement: loan.net_disbursement,
+              file_charge: loan.file_charge,
+              interest_rate: loan.interest_rate,
+              tenure: loan.tenure,
+              frequency: loan.frequency,
+              installment_amount: loan.installment_amount,
+              disbursement_date: loan.disbursement_date,
+              installment_start_date: loan.installment_start_date,
+              product_type: loan.product_type || 'Microfinance Loan',
+              penalty_per_day: loan.penalty_per_day,
+              fo_name: loan.fo_name || member?.fo_name,
+              bm_name: loan.bm_name || member?.bm_name,
+              district: loan.district || member?.district,
+              state: loan.state || member?.state,
+              cooling_off_days: 3,
+            })}
+            className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 text-amber-800 hover:bg-amber-100 text-xs font-bold rounded-xl transition border border-amber-300 shadow-xs"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-amber-600" /> KFS (RBI)
+          </button>
+
           <button
             onClick={() => generateSanctionLetter({
               loan_account_no: loan.loan_account_no,
@@ -1725,54 +1761,65 @@ export default function LoanDetailPage({ params }: PageProps) {
                 </div>
               )}
 
-              {/* TAB: SOA / NOC */}
+              {/* TAB: Documents & Certificates / KFS */}
               {activeTab === 'soa' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="border border-slate-100 rounded-xl p-5 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <FileText className="w-5 h-5 text-blue-500" />
-                        <h4 className="font-bold text-sm text-slate-800">Statement of Account (SOA)</h4>
+                  <div className="bg-blue-50/60 border border-blue-200/80 rounded-2xl p-4 flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-blue-950 uppercase tracking-wide">RBI Regulatory &amp; Core Banking Document Suite</h4>
+                      <p className="text-[11px] text-blue-700 mt-0.5">Generate, preview and print official 1-page Key Fact Statements, Legal Credit Agreements, Passbooks and Settlement Certificates.</p>
+                    </div>
+                    <span className="text-[10px] font-bold bg-blue-200/60 text-blue-800 px-2.5 py-1 rounded-full border border-blue-300">
+                      RBI 2024 Framework Aligned
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {/* 1. Key Fact Statement (KFS) */}
+                    <div className="border border-amber-200 bg-amber-50/40 rounded-2xl p-4 space-y-3 flex flex-col justify-between hover:shadow-sm transition">
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded uppercase">RBI Mandate</span>
+                          <ShieldCheck className="w-4 h-4 text-amber-600" />
+                        </div>
+                        <h4 className="font-bold text-xs text-slate-800">Key Fact Statement (KFS)</h4>
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          1-Page mandatory disclosure containing exact Annual Percentage Rate (APR), fee breakdowns, cooling-off terms, and grievance redressal officer details.
+                        </p>
                       </div>
-                      <p className="text-xs text-slate-500 leading-relaxed">Print or download a complete account statement showing all installments, payments made, outstanding balances, and DPD status.</p>
-                      <button onClick={handleGenerateSOA} className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-2">
-                        <Printer className="w-4 h-4" /> Generate SOA
+                      <button
+                        onClick={() => generateKFS({
+                          loan_account_no: loan.loan_account_no, member_name: loan.member_name_cache || loan.member_name,
+                          customer_id: loan.customer_id, mobile: member?.mobile || '',
+                          father_husband_name: member?.father_husband_name || '',
+                          address: member ? `${member.address_current || ''}, ${member.village_city || ''}` : '',
+                          branch_code: loan.branch_code, loan_amount: loan.loan_amount,
+                          net_disbursement: loan.net_disbursement, file_charge: loan.file_charge,
+                          interest_rate: loan.interest_rate, tenure: loan.tenure, frequency: loan.frequency,
+                          installment_amount: loan.installment_amount, disbursement_date: loan.disbursement_date,
+                          installment_start_date: loan.installment_start_date, product_type: loan.product_type || 'Microfinance Loan',
+                          penalty_per_day: loan.penalty_per_day, fo_name: loan.fo_name || member?.fo_name,
+                          bm_name: loan.bm_name || member?.bm_name, district: loan.district || member?.district,
+                          state: loan.state || member?.state, cooling_off_days: 3,
+                        })}
+                        className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5" /> Generate 1-Page KFS
                       </button>
                     </div>
 
-                    <div className="border border-slate-100 rounded-xl p-5 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <ShieldCheck className="w-5 h-5 text-emerald-500" />
-                        <h4 className="font-bold text-sm text-slate-800">No Objection Certificate (NOC)</h4>
-                      </div>
-                      <p className="text-xs text-slate-500 leading-relaxed">Generate a NOC / Loan Clearance Certificate confirming full repayment and closure of this loan account.</p>
-                      {isClosed ? (
-                        <button
-                          onClick={() => generateForeclosureNoc({
-                            certificate_no: 'NOC-' + loan.loan_account_no, issue_date: loan.close_date || todayISO(),
-                            loan_account_no: loan.loan_account_no, member_name: loan.member_name_cache || loan.member_name,
-                            customer_id: loan.customer_id, father_husband_name: member?.father_husband_name || '',
-                            address: member?.village_city || '', branch_code: loan.branch_code,
-                            loan_amount: loan.loan_amount, disbursement_date: loan.disbursement_date,
-                            close_date: loan.close_date || todayISO(), total_paid: loan.total_collected || loan.total_loan, status: loan.status
-                          })}
-                          className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-2"
-                        >
-                          <FileText className="w-4 h-4" /> Generate NOC
-                        </button>
-                      ) : (
-                        <div className="py-2.5 border border-amber-200 bg-amber-50 text-amber-700 text-xs text-center rounded-xl font-semibold">
-                          NOC available only after loan closure
+                    {/* 2. Sanction Letter */}
+                    <div className="border border-slate-200 rounded-2xl p-4 space-y-3 flex flex-col justify-between hover:shadow-sm transition bg-white">
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded uppercase">Full Agreement</span>
+                          <Printer className="w-4 h-4 text-purple-600" />
                         </div>
-                      )}
-                    </div>
-
-                    <div className="border border-slate-100 rounded-xl p-5 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <Printer className="w-5 h-5 text-purple-500" />
-                        <h4 className="font-bold text-sm text-slate-800">Sanction Letter</h4>
+                        <h4 className="font-bold text-xs text-slate-800">Sanction Letter &amp; Covenants</h4>
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          4-Page complete sanction document with Key Fact Statement, 10 legal covenants, full amortization schedule matrix, and JLG cross-guarantee.
+                        </p>
                       </div>
-                      <p className="text-xs text-slate-500 leading-relaxed">Print the original sanction letter and credit agreement document for this loan.</p>
                       <button
                         onClick={() => generateSanctionLetter({
                           loan_account_no: loan.loan_account_no, member_name: loan.member_name_cache || loan.member_name,
@@ -1785,10 +1832,128 @@ export default function LoanDetailPage({ params }: PageProps) {
                           installment_amount: loan.installment_amount, disbursement_date: loan.disbursement_date,
                           installment_start_date: loan.installment_start_date, product_type: loan.product_type
                         })}
-                        className="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-2"
+                        className="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
                       >
-                        <Printer className="w-4 h-4" /> Print Sanction Letter
+                        <Printer className="w-3.5 h-3.5" /> Print Sanction Letter
                       </button>
+                    </div>
+
+                    {/* 3. Loan Agreement & Promissory Note */}
+                    <div className="border border-slate-200 rounded-2xl p-4 space-y-3 flex flex-col justify-between hover:shadow-sm transition bg-white">
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded uppercase">Legal DPN</span>
+                          <FileText className="w-4 h-4 text-indigo-600" />
+                        </div>
+                        <h4 className="font-bold text-xs text-slate-800">Credit Agreement &amp; DPN</h4>
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          Formal Demand Promissory Note (DPN) and microfinance credit contract with borrower acknowledgement and witness signatures.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => generateLoanAgreement({
+                          loan_account_no: loan.loan_account_no, member_name: loan.member_name_cache || loan.member_name,
+                          customer_id: loan.customer_id, mobile: member?.mobile || '',
+                          father_husband_name: member?.father_husband_name || '',
+                          address: member ? `${member.address_current || ''}, ${member.village_city || ''}` : '',
+                          branch_code: loan.branch_code, loan_amount: loan.loan_amount,
+                          net_disbursement: loan.net_disbursement, interest_rate: loan.interest_rate,
+                          tenure: loan.tenure, frequency: loan.frequency, installment_amount: loan.installment_amount,
+                          disbursement_date: loan.disbursement_date, installment_start_date: loan.installment_start_date,
+                          product_type: loan.product_type || 'Microfinance Loan', fo_name: loan.fo_name, bm_name: loan.bm_name
+                        })}
+                        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
+                      >
+                        <FileText className="w-3.5 h-3.5" /> Print Agreement &amp; DPN
+                      </button>
+                    </div>
+
+                    {/* 4. Member Loan Passbook */}
+                    <div className="border border-slate-200 rounded-2xl p-4 space-y-3 flex flex-col justify-between hover:shadow-sm transition bg-white">
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded uppercase">Field Passbook</span>
+                          <Calendar className="w-4 h-4 text-teal-600" />
+                        </div>
+                        <h4 className="font-bold text-xs text-slate-800">Member Loan Passbook</h4>
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          Pocket ledger passbook sheet with collection entries, field officer initial columns, and payment recording grid.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => generatePassbook({
+                          loan_account_no: loan.loan_account_no, member_name: loan.member_name_cache || loan.member_name,
+                          customer_id: loan.customer_id, mobile: member?.mobile || '',
+                          father_husband_name: member?.father_husband_name || '',
+                          address: member ? `${member.address_current || ''}, ${member.village_city || ''}` : '',
+                          branch_code: loan.branch_code, loan_amount: loan.loan_amount,
+                          installment_amount: loan.installment_amount, tenure: loan.tenure,
+                          frequency: loan.frequency, disbursement_date: loan.disbursement_date,
+                          ledger_balance: loan.ledger_balance, total_collected: loan.total_collected || 0,
+                          fo_name: loan.fo_name,
+                          schedule: schedule.map(s => ({
+                            installment_no: s.installment_no, due_date: s.due_date, emi_due: s.emi_due,
+                            principal_due: s.principal_due, interest_due: s.interest_due, paid_amount: s.paid_amount,
+                            paid_date: s.paid_amount > 0 ? (s.due_date || todayISO()) : null, status: s.status, closing_balance: s.closing_balance
+                          }))
+                        })}
+                        className="w-full py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
+                      >
+                        <Calendar className="w-3.5 h-3.5" /> Print Member Passbook
+                      </button>
+                    </div>
+
+                    {/* 5. Statement of Account (SOA) */}
+                    <div className="border border-slate-200 rounded-2xl p-4 space-y-3 flex flex-col justify-between hover:shadow-sm transition bg-white">
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded uppercase">Full Statement</span>
+                          <FileText className="w-4 h-4 text-blue-600" />
+                        </div>
+                        <h4 className="font-bold text-xs text-slate-800">Statement of Account (SOA)</h4>
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          Complete account statement showing all installments, collection transaction logs, advance wallets, and DPD delinquency records.
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleGenerateSOA}
+                        className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
+                      >
+                        <Printer className="w-3.5 h-3.5" /> Generate SOA
+                      </button>
+                    </div>
+
+                    {/* 6. No Objection Certificate (NOC) */}
+                    <div className="border border-slate-200 rounded-2xl p-4 space-y-3 flex flex-col justify-between hover:shadow-sm transition bg-white">
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded uppercase">Closure Certificate</span>
+                          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                        </div>
+                        <h4 className="font-bold text-xs text-slate-800">No Objection Certificate (NOC)</h4>
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          Official Loan Clearance Certificate confirming zero liability and releasing all securities upon full account payoff.
+                        </p>
+                      </div>
+                      {isClosed ? (
+                        <button
+                          onClick={() => generateForeclosureNoc({
+                            certificate_no: 'NOC-' + loan.loan_account_no, issue_date: loan.close_date || todayISO(),
+                            loan_account_no: loan.loan_account_no, member_name: loan.member_name_cache || loan.member_name,
+                            customer_id: loan.customer_id, father_husband_name: member?.father_husband_name || '',
+                            address: member?.village_city || '', branch_code: loan.branch_code,
+                            loan_amount: loan.loan_amount, disbursement_date: loan.disbursement_date,
+                            close_date: loan.close_date || todayISO(), total_paid: loan.total_collected || loan.total_loan, status: loan.status
+                          })}
+                          className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" /> Generate NOC
+                        </button>
+                      ) : (
+                        <div className="py-2.5 border border-slate-200 bg-slate-50 text-slate-500 text-xs text-center rounded-xl font-medium">
+                          NOC available upon loan closure
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

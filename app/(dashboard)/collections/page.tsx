@@ -624,9 +624,25 @@ export default function CollectionsPage() {
   return (
     <div className="space-y-6 pb-12">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Collections Hub</h1>
-        <p className="text-slate-500 text-xs mt-0.5">Daily collection worksheet, overdue & arrears recovery, individual receipts, CSV bulk upload, and field officer printouts.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Collections Hub</h1>
+          <p className="text-slate-500 text-xs mt-0.5">Daily collection worksheet, overdue & arrears recovery, individual receipts, CSV bulk upload, and field officer printouts.</p>
+        </div>
+        {(() => {
+          const currentHour = new Date().getHours()
+          const isFpcWindow = currentHour >= 8 && currentHour < 19
+          return (
+            <div className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-2 ${
+              isFpcWindow
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400'
+                : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400'
+            }`}>
+              <div className={`w-2 h-2 rounded-full ${isFpcWindow ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+              <span>RBI FPC Collection Window: 08:00 AM – 07:00 PM {!isFpcWindow && '(Outside Hours)'}</span>
+            </div>
+          )
+        })()}
       </div>
 
       {/* Live Collection Target & Efficiency Dashboard */}

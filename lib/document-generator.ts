@@ -37,6 +37,32 @@ export interface SanctionLetterData {
   }[]
 }
 
+export interface KFSData {
+  loan_account_no: string
+  member_name: string
+  customer_id: string
+  mobile?: string
+  father_husband_name?: string
+  address?: string
+  branch_code: string
+  loan_amount: number
+  net_disbursement: number
+  file_charge: number
+  interest_rate: number
+  tenure: number
+  frequency: string
+  installment_amount: number
+  disbursement_date: string
+  installment_start_date: string
+  product_type: string
+  penalty_per_day?: number
+  district?: string
+  state?: string
+  fo_name?: string
+  bm_name?: string
+  cooling_off_days?: number
+}
+
 export interface PaymentReceiptData {
   receipt_no: string
   txn_date: string
@@ -1452,3 +1478,174 @@ export function generateLoanAgreement(data: LoanAgreementData) {
   `
   printDocument(`Loan_Agreement_${data.loan_account_no}`, body)
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 11. KEY FACT STATEMENT (KFS) — RBI COMPLIANT STANDALONE 1-PAGE DOCUMENT
+// ═══════════════════════════════════════════════════════════════════════════════
+export function generateKFS(data: KFSData) {
+  const headerHtml = `
+    <div class="header-banner">
+      <div class="logo-container">
+        <img src="/brand/aa2-microfinance.png" alt="AA2 Microfinance" class="brand-logo-img" onerror="this.style.display='none'" />
+        <img src="/brand/aa2-foundation.jpeg" alt="AA2 Foundation" class="brand-logo-img" style="height:44px;" onerror="this.style.display='none'" />
+      </div>
+      <h1 class="header-brand-title">AA2 MICROFINANCE PRIVATE LIMITED</h1>
+      <p class="header-brand-sub">Gorav MF Solution • Registered Microfinance Institution (MFI)</p>
+      <div class="header-reg-badge">CIN: U64990UP2023PTC184704 &nbsp;|&nbsp; PAN: AAYCA9551F &nbsp;|&nbsp; TAN: MRTA20479E</div>
+
+      <div class="header-address-strip">
+        <div><strong>Regd Office:</strong> Opp. Punjab & Sindh Bank, Dehradun Rd, Gagalheri, Saharanpur, UP 247669</div>
+        <div><strong>Corp Office:</strong> Shanti Kunj Dehradun Rd, Gagalheri, Saharanpur, UP 247669</div>
+        <div><strong>Tel:</strong> +91-9761585314 &nbsp;|&nbsp; <strong>Email:</strong> info@aa2finance.com</div>
+        <div><strong>Web:</strong> www.aa2microfinance.com &nbsp;|&nbsp; aa2mutualhelpfoundation.com</div>
+      </div>
+    </div>
+  `
+
+  const totalInterest = Math.max(0, (data.installment_amount * data.tenure) - data.loan_amount)
+  const totalRepayable = data.installment_amount * data.tenure
+  const totalCostOfCredit = totalInterest + data.file_charge
+  const periodsPerYear = data.frequency === 'Weekly' ? 52 : data.frequency === 'Bi-Monthly' ? 24 : data.frequency === 'Quarterly' ? 4 : 12
+  const tenureInYears = data.tenure / periodsPerYear
+
+  // Newton-Raphson exact APR computation
+  const p0 = data.net_disbursement > 0 ? data.net_disbursement : Math.max(1, data.loan_amount - data.file_charge)
+  const emi = data.installment_amount
+  const n = data.tenure
+  let r = (emi * n - p0) / (p0 * n)
+  if (r <= 0) r = 0.001
+  for (let iter = 0; iter < 40; iter++) {
+    let f = -p0
+    let df = 0
+    for (let t = 1; t <= n; t++) {
+      const denom = Math.pow(1 + r, t)
+      f += emi / denom
+      df -= (t * emi) / (denom * (1 + r))
+    }
+    if (Math.abs(f) < 1e-7 || Math.abs(df) < 1e-12) break
+    const rNext = r - f / df
+    if (rNext <= -0.99 || isNaN(rNext)) break
+    r = rNext
+  }
+  const exactApr = (r * periodsPerYear * 100).toFixed(2)
+
+  const body = `
+    <div class="page" style="min-height: auto; padding-bottom: 20px;">
+      ${headerHtml}
+      <div class="doc-title" style="margin-bottom: 6px;">KEY FACT STATEMENT (KFS) FOR LOANS &amp; ADVANCES</div>
+      <div style="text-align: center; font-size: 8px; color: #475569; margin-bottom: 8px; font-weight: 600;">
+        (Mandatory Disclosure under Reserve Bank of India Key Facts Statement Directions, 2024)
+      </div>
+
+      <div class="ref-bar" style="margin-bottom: 8px; padding: 4px 10px;">
+        <div><strong>KFS Ref No:</strong> <span style="font-family:monospace; font-weight:700; color:#1e40af;">AA2/KFS/${data.loan_account_no}</span></div>
+        <div><strong>Sanction Date:</strong> <span style="font-weight:700; color:#0f172a;">${FDATE(data.disbursement_date)}</span></div>
+        <div><strong>Branch:</strong> <span style="font-weight:700;">${data.branch_code}</span></div>
+      </div>
+
+      <div class="grid" style="margin-bottom: 8px; gap: 8px;">
+        <div class="box" style="padding: 5px 8px;">
+          <div class="box-title">1. Borrower Identification</div>
+          <div class="row"><span class="label">Borrower Name:</span> <span class="value">${data.member_name}</span></div>
+          <div class="row"><span class="label">Customer ID:</span> <span class="value font-mono">${data.customer_id}</span></div>
+          <div class="row"><span class="label">Father / Husband:</span> <span class="value">${data.father_husband_name || '—'}</span></div>
+          <div class="row"><span class="label">Mobile &amp; Location:</span> <span class="value">${data.mobile || '—'}, ${data.district || 'Saharanpur'}</span></div>
+        </div>
+        <div class="box" style="padding: 5px 8px;">
+          <div class="box-title">2. Loan Product Particulars</div>
+          <div class="row"><span class="label">Loan Account No:</span> <span class="value font-mono font-bold text-blue">${data.loan_account_no}</span></div>
+          <div class="row"><span class="label">Scheme / Category:</span> <span class="value">${data.product_type}</span></div>
+          <div class="row"><span class="label">Field Officer (FO):</span> <span class="value">${data.fo_name || 'Staff'}</span></div>
+          <div class="row"><span class="label">Branch Manager:</span> <span class="value">${data.bm_name || 'Branch Manager'}</span></div>
+        </div>
+      </div>
+
+      <div class="section-title" style="margin: 6px 0 3px 0;">PART A: KEY FINANCIAL PARAMETERS &amp; APR DISCLOSURE</div>
+      <table style="margin: 4px 0 6px 0; font-size: 8.5px;">
+        <thead>
+          <tr>
+            <th style="width: 50%; text-align: left; padding-left: 8px;">Parameter Description</th>
+            <th style="width: 50%; text-align: right; padding-right: 8px;">Sanction Value / Terms</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="left">1. Sanctioned Principal Loan Amount</td><td class="right font-bold">${INR(data.loan_amount)}</td></tr>
+          <tr><td class="left">2. Upfront Processing Fee (Inclusive of applicable Taxes/GST)</td><td class="right font-mono">${INR(data.file_charge)} (Non-Refundable)</td></tr>
+          <tr><td class="left">3. Insurance &amp; Third-Party Verification Charges</td><td class="right">₹0 (NIL)</td></tr>
+          <tr style="background: #f0fdf4;"><td class="left" style="font-weight: 700; color: #166534;">4. Net Disbursed Amount (Principal Less Upfront Fees)</td><td class="right font-bold text-emerald" style="font-size: 10px; color: #15803d;">${INR(data.net_disbursement)}</td></tr>
+          <tr><td class="left">5. Nominal Interest Rate (% p.a. Flat)</td><td class="right font-bold">${data.interest_rate}% p.a.</td></tr>
+          <tr><td class="left">6. Total Interest Chargeable Over Loan Tenure</td><td class="right font-mono">${INR(totalInterest)}</td></tr>
+          <tr><td class="left">7. Total Cost of Credit (Total Interest + Processing Charges)</td><td class="right font-bold text-slate-800">${INR(totalCostOfCredit)}</td></tr>
+          <tr style="background: #eff6ff;"><td class="left" style="font-weight: 700; color: #1e40af;">8. Total Repayable Amount by Borrower (EMI × Tenure)</td><td class="right font-bold" style="font-size: 10px; color: #1d4ed8;">${INR(totalRepayable)}</td></tr>
+          <tr><td class="left">9. Loan Tenure &amp; Installment Frequency</td><td class="right font-semibold">${data.tenure} ${data.frequency} Installments</td></tr>
+          <tr><td class="left">10. Equated Periodic Installment Amount (EMI)</td><td class="right font-bold" style="color: #0f172a;">${INR(data.installment_amount)} per ${data.frequency.toLowerCase()}</td></tr>
+          <tr><td class="left">11. First Installment Due Date</td><td class="right font-mono">${FDATE(data.installment_start_date)}</td></tr>
+          <tr style="background: #fefce8; border: 1.5px solid #eab308;">
+            <td class="left" style="font-weight: 900; color: #854d0e; font-size: 9.5px;">
+              12. ANNUAL PERCENTAGE RATE (APR) — All-Inclusive Cost of Credit
+            </td>
+            <td class="right" style="font-weight: 900; color: #854d0e; font-size: 11px;">
+              ${exactApr}% p.a.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="grid" style="gap: 8px; margin-bottom: 6px;">
+        <div class="box" style="padding: 5px 8px;">
+          <div class="box-title">PART B: Schedule of Penal &amp; Other Charges</div>
+          <div class="row"><span class="label">Late Payment Penal Charge:</span> <span class="value">${INR(data.penalty_per_day || 10)} / day on overdue EMI</span></div>
+          <div class="row"><span class="label">Prepayment / Foreclosure Fee:</span> <span class="value" style="color:#166534;">₹0 (NIL as per RBI Directives)</span></div>
+          <div class="row"><span class="label">NACH / Cheque Bounce Fee:</span> <span class="value">₹250 per return event</span></div>
+          <div class="row"><span class="label">Statement / Duplicate KFS:</span> <span class="value">₹0 (Free upon request)</span></div>
+        </div>
+        <div class="box" style="padding: 5px 8px; background: #faf5ff; border-color: #e9d5ff;">
+          <div class="box-title" style="color: #6b21a8;">PART C: Borrower Protections &amp; Rights</div>
+          <div class="row"><span class="label">Cooling-Off / Look-Up Period:</span> <span class="value font-bold" style="color: #6b21a8;">${data.cooling_off_days || 3} Business Days</span></div>
+          <p class="clause-text" style="margin: 2px 0 0 0; font-size: 7.8px; color: #581c87;">
+            During the cooling-off period, borrower may exit the loan without prepayment penalty by paying principal plus proportionate interest.
+          </p>
+        </div>
+      </div>
+
+      <div class="box" style="background:#f0fdf4; border-color:#bbf7d0; padding: 5px 8px; margin-bottom: 6px;">
+        <div class="box-title" style="color:#166534; margin-bottom: 2px;">PART D: Grievance Redressal Mechanism &amp; Nodal Officer</div>
+        <p class="clause-text" style="margin:0; color:#15803d; font-size: 8px; line-height: 1.35;">
+          <strong>Grievance Officer:</strong> Shri Gorav Mittal, AA2 Microfinance Pvt Ltd, Shanti Kunj Dehradun Rd, Gagalheri, Saharanpur, UP 247669. <strong>Tel:</strong> +91-9761585314 | <strong>Email:</strong> info@aa2finance.com.<br>
+          If complaint is unresolved within 30 days, escalate to RBI Ombudsman at <strong>https://cms.rbi.org.in</strong> (Toll-free: 14448).
+        </p>
+      </div>
+
+      <div class="box" style="background:#fff7ed; border-color:#fed7aa; padding: 5px 8px; margin-bottom: 10px;">
+        <div class="box-title" style="color:#c2410c; margin-bottom: 2px;">PART E: Borrower Vernacular Acknowledgment / ग्राहक स्वीकृति घोषणा</div>
+        <p class="clause-text" style="margin:0; color:#9a3412; font-size: 8px; line-height: 1.35;">
+          I hereby confirm that I have received, read and understood this Key Fact Statement. The Annual Percentage Rate (APR), repayment schedule, and all applicable charges have been explained to me in Hindi/local language.
+          <br>
+          मैं प्रमाणित करता/करती हूँ कि मुझे यह Key Fact Statement (KFS) प्राप्त हुआ है और ऋण की सभी शर्तें, APR एवं किस्त राशि मुझे हिंदी में समझा दी गई हैं।
+        </p>
+      </div>
+
+      <div class="signatures" style="margin-top: 14px; padding-top: 6px;">
+        <div class="sig-box" style="font-size: 8px;">
+          Borrower Signature / Thumb<br>
+          <strong>(${data.member_name})</strong>
+        </div>
+        <div class="sig-box" style="font-size: 8px;">
+          Field Officer (FO) Signature<br>
+          <strong>(${data.fo_name || 'Staff'})</strong>
+        </div>
+        <div class="sig-box" style="font-size: 8px;">
+          Authorized Signatory<br>
+          <strong>(AA2 Microfinance Pvt. Ltd.)</strong>
+        </div>
+      </div>
+
+      <div class="footer" style="padding-top: 2px; font-size: 7px;">
+        AA2 Microfinance Private Limited • CIN: U64990UP2023PTC184704 • Key Fact Statement (KFS) generated under RBI Regulatory Framework • 1-Page Summary
+      </div>
+    </div>
+  `
+
+  printDocument(`KFS_${data.loan_account_no}`, body)
+}
+

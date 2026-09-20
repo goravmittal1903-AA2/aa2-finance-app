@@ -54,6 +54,11 @@ export interface Loan {
   close_date: string | null
   closure_type: string | null
   closure_amount: number | null
+  principal_waived?: number
+  interest_waived?: number
+  penal_waived?: number
+  ots_approved_by?: string
+  ots_approved_date?: string
   case_id: string
   branch_code: string
   fo_name: string

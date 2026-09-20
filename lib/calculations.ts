@@ -99,6 +99,59 @@ export function computeLoanEconomics({
   }
 }
 
+/**
+ * Calculates the exact Annual Percentage Rate (APR) based on internal rate of return (IRR)
+ * as mandated by RBI Key Fact Statement (KFS) Directions 2024.
+ */
+export function computeExactAPR({
+  loan_amount,
+  net_disbursement,
+  installment_amount,
+  tenure,
+  frequency,
+  file_charge = 0,
+  insurance_fee = 0,
+}: {
+  loan_amount: number
+  net_disbursement?: number
+  installment_amount: number
+  tenure: number
+  frequency: string
+  file_charge?: number
+  insurance_fee?: number
+}): number {
+  const p0 = net_disbursement && net_disbursement > 0
+    ? net_disbursement
+    : Math.max(1, loan_amount - (file_charge || 0) - (insurance_fee || 0))
+  const emi = Number(installment_amount) || 0
+  const n = Math.max(1, Number(tenure) || 1)
+  const periodsPerYear = FREQ_PER_YEAR[frequency] || 12
+
+  if (p0 <= 0 || emi <= 0) return 0
+
+  // Newton-Raphson method to find periodic IRR rate r
+  // f(r) = sum_{t=1}^n [ emi / (1+r)^t ] - p0 = 0
+  let r = (emi * n - p0) / (p0 * n) // initial guess
+  if (r <= 0) r = 0.001
+
+  for (let iter = 0; iter < 40; iter++) {
+    let f = -p0
+    let df = 0
+    for (let t = 1; t <= n; t++) {
+      const denom = Math.pow(1 + r, t)
+      f += emi / denom
+      df -= (t * emi) / (denom * (1 + r))
+    }
+    if (Math.abs(f) < 1e-7 || Math.abs(df) < 1e-12) break
+    const rNext = r - f / df
+    if (rNext <= -0.99 || isNaN(rNext)) break
+    r = rNext
+  }
+
+  const apr = Math.max(0, r * periodsPerYear * 100)
+  return Number(apr.toFixed(2))
+}
+
 export function generateSchedule(loan: any): ScheduleRow[] {
   const rows: ScheduleRow[] = []
   const stepDays = FREQ_DAYS[loan.frequency] || 7
@@ -971,11 +1024,20 @@ export async function processOTSSettlement(
 
   await putOne('transactions', newTxn, 'txn_id')
 
-  // Mark loan as closed under OTS
+  // Calculate principal waived if settlement amount is less than principal remaining
+  const principalRemaining = Math.max(0, (loan.total_loan || 0) - (loan.total_interest || 0) - (loan.total_collected || 0))
+  const principalWaived = Math.max(0, principalRemaining - Number(settlement_amount))
+
+  // Mark loan as closed under OTS with explicit accounting breakdown
   loan.status = 'CLOSE'
   loan.close_date = settlement_date
   loan.closure_type = 'OTS_SETTLEMENT'
   loan.closure_amount = Number(settlement_amount)
+  loan.principal_waived = Math.round(principalWaived)
+  loan.interest_waived = Number(interest_waived) || 0
+  loan.penal_waived = Number(penal_waived) || 0
+  loan.ots_approved_by = approved_by
+  loan.ots_approved_date = settlement_date
   loan.ledger_balance = 0
   loan.dpd = 0
   loan.dpd_bucket = '0 DPD (Current)'
