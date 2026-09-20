@@ -10,6 +10,7 @@ import {
 } from '@/lib/calculations'
 import type { Customer, Loan, ScheduleRow, Transaction } from '@/lib/types'
 import { inr, todayISO, fdate } from '@/lib/utils'
+import { generateKFS } from '@/lib/document-generator'
 import {
   ArrowLeft, ArrowRight, Save, Search, Check, AlertTriangle,
   UserCheck, ShieldCheck, Landmark, DollarSign, Calendar, Calculator, CheckCircle2
@@ -1050,7 +1051,41 @@ function NewLoanWizard() {
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {currentStep === 5 && selectedMember && (
+              <button
+                type="button"
+                onClick={() => generateKFS({
+                  loan_account_no: 'DRAFT-SANCTION',
+                  member_name: selectedMember.full_name,
+                  customer_id: selectedMember.customer_id,
+                  mobile: selectedMember.mobile || '',
+                  father_husband_name: selectedMember.father_husband_name || '',
+                  address: `${selectedMember.address_current || ''}, ${selectedMember.village_city || ''}`,
+                  branch_code: formData.branch_code || selectedMember.branch_code || 'Head Office',
+                  loan_amount: Number(formData.loan_amount),
+                  net_disbursement: economics.netPayout,
+                  file_charge: economics.file_charge,
+                  interest_rate: Number(formData.interest_rate),
+                  tenure: Number(formData.tenure),
+                  frequency: formData.frequency,
+                  installment_amount: economics.installment_amount,
+                  disbursement_date: formData.disbursement_date,
+                  installment_start_date: formData.installment_start_date,
+                  product_type: formData.product_type,
+                  penalty_per_day: Number(formData.penalty_per_day) || 0,
+                  fo_name: formData.fo_name || selectedMember.fo_name,
+                  bm_name: formData.bm_name || selectedMember.bm_name,
+                  district: selectedMember.district,
+                  state: selectedMember.state,
+                  cooling_off_days: 3,
+                })}
+                className="flex items-center gap-1.5 px-4 py-2 bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-300 font-bold rounded-xl text-xs transition"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-600" /> Preview KFS
+              </button>
+            )}
+
             {currentStep < 5 ? (
               <button
                 type="button"
